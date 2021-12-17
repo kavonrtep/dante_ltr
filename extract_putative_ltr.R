@@ -4,22 +4,47 @@ initial_options <- commandArgs(trailingOnly = FALSE)
 file_arg_name <- "--file="
 script_name <- normalizePath(sub(file_arg_name, "", initial_options[grep(file_arg_name, initial_options)]))
 script_dir <- dirname(script_name)
+library(optparse)
+
+
+parser = OptionParser()
+option_list = list(
+  make_option(c("-g", "--gff3"), action = "store", type = "character",
+              help = "gff3 with dante results", default = NULL),
+  make_option(c("-s", "--reference_sequence"), action = "store", type = "character",
+              help = "reference sequence as fasta", default = NULL),
+  make_option(c("-o", "--output"), action = "store", type = "character",
+              help = "output gff3 file name", default = NULL),
+  make_option(c("-c", "--cpu"), type = "integer", default = 5,
+              help = "Number of cpu to use [default %default]", metavar = "number")
+
+)
+
+description = paste(strwrap(""))
+
+epilogue = ""
+parser = OptionParser(option_list = option_list, epilogue = epilogue, description = description,
+                      usage = "usage: %prog COMMAND [OPTIONS]")
+opt = parse_args(parser, args = commandArgs(TRUE))
+
 
 # load packages
 suppressPackageStartupMessages({
   library(rtracklayer)
   library(Biostrings)
   library(BSgenome)
+  library(parallel)
 })
+
 cat("reading gff...")
-g <- rtracklayer::import(commandArgs(T)[1])  # DANTE gff3
+g <- rtracklayer::import(opt$gff3)  # DANTE gff3
 cat("done\n")
 
 cat("reading fasta...")
-s <- readDNAStringSet(commandArgs(T)[2])  # genome assembly
+s <- readDNAStringSet(opt$reference_sequence)  # genome assembly
 cat("done\n")
 lineage_info <- read.table(paste0(script_dir, "/lineage_domain_order.csv"), sep = "\t", header = TRUE, as.is = TRUE)
-outfile <- commandArgs(T)[3]
+outfile <- opt$output
 
 
 # for testing
@@ -46,10 +71,24 @@ lineage_domain <- lineage_info$Domains.order
 names(lineage_domain) <- gsub("ss/I", "ss_I", gsub("_", "/", gsub("/", "|", lineage_info$Lineage)))
 
 # functions
+get_coordinates_of_closest_neighbor <- function(gff) {
+  gff <- gff[order(seqnames(gff), start(gff))]
+  # split to chromosomes:
+  gff_parts <- split(gff, seqnames(gff))
+  upstreams <- sapply(gff_parts, function(x) c(1, head(end(x), -1)))
+  downstreams <- sapply(gff_parts, function(x) c(start(x)[-1], Inf))
+  gff_updated <- unlist(gff_parts)
+  gff_updated$upstream_domain <- unlist(upstreams)
+  gff_updated$downstream_domain <- unlist(downstreams)
+  names(gff_updated) <- NULL
+  return(gff_updated)
+}
+
 get_domain_clusters <- function(gff) {
   # get consecutive domains from same linage
   # must be sorted!
-  gff <- gff[order(seqnames(gff), start(gff))]
+  # TODO - sorting at this point is not probably necessary - remove and test
+  # gff <- gff[order(seqnames(gff), start(gff))]
   # split before GAG (+) or after (- strand)
   gag_plus <- as.numeric(cumsum(gff$Name == "GAG" & strand(gff) == '+'))
   gag_minus <- rev(as.numeric(cumsum(rev(gff$Name == "GAG" & strand(gff) == '-'))))
@@ -96,42 +135,18 @@ get_ranges <- function(gx, offset = 20000) {
 
 get_ranges_left <- function(gx, offset = 20000, offset2 = 300) {
   S <- sapply(gx, function(x)min(x$start))
-  gr <- GRanges(seqnames = sapply(gx, function(x)x$seqnames[1]), IRanges(start = S - offset, end = S + offset2))
+  max_offset <- S - sapply(gx, function(x)min(x$upstream_domain))
+  offset_adjusted <- ifelse(max_offset < offset, max_offset, offset)
+  gr <- GRanges(seqnames = sapply(gx, function(x)x$seqnames[1]), IRanges(start = S - offset_adjusted, end = S + offset2))
   return(gr)
 }
 
 get_ranges_right <- function(gx, offset = 20000, offset2 = 300) {
   E <- sapply(gx, function(x)max(x$end))
-  gr <- GRanges(seqnames = sapply(gx, function(x)x$seqnames[1]), IRanges(start = E - offset2, end = E + offset))
+  max_offset <- sapply(gx, function(x)max(x$downstream_domain)) - E
+  offset_adjusted <- ifelse(max_offset < offset, max_offset, offset)
+  gr <- GRanges(seqnames = sapply(gx, function(x)x$seqnames[1]), IRanges(start = E - offset2, end = E + offset_adjusted))
   return(gr)
-}
-
-run_ltr_finder <- function(dna_sequence, ltr_finder_path = NULL, temp_dir = NULL) {
-  trna_path <- "/mnt/raid/users/petr/workspace/ltr_finder_test/tRNAscan-SE_ALL_spliced-no_plus-old-tRNAs_UC_unique-3ends.fasta"
-  if (is.null(temp_dir)) {
-    temp_dir <- tempdir()
-  }
-  if (is.null(ltr_finder_path)) {
-    ltr_finder_path <- 'ltr_finder'
-    ltr_finder_path <- '/mnt/raid/bin/ltr_finder'
-  }
-  temp_file_fasta <- paste0(temp_dir, "/", names(dna_sequence)[1], ".fasta")
-  temp_file_ltr <- paste0(temp_dir, "/", names(dna_sequence)[1], ".txt")
-  writeXStringSet(dna_sequence, filepath = temp_file_fasta)
-  cmd <- paste(ltr_finder_path, "-s ", trna_path,
-               "-L 6000 -S 3.00 -r 10 -F 0000000000000 -M 0.75 -w 2",
-               temp_file_fasta, ">", temp_file_ltr
-  )
-  system(cmd, timeout = 20,)
-  cat(readLines(temp_file_ltr))
-  Nlines <- grep("Total consume", readLines(temp_file_ltr)) - 9
-  if (length(Nlines) == 0) {
-    ## ltr finder time out
-    ltr_info <- NULL
-  }else {
-    ltr_info <- read.table(temp_file_ltr, skip = 6, header = TRUE, fill = TRUE, sep = "\t", nrows = Nlines, as.is = TRUE)
-  }
-  return(ltr_info)
 }
 
 firstTG <- function(ss) {
@@ -196,11 +211,6 @@ blast <- function(s1, s2) {
                '  -out', tmp_out)
 
   system(cmd)
-
-  cmd <- paste("blastn -gapopen 4 -gapextend 4 -task blastn -xdrop_gap 20 -xdrop_gap_final 50 -query ", tmp1, ' -subject ', tmp2, ' -strand plus ',
-               '-outfmt "6 qaccver saccver pident length mismatch gapopen qstart qend sstart send evalue bitscore qseq sseq"',
-               '  -out', tmp_out)
-
   out_raw <- read.table(tmp_out, as.is = TRUE, sep = "\t",
                         col.names = strsplit("qaccver saccver pident length mismatch gapopen qstart qend sstart send evalue bitscore qseq sseq", split = ' ')[[1]])
 
@@ -281,18 +291,6 @@ get_best_ltr <- function(x) {
   }
 }
 
-
-# get_best_ltr <- function(x) {
-#   ## remove the short TSD, remove TE which are twoo long 30k+
-#   x <- x[sapply(x, function(k)k$TSD_Length > 3 & k$TE_Length < 30000)]
-#   if (length(x) == 1) {
-#     return(x[1])
-#   }else {
-#     return(x)
-#   }
-#}
-
-
 get_te_gff3 <- function(g, ID) {
   D <- makeGRangesFromDataFrame(g$domain, keep.extra.columns = TRUE)
   sn <- seqnames(D)[1]
@@ -365,13 +363,18 @@ get_TE <- function(Lseq, Rseq, domains_gff, GR, GRL, GRR) {
 }
 
 
-# MAIN
+# MAIN #############################################################
+# sort and add upstrean and downstream
+g <- get_coordinates_of_closest_neighbor(g)
 gcl <- get_domain_clusters(g)
 
 gcl_clean <- clean_domain_clusters(gcl)
-
+# glc annotation
 lineage <- sapply(gcl_clean, function(x)  x$Final_Classification[1])
-domains <- sapply(gcl_clean, function(x) ifelse(x$strand[1] == "-", paste(rev(x$Name), collapse = " "), paste(x$Name, collapse = " ")))
+domains <- sapply(gcl_clean, function(x) ifelse(x$strand[1] == "-",
+                                                paste(rev(x$Name), collapse = " "),
+                                                paste(x$Name, collapse = " "))
+)
 # get lineages which has correct number and order of domains
 gcl_clean2 <- gcl_clean[domains == lineage_domain[lineage]]
 gcl_clean_with_domains <- gcl_clean2[check_ranges(gcl_clean2, s)]
@@ -418,7 +421,7 @@ TE <- mclapply(seq_along(gr), function(x)get_TE(s_left[x],
                                                 gr[x],
                                                 grL[x],
                                                 grR[x]),
-               mc.set.seed = TRUE, mc.cores = 40, mc.preschedule = FALSE
+               mc.set.seed = TRUE, mc.cores = opt$cpu, mc.preschedule = FALSE
 )
 good_TE <- TE[!sapply(TE, is.null)]
 print(length(good_TE))
@@ -430,7 +433,7 @@ print(length(good_TE))
 
 
 ID <- paste0('TE_', sprintf("%08d", seq(good_TE)))
-gff3_list <- mcmapply(get_te_gff3, g = good_TE, ID = ID, mc.cores = 10)
+gff3_list <- mcmapply(get_te_gff3, g = good_TE, ID = ID, mc.cores = opt$cpu)
 gff3_out <- do.call(c, gff3_list)
 
 print(table(gff3_out$type))
