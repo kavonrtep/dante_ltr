@@ -20,6 +20,9 @@ option_list = list(
 
 )
 
+## params
+OFFSET = 15000
+
 description = paste(strwrap(""))
 
 epilogue = ""
@@ -55,6 +58,9 @@ if (FALSE) {
 
   g <- rtracklayer::import("/mnt/raid/users/petr/workspace/ltr_finder_test/test_data/DANTE_filtered_part.gff3")
   s <- readDNAStringSet("/mnt/raid/users/petr/workspace/ltr_finder_test/test_data/Rbp_part.fa")
+
+  g <- rtracklayer::import("/mnt/raid/users/petr/workspace/dante_ltr/test_data/DANTE_Vfaba_chr5.gff3")
+  s <- readDNAStringSet("/mnt/ceph/454_data/Vicia_faba_assembly/assembly/ver_210910/fasta_parts/211010_Vfaba_chr5.fasta")
   lineage_info <- read.table("/mnt/raid/users/petr/workspace/ltr_finder_test/lineage_domain_order.csv", sep = "\t", header = TRUE, as.is = TRUE)
   outfile <- "/mnt/raid/users/petr/workspace/ltr_finder_test/te_with_domains_2.gff3"
 
@@ -75,8 +81,8 @@ get_coordinates_of_closest_neighbor <- function(gff) {
   gff <- gff[order(seqnames(gff), start(gff))]
   # split to chromosomes:
   gff_parts <- split(gff, seqnames(gff))
-  upstreams <- sapply(gff_parts, function(x) c(1, head(end(x), -1)))
-  downstreams <- sapply(gff_parts, function(x) c(start(x)[-1], Inf))
+  upstreams <- c(sapply(gff_parts, function(x) c(1, head(end(x), -1))))
+  downstreams <- c(sapply(gff_parts, function(x) c(start(x)[-1], seqlengths(x)[runValue(seqnames(x[1]))])))
   gff_updated <- unlist(gff_parts)
   gff_updated$upstream_domain <- unlist(upstreams)
   gff_updated$downstream_domain <- unlist(downstreams)
@@ -119,7 +125,8 @@ clean_domain_clusters <- function(gcl) {
   return(gcl[cond1])
 }
 
-check_ranges <- function(gx, s, offset = 20000) {
+
+check_ranges <- function(gx, s, offset = OFFSET) {
   START <- sapply(gx, function(x)min(x$start)) - offset
   END <- sapply(gx, function(x)max(x$end)) + offset
   MAX <- seqlengths(s)[sapply(gx, function(x)as.character(x$seqnames[1]))]
@@ -127,13 +134,13 @@ check_ranges <- function(gx, s, offset = 20000) {
   return(good_ranges)
 }
 
-get_ranges <- function(gx, offset = 20000) {
+get_ranges <- function(gx, offset = OFFSET) {
   S <- sapply(gx, function(x)min(x$start))
   E <- sapply(gx, function(x)max(x$end))
   gr <- GRanges(seqnames = sapply(gx, function(x)x$seqnames[1]), IRanges(start = S - offset, end = E + offset))
 }
 
-get_ranges_left <- function(gx, offset = 20000, offset2 = 300) {
+get_ranges_left <- function(gx, offset = OFFSET, offset2 = 300) {
   S <- sapply(gx, function(x)min(x$start))
   max_offset <- S - sapply(gx, function(x)min(x$upstream_domain))
   offset_adjusted <- ifelse(max_offset < offset, max_offset, offset)
@@ -141,7 +148,7 @@ get_ranges_left <- function(gx, offset = 20000, offset2 = 300) {
   return(gr)
 }
 
-get_ranges_right <- function(gx, offset = 20000, offset2 = 300) {
+get_ranges_right <- function(gx, offset = OFFSET, offset2 = 300) {
   E <- sapply(gx, function(x)max(x$end))
   max_offset <- sapply(gx, function(x)max(x$downstream_domain)) - E
   offset_adjusted <- ifelse(max_offset < offset, max_offset, offset)
@@ -365,6 +372,8 @@ get_TE <- function(Lseq, Rseq, domains_gff, GR, GRL, GRR) {
 
 # MAIN #############################################################
 # sort and add upstrean and downstream
+
+seqlengths(g) <- seqlengths(s)[names(seqlengths(g))]
 g <- get_coordinates_of_closest_neighbor(g)
 gcl <- get_domain_clusters(g)
 
@@ -415,6 +424,7 @@ names(s_left) <- paste(seqnames(grL), start(grL), end(grL), sep = "_")
 names(s_right) <- paste(seqnames(grR), start(grR), end(grR), sep = "_")
 
 
+print(opt$cpu)
 TE <- mclapply(seq_along(gr), function(x)get_TE(s_left[x],
                                                 s_right[x],
                                                 gcl_clean_with_domains[[x]],
