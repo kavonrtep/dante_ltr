@@ -7,8 +7,8 @@ script_dir <- dirname(script_name)
 library(optparse)
 
 
-parser = OptionParser()
-option_list = list(
+parser <- OptionParser()
+option_list <- list(
   make_option(c("-g", "--gff3"), action = "store", type = "character",
               help = "gff3 with dante results", default = NULL),
   make_option(c("-s", "--reference_sequence"), action = "store", type = "character",
@@ -21,14 +21,14 @@ option_list = list(
 )
 
 ## params
-OFFSET = 15000
+OFFSET <- 15000
 
-description = paste(strwrap(""))
+description <- paste(strwrap(""))
 
-epilogue = ""
-parser = OptionParser(option_list = option_list, epilogue = epilogue, description = description,
-                      usage = "usage: %prog COMMAND [OPTIONS]")
-opt = parse_args(parser, args = commandArgs(TRUE))
+epilogue <- ""
+parser <- OptionParser(option_list = option_list, epilogue = epilogue, description = description,
+                       usage = "usage: %prog COMMAND [OPTIONS]")
+opt <- parse_args(parser, args = commandArgs(TRUE))
 
 
 # load packages
