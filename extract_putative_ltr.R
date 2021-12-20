@@ -368,104 +368,6 @@ get_TE <- function(Lseq, Rseq, domains_gff, GR, GRL, GRR) {
 }
 
 
-# MAIN #############################################################
-# sort and add upstrean and downstream
-
-seqlengths(g) <- seqlengths(s)[names(seqlengths(g))]
-g <- get_coordinates_of_closest_neighbor(g)
-gcl <- get_domain_clusters(g)
-
-gcl_clean <- clean_domain_clusters(gcl)
-# glc annotation
-lineage <- sapply(gcl_clean, function(x)  x$Final_Classification[1])
-domains <- sapply(gcl_clean, function(x) ifelse(x$strand[1] == "-",
-                                                paste(rev(x$Name), collapse = " "),
-                                                paste(x$Name, collapse = " "))
-)
-# get lineages which has correct number and order of domains
-gcl_clean2 <- gcl_clean[domains == lineage_domain[lineage]]
-gcl_clean_with_domains <- gcl_clean2[check_ranges(gcl_clean2, s)]
-gr <- get_ranges(gcl_clean_with_domains)
-
-
-print('dataset size')
-print(length(gcl))
-print(length(gcl_clean))
-print(length(gcl_clean_with_domains))
-
-
-te_strand <- sapply(gcl_clean_with_domains, function(x)x$strand[1])
-grL <- get_ranges_left(gcl_clean_with_domains)
-grR <- get_ranges_right(gcl_clean_with_domains)
-
-s_left <- getSeq(s, grL)
-s_right <- getSeq(s, grR)
-
-# for statistics
-RT <- g[g$Name == "RT" & substring(g$Final_Classification, 1, 11) == "Class_I|LTR"]
-input_TE_RT_domain_tbl <- sort(table(RT$Final_Classification), decreasing = TRUE)
-
-# cleanup
-#gc()
-#print(sort( sapply(ls(),function(x){object.size(get(x))})))
-rm(s)
-rm(g)
-rm(gcl)
-rm(gcl_clean)
-rm(gcl_clean2)
-rm(RT)
-gc()
-#print(sort( sapply(ls(),function(x){object.size(get(x))})))
-
-names(te_strand) <- paste(seqnames(gr), start(gr), end(gr), sep = "_")
-names(s_left) <- paste(seqnames(grL), start(grL), end(grL), sep = "_")
-names(s_right) <- paste(seqnames(grR), start(grR), end(grR), sep = "_")
-
-
-print(opt$cpu)
-TE <- mclapply(seq_along(gr), function(x)get_TE(s_left[x],
-                                                s_right[x],
-                                                gcl_clean_with_domains[[x]],
-                                                gr[x],
-                                                grL[x],
-                                                grR[x]),
-               mc.set.seed = TRUE, mc.cores = opt$cpu, mc.preschedule = FALSE
-)
-good_TE <- TE[!sapply(TE, is.null)]
-print(length(good_TE))
-
-# testing
-#x=6
-# get_TE(s_left[x],s_right[x], gcl_clean_with_domains[[x]],gr[x],grL[x],grR[x])
-# get_te_gff3(get_TE(s_left[x],s_right[x], gcl_clean_with_domains[[x]],gr[x],grL[x],grR[x]), 'testid')
-
-
-ID <- paste0('TE_', sprintf("%08d", seq(good_TE)))
-gff3_list <- mcmapply(get_te_gff3, g = good_TE, ID = ID, mc.cores = opt$cpu)
-gff3_out <- do.call(c, gff3_list)
-
-print(table(gff3_out$type))
-
-export(gff3_out, con = outfile, format = 'gff3')
-
-
-# TODO remove bad TE containing extra domain
-
-# summary statistics
-input_TE_complete_domain_tbl <- table(sapply(gcl_clean_with_domains, function(x)x$Final_Classification[1]))
-good_TE_tbl <- table(sapply(good_TE, function(x)x$domain$Final_Classification[1]))
-
-all_tbl <- data.frame(
-  lineage = names(input_TE_RT_domain_tbl),
-  RT = as.integer(input_TE_RT_domain_tbl),
-  complete_TE_domains = as.integer(input_TE_complete_domain_tbl[names(input_TE_RT_domain_tbl)]),
-  TE_with_domains_ltr_tsd = as.integer(good_TE_tbl[names(input_TE_RT_domain_tbl)])
-)
-
-write.table(all_tbl, file = paste0(outfile, "_statistics.csv"), sep = "\t", quote = FALSE, row.names = FALSE)
-#  <- read_tsv(".txt")
-
-
 add_pbs <- function(te, s, trna_db) {
   ltr5 <- te[which(te$LTR == "5LTR")]
   STRAND <- as.character(strand(te)[1])
@@ -514,9 +416,109 @@ add_pbs <- function(te, s, trna_db) {
       pbs_exact_gr$Length <- out_pass$Length
       strand(pbs_exact_gr) <- STRAND
       pbs_exact_gr$type <- 'primer_binding_site'
-      te$trna_id <- trna_id
+      pbs_exact_gr$Parent <- te[1]$ID
+      #te[1]$trna_id <- trna_id
     }
   }
-  append(te, pbs_exact_gr)
-  return(pbs_exact_gr)
+  te = append(te, pbs_exact_gr)
+  return(te)
 }
+
+# MAIN #############################################################
+# sort and add upstrean and downstream
+
+seqlengths(g) <- seqlengths(s)[names(seqlengths(g))]
+g <- get_coordinates_of_closest_neighbor(g)
+gcl <- get_domain_clusters(g)
+
+gcl_clean <- clean_domain_clusters(gcl)
+# glc annotation
+lineage <- sapply(gcl_clean, function(x)  x$Final_Classification[1])
+domains <- sapply(gcl_clean, function(x) ifelse(x$strand[1] == "-",
+                                                paste(rev(x$Name), collapse = " "),
+                                                paste(x$Name, collapse = " "))
+)
+# get lineages which has correct number and order of domains
+gcl_clean2 <- gcl_clean[domains == lineage_domain[lineage]]
+gcl_clean_with_domains <- gcl_clean2[check_ranges(gcl_clean2, s)]
+gr <- get_ranges(gcl_clean_with_domains)
+
+
+print('dataset size')
+print(length(gcl))
+print(length(gcl_clean))
+print(length(gcl_clean_with_domains))
+
+
+te_strand <- sapply(gcl_clean_with_domains, function(x)x$strand[1])
+grL <- get_ranges_left(gcl_clean_with_domains)
+grR <- get_ranges_right(gcl_clean_with_domains)
+
+s_left <- getSeq(s, grL)
+s_right <- getSeq(s, grR)
+
+# for statistics
+RT <- g[g$Name == "RT" & substring(g$Final_Classification, 1, 11) == "Class_I|LTR"]
+input_TE_RT_domain_tbl <- sort(table(RT$Final_Classification), decreasing = TRUE)
+
+# cleanup
+#gc()
+#print(sort( sapply(ls(),function(x){object.size(get(x))})))
+#rm(s)
+rm(g)
+rm(gcl)
+rm(gcl_clean)
+rm(gcl_clean2)
+rm(RT)
+gc()
+#print(sort( sapply(ls(),function(x){object.size(get(x))})))
+
+names(te_strand) <- paste(seqnames(gr), start(gr), end(gr), sep = "_")
+names(s_left) <- paste(seqnames(grL), start(grL), end(grL), sep = "_")
+names(s_right) <- paste(seqnames(grR), start(grR), end(grR), sep = "_")
+
+
+print(opt$cpu)
+TE <- mclapply(seq_along(gr), function(x)get_TE(s_left[x],
+                                                s_right[x],
+                                                gcl_clean_with_domains[[x]],
+                                                gr[x],
+                                                grL[x],
+                                                grR[x]),
+               mc.set.seed = TRUE, mc.cores = opt$cpu, mc.preschedule = FALSE
+)
+good_TE <- TE[!sapply(TE, is.null)]
+print(length(good_TE))
+
+# testing
+#x=6
+# get_TE(s_left[x],s_right[x], gcl_clean_with_domains[[x]],gr[x],grL[x],grR[x])
+# get_te_gff3(get_TE(s_left[x],s_right[x], gcl_clean_with_domains[[x]],gr[x],grL[x],grR[x]), 'testid')
+
+
+ID <- paste0('TE_', sprintf("%08d", seq(good_TE)))
+gff3_list <- mcmapply(get_te_gff3, g = good_TE, ID = ID, mc.cores = opt$cpu)
+gff3_list2 <- mclapply( gff3_list, FUN = add_pbs, s = s , trna_db=trna_db, mc.set.seed = TRUE, mc.cores = opt$cpu, mc.preschedule = FALSE)
+cgff3_out <- do.call(c, gff3_list2)
+
+ggg = add_pbs(te=gff3_list[[2]], s=s, trna_db = trna_db)
+# print(table(gff3_out$type))
+
+export(gff3_out, con = outfile, format = 'gff3')
+
+
+# TODO remove bad TE containing extra domain
+
+# summary statistics
+input_TE_complete_domain_tbl <- table(sapply(gcl_clean_with_domains, function(x)x$Final_Classification[1]))
+good_TE_tbl <- table(sapply(good_TE, function(x)x$domain$Final_Classification[1]))
+
+all_tbl <- data.frame(
+  lineage = names(input_TE_RT_domain_tbl),
+  RT = as.integer(input_TE_RT_domain_tbl),
+  complete_TE_domains = as.integer(input_TE_complete_domain_tbl[names(input_TE_RT_domain_tbl)]),
+  TE_with_domains_ltr_tsd = as.integer(good_TE_tbl[names(input_TE_RT_domain_tbl)])
+)
+write.table(all_tbl, file = paste0(outfile, "_statistics.csv"), sep = "\t", quote = FALSE, row.names = FALSE)
+#  <- read_tsv(".txt")
+
