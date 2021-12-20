@@ -19,10 +19,6 @@ option_list <- list(
               help = "Number of cpu to use [default %default]", metavar = "number")
 
 )
-
-## params
-OFFSET <- 15000
-
 description <- paste(strwrap(""))
 
 epilogue <- ""
@@ -38,6 +34,7 @@ suppressPackageStartupMessages({
   library(BSgenome)
   library(parallel)
 })
+OFFSET = 15000
 
 cat("reading gff...")
 g <- rtracklayer::import(opt$gff3)  # DANTE gff3
@@ -47,6 +44,7 @@ cat("reading fasta...")
 s <- readDNAStringSet(opt$reference_sequence)  # genome assembly
 cat("done\n")
 lineage_info <- read.table(paste0(script_dir, "/lineage_domain_order.csv"), sep = "\t", header = TRUE, as.is = TRUE)
+trna_db <- paste0(script_dir, "/databases/tRNAscan-SE_ALL_spliced-no_plus-old-tRNAs_UC_unique-3ends.fasta")
 outfile <- opt$output
 
 
@@ -63,7 +61,7 @@ if (FALSE) {
   s <- readDNAStringSet("/mnt/ceph/454_data/Vicia_faba_assembly/assembly/ver_210910/fasta_parts/211010_Vfaba_chr5.fasta")
   lineage_info <- read.table("/mnt/raid/users/petr/workspace/ltr_finder_test/lineage_domain_order.csv", sep = "\t", header = TRUE, as.is = TRUE)
   outfile <- "/mnt/raid/users/petr/workspace/ltr_finder_test/te_with_domains_2.gff3"
-
+  trna_db <- "./databases/tRNAscan-SE_ALL_spliced-no_plus-old-tRNAs_UC_unique-3ends.fasta"
 
 }
 if (file.exists(outfile)) {
@@ -71,7 +69,6 @@ if (file.exists(outfile)) {
 }
 
 # clean sequence names:
-
 names(s) <- gsub(" .+", "", names(s))
 lineage_domain <- lineage_info$Domains.order
 names(lineage_domain) <- gsub("ss/I", "ss_I", gsub("_", "/", gsub("/", "|", lineage_info$Lineage)))
@@ -315,7 +312,8 @@ get_te_gff3 <- function(g, ID) {
     LTR_3 <- g$ltr_info[[1]]$LTR_L
     LTR_5 <- g$ltr_info[[1]]$LTR_R
   }
-
+  LTR_5$LTR <- '5LTR'
+  LTR_3$LTR <- '3LTR'
   LTR_5$type <- "long_terminal_repeat"
   LTR_3$type <- "long_terminal_repeat"
   strand(LTR_3) <- S
@@ -466,3 +464,59 @@ all_tbl <- data.frame(
 
 write.table(all_tbl, file = paste0(outfile, "_statistics.csv"), sep = "\t", quote = FALSE, row.names = FALSE)
 #  <- read_tsv(".txt")
+
+
+add_pbs <- function(te, s, trna_db) {
+  ltr5 <- te[which(te$LTR == "5LTR")]
+  STRAND <- as.character(strand(te)[1])
+  if (STRAND == "+") {
+    pbs_gr <- GRanges(seqnames(ltr5), IRanges(start = end(ltr5) + 1, end = end(ltr5) + 31))
+    pbs_s <- reverseComplement(getSeq(s, pbs_gr))
+  }else {
+    pbs_gr <- GRanges(seqnames(ltr5), IRanges(end = start(ltr5) - 1, start = start(ltr5) - 30))
+    pbs_s <- getSeq(s, pbs_gr)
+  }
+
+  names(pbs_s) <- "pbs_region"
+  # find trna match
+  tmp <- tempfile()
+  tmp_out <- tempfile()
+  writeXStringSet(DNAStringSet(pbs_s), tmp)
+  # alternative blast:
+  cmd <- paste("blastn -task blastn -word_size 7 -dust no -perc_identity 100",
+               " -query ", tmp, ' -db ', trna_db, ' -strand plus ',
+               '-outfmt "6 qaccver saccver pident length mismatch gapopen qstart qend sstart send evalue bitscore qseq sseq"',
+               '  -out', tmp_out)
+
+  system(cmd)
+  pbs_exact_gr <- NULL
+  out_raw <- read.table(tmp_out, as.is = TRUE, sep = "\t",
+                        col.names = strsplit(
+                          "qaccver saccver pident length mismatch gapopen qstart qend sstart send evalue bitscore qseq sseq",
+                          split = ' ')[[1]])
+  if (nrow(out_raw) > 0) {
+    cca <- grepl("CCA$", out_raw$qseq)
+    to_end <- out_raw$send == 23 # align to end of sequence
+    max_dist <- out_raw$qend > 25 # max 5 bp from ltr
+    min_length <- out_raw$length >= 10
+    out_pass <- out_raw[cca & to_end & max_dist & min_length,]
+    if (nrow(out_pass) > 0) {
+      trna_id <- out_pass$saccver[1]
+      if (STRAND == "+") {
+        S <- end(ltr5) + 32 - out_pass$qend[1]
+        E <- end(ltr5) + 32 - out_pass$qstart[1]
+      }else {
+        S <- start(ltr5) - 31 + out_pass$qstart[1]
+        E <- start(ltr5) - 31 + out_pass$qend[1]
+      }
+      pbs_exact_gr <- GRanges(seqnames(ltr5), IRanges(start = S, end = E))
+      pbs_exact_gr$trna_id <- trna_id
+      pbs_exact_gr$Length <- out_pass$Length
+      strand(pbs_exact_gr) <- STRAND
+      pbs_exact_gr$type <- 'primer_binding_site'
+      te$trna_id <- trna_id
+    }
+  }
+  append(te, pbs_exact_gr)
+  return(pbs_exact_gr)
+}
