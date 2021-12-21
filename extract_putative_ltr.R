@@ -340,7 +340,6 @@ get_te_gff3 <- function(g, ID) {
     TE$TSD <- as.character(g$ltr_info[[1]]$TSD_sequence)
   }
 
-
   TE$Final_Classification <- D$Final_Classification[1]
 
   D$Parent <- ID
@@ -366,7 +365,6 @@ get_TE <- function(Lseq, Rseq, domains_gff, GR, GRL, GRR) {
     }
   }
 }
-
 
 add_pbs <- function(te, s, trna_db) {
   ltr5 <- te[which(te$LTR == "5LTR")]
@@ -417,15 +415,47 @@ add_pbs <- function(te, s, trna_db) {
       strand(pbs_exact_gr) <- STRAND
       pbs_exact_gr$type <- 'primer_binding_site'
       pbs_exact_gr$Parent <- te[1]$ID
-      #te[1]$trna_id <- trna_id
+      te$trna_id <- c(trna_id, rep(NA, length(te) - 1))
+
     }
   }
   te = append(te, pbs_exact_gr)
   return(te)
 }
 
+get_te_statistics <- function(gr, RT) {
+  DOMAINS_LTR <- gr[gr$type == "transposable_element" &
+                      gr$TSD == "not_found" &
+                      is.na(gr$trna_id)]
+  DOMAINS_LTR_TSD <- gr[gr$type == "transposable_element" &
+                          gr$TSD != "not_found" &
+                          is.na(gr$trna_id)]
+  DOMAINS_LTR_TSD_PBS <- gr[gr$type == "transposable_element" &
+                              gr$TSD != "not_found" &
+                              !is.na(gr$trna_id)]
+  DOMAINS_LTR_PBS <- gr[gr$type == "transposable_element" &
+                          gr$TSD == "not_found" &
+                          !is.na(gr$trna_id)]
+
+  all_class = names(sort(table(RT$Final_Classification), decreasing = TRUE))
+  RT_domain = as.integer(table(factor(RT$Final_Classification, levels = all_class)))
+  DL = as.integer(table(factor(DOMAINS_LTR$Final_Classification, levels = all_class)))
+  DLT = as.integer(table(factor(DOMAINS_LTR_TSD$Final_Classification, levels = all_class)))
+  DLTP = as.integer(table(factor(DOMAINS_LTR_TSD_PBS$Final_Classification, levels = all_class)))
+  DLP = as.integer(table(factor(DOMAINS_LTR_PBS$Final_Classification, levels = all_class)))
+  out = data.frame(RT_domain = RT_domain,
+                   DOMAINS_LTR = DL,
+                   DOMAINS_LTR_TSD = DLT,
+                   DOMAINS_LTR_PBS = DLP,
+                   DOMAINS_LTR_TSD_PBS = DLTP,
+                   row.names = all_class
+  )
+  total = colSums(out)
+  out = rbind(out, Total = total)
+  return(out)
+}
+
 # MAIN #############################################################
-# sort and add upstrean and downstream
 
 seqlengths(g) <- seqlengths(s)[names(seqlengths(g))]
 g <- get_coordinates_of_closest_neighbor(g)
@@ -444,10 +474,10 @@ gcl_clean_with_domains <- gcl_clean2[check_ranges(gcl_clean2, s)]
 gr <- get_ranges(gcl_clean_with_domains)
 
 
-print('dataset size')
-print(length(gcl))
-print(length(gcl_clean))
-print(length(gcl_clean_with_domains))
+cat('Number of analyzed regions:\n')
+cat('Total number of domain clusters             : ', length(gcl), '\n')
+cat('Number of clean clusters                    : ', length(gcl_clean), '\n')
+cat('Number of clusters with complete domain set : ', length(gcl_clean_with_domains), '\n')
 
 
 te_strand <- sapply(gcl_clean_with_domains, function(x)x$strand[1])
@@ -459,26 +489,16 @@ s_right <- getSeq(s, grR)
 
 # for statistics
 RT <- g[g$Name == "RT" & substring(g$Final_Classification, 1, 11) == "Class_I|LTR"]
-input_TE_RT_domain_tbl <- sort(table(RT$Final_Classification), decreasing = TRUE)
-
 # cleanup
-#gc()
-#print(sort( sapply(ls(),function(x){object.size(get(x))})))
-#rm(s)
 rm(g)
 rm(gcl)
 rm(gcl_clean)
 rm(gcl_clean2)
-rm(RT)
-gc()
-#print(sort( sapply(ls(),function(x){object.size(get(x))})))
 
 names(te_strand) <- paste(seqnames(gr), start(gr), end(gr), sep = "_")
 names(s_left) <- paste(seqnames(grL), start(grL), end(grL), sep = "_")
 names(s_right) <- paste(seqnames(grR), start(grR), end(grR), sep = "_")
-
-
-print(opt$cpu)
+cat('Identification of LTRs...')
 TE <- mclapply(seq_along(gr), function(x)get_TE(s_left[x],
                                                 s_right[x],
                                                 gcl_clean_with_domains[[x]],
@@ -487,38 +507,29 @@ TE <- mclapply(seq_along(gr), function(x)get_TE(s_left[x],
                                                 grR[x]),
                mc.set.seed = TRUE, mc.cores = opt$cpu, mc.preschedule = FALSE
 )
-good_TE <- TE[!sapply(TE, is.null)]
-print(length(good_TE))
+cat('done.\n')
 
-# testing
-#x=6
-# get_TE(s_left[x],s_right[x], gcl_clean_with_domains[[x]],gr[x],grL[x],grR[x])
-# get_te_gff3(get_TE(s_left[x],s_right[x], gcl_clean_with_domains[[x]],gr[x],grL[x],grR[x]), 'testid')
+good_TE <- TE[!sapply(TE, is.null)]
+cat('Number of putative TE with identified LTR   :', length(good_TE), '\n')
 
 
 ID <- paste0('TE_', sprintf("%08d", seq(good_TE)))
 gff3_list <- mcmapply(get_te_gff3, g = good_TE, ID = ID, mc.cores = opt$cpu)
-gff3_list2 <- mclapply( gff3_list, FUN = add_pbs, s = s , trna_db=trna_db, mc.set.seed = TRUE, mc.cores = opt$cpu, mc.preschedule = FALSE)
-cgff3_out <- do.call(c, gff3_list2)
 
-ggg = add_pbs(te=gff3_list[[2]], s=s, trna_db = trna_db)
-# print(table(gff3_out$type))
+cat('Identification of PBS ...')
+gff3_list2 <- mclapply(gff3_list, FUN = add_pbs, s = s, trna_db = trna_db, mc.set.seed = TRUE, mc.cores = opt$cpu, mc.preschedule = FALSE)
+cat('done\n')
+gff3_out <- do.call(c, gff3_list2)
+
+# define new source
+src = as.character(gff3_out$source)
+src[is.na(src)] = "dante_ltr"
+gff3_out$source <- src
+
 
 export(gff3_out, con = outfile, format = 'gff3')
-
-
-# TODO remove bad TE containing extra domain
-
 # summary statistics
-input_TE_complete_domain_tbl <- table(sapply(gcl_clean_with_domains, function(x)x$Final_Classification[1]))
-good_TE_tbl <- table(sapply(good_TE, function(x)x$domain$Final_Classification[1]))
-
-all_tbl <- data.frame(
-  lineage = names(input_TE_RT_domain_tbl),
-  RT = as.integer(input_TE_RT_domain_tbl),
-  complete_TE_domains = as.integer(input_TE_complete_domain_tbl[names(input_TE_RT_domain_tbl)]),
-  TE_with_domains_ltr_tsd = as.integer(good_TE_tbl[names(input_TE_RT_domain_tbl)])
-)
+all_tbl = get_te_statistics(gff3_out, RT)
 write.table(all_tbl, file = paste0(outfile, "_statistics.csv"), sep = "\t", quote = FALSE, row.names = FALSE)
 #  <- read_tsv(".txt")
 
