@@ -14,7 +14,7 @@ option_list <- list(
   make_option(c("-s", "--reference_sequence"), action = "store", type = "character",
               help = "reference sequence as fasta", default = NULL),
   make_option(c("-o", "--output"), action = "store", type = "character",
-              help = "output gff3 file name", default = NULL),
+              help = "output file path and prefix", default = NULL),
   make_option(c("-c", "--cpu"), type = "integer", default = 5,
               help = "Number of cpu to use [default %default]", metavar = "number")
 
@@ -455,6 +455,40 @@ get_te_statistics <- function(gr, RT) {
   return(out)
 }
 
+getSeqNamed = function(s, gr) {
+  spart = getSeq(s, gr)
+  id1 = paste0(seqnames(gr), '_', start(gr), "_", end(gr))
+  id2 = gr$Final_Classification
+  names(spart) = paste0(id1, "#", id2)
+  spart
+}
+
+get_te_sequences = function(gr, s) {
+  DOMAINS_LTR <- gr[gr$type == "transposable_element" &
+                      gr$TSD == "not_found" &
+                      is.na(gr$trna_id)]
+  DOMAINS_LTR_TSD <- gr[gr$type == "transposable_element" &
+                          gr$TSD != "not_found" &
+                          is.na(gr$trna_id)]
+  DOMAINS_LTR_TSD_PBS <- gr[gr$type == "transposable_element" &
+                              gr$TSD != "not_found" &
+                              !is.na(gr$trna_id)]
+  DOMAINS_LTR_PBS <- gr[gr$type == "transposable_element" &
+                          gr$TSD == "not_found" &
+                          !is.na(gr$trna_id)]
+  s_DL = getSeqNamed(s, DOMAINS_LTR)
+  s_DLT = getSeqNamed(s, DOMAINS_LTR_TSD)
+  s_DLP = getSeqNamed(s, DOMAINS_LTR_PBS)
+  s_DLTP = getSeqNamed(s, DOMAINS_LTR_TSD_PBS)
+  return(list(
+    DL = s_DL,
+    DLT = s_DLT,
+    DLP = s_DLP,
+    DLTP = s_DLTP
+  ))
+
+}
+
 # MAIN #############################################################
 
 seqlengths(g) <- seqlengths(s)[names(seqlengths(g))]
@@ -527,9 +561,15 @@ src[is.na(src)] = "dante_ltr"
 gff3_out$source <- src
 
 
-export(gff3_out, con = outfile, format = 'gff3')
+export(gff3_out, con = paste0(outfile, ".gff3"), format = 'gff3')
 # summary statistics
 all_tbl = get_te_statistics(gff3_out, RT)
 write.table(all_tbl, file = paste0(outfile, "_statistics.csv"), sep = "\t", quote = FALSE, row.names = FALSE)
-#  <- read_tsv(".txt")
+# export fasta files:
+s_te = get_te_sequences(gff3_out, s)
+
+for (i in seq_along(s_te)) {
+  outname = paste0(outfile, "_", names(s_te)[i], ".fasta")
+  writeXStringSet(s_te[[i]], filepath = outname)
+}
 
