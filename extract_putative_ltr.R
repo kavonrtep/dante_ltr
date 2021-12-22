@@ -34,7 +34,7 @@ suppressPackageStartupMessages({
   library(BSgenome)
   library(parallel)
 })
-OFFSET = 15000
+OFFSET <- 15000
 
 cat("reading gff...")
 g <- rtracklayer::import(opt$gff3)  # DANTE gff3
@@ -419,7 +419,7 @@ add_pbs <- function(te, s, trna_db) {
 
     }
   }
-  te = append(te, pbs_exact_gr)
+  te <- append(te, pbs_exact_gr)
   return(te)
 }
 
@@ -437,33 +437,33 @@ get_te_statistics <- function(gr, RT) {
                           gr$TSD == "not_found" &
                           !is.na(gr$trna_id)]
 
-  all_class = names(sort(table(RT$Final_Classification), decreasing = TRUE))
-  RT_domain = as.integer(table(factor(RT$Final_Classification, levels = all_class)))
-  DL = as.integer(table(factor(DOMAINS_LTR$Final_Classification, levels = all_class)))
-  DLT = as.integer(table(factor(DOMAINS_LTR_TSD$Final_Classification, levels = all_class)))
-  DLTP = as.integer(table(factor(DOMAINS_LTR_TSD_PBS$Final_Classification, levels = all_class)))
-  DLP = as.integer(table(factor(DOMAINS_LTR_PBS$Final_Classification, levels = all_class)))
-  out = data.frame(RT_domain = RT_domain,
-                   DOMAINS_LTR = DL,
-                   DOMAINS_LTR_TSD = DLT,
-                   DOMAINS_LTR_PBS = DLP,
-                   DOMAINS_LTR_TSD_PBS = DLTP,
-                   row.names = all_class
+  all_class <- names(sort(table(RT$Final_Classification), decreasing = TRUE))
+  RT_domain <- as.integer(table(factor(RT$Final_Classification, levels = all_class)))
+  DL <- as.integer(table(factor(DOMAINS_LTR$Final_Classification, levels = all_class)))
+  DLT <- as.integer(table(factor(DOMAINS_LTR_TSD$Final_Classification, levels = all_class)))
+  DLTP <- as.integer(table(factor(DOMAINS_LTR_TSD_PBS$Final_Classification, levels = all_class)))
+  DLP <- as.integer(table(factor(DOMAINS_LTR_PBS$Final_Classification, levels = all_class)))
+  out <- data.frame(RT_domain = RT_domain,
+                    DOMAINS_LTR = DL,
+                    DOMAINS_LTR_TSD = DLT,
+                    DOMAINS_LTR_PBS = DLP,
+                    DOMAINS_LTR_TSD_PBS = DLTP,
+                    row.names = all_class
   )
-  total = colSums(out)
-  out = rbind(out, Total = total)
+  total <- colSums(out)
+  out <- rbind(out, Total = total)
   return(out)
 }
 
-getSeqNamed = function(s, gr) {
-  spart = getSeq(s, gr)
-  id1 = paste0(seqnames(gr), '_', start(gr), "_", end(gr))
-  id2 = gr$Final_Classification
-  names(spart) = paste0(id1, "#", id2)
+getSeqNamed <- function(s, gr) {
+  spart <- getSeq(s, gr)
+  id1 <- paste0(seqnames(gr), '_', start(gr), "_", end(gr))
+  id2 <- gr$Final_Classification
+  names(spart) <- paste0(id1, "#", id2)
   spart
 }
 
-get_te_sequences = function(gr, s) {
+get_te_sequences <- function(gr, s) {
   DOMAINS_LTR <- gr[gr$type == "transposable_element" &
                       gr$TSD == "not_found" &
                       is.na(gr$trna_id)]
@@ -476,10 +476,10 @@ get_te_sequences = function(gr, s) {
   DOMAINS_LTR_PBS <- gr[gr$type == "transposable_element" &
                           gr$TSD == "not_found" &
                           !is.na(gr$trna_id)]
-  s_DL = getSeqNamed(s, DOMAINS_LTR)
-  s_DLT = getSeqNamed(s, DOMAINS_LTR_TSD)
-  s_DLP = getSeqNamed(s, DOMAINS_LTR_PBS)
-  s_DLTP = getSeqNamed(s, DOMAINS_LTR_TSD_PBS)
+  s_DL <- getSeqNamed(s, DOMAINS_LTR)
+  s_DLT <- getSeqNamed(s, DOMAINS_LTR_TSD)
+  s_DLP <- getSeqNamed(s, DOMAINS_LTR_PBS)
+  s_DLTP <- getSeqNamed(s, DOMAINS_LTR_TSD_PBS)
   return(list(
     DL = s_DL,
     DLT = s_DLT,
@@ -556,20 +556,20 @@ cat('done\n')
 gff3_out <- do.call(c, gff3_list2)
 
 # define new source
-src = as.character(gff3_out$source)
-src[is.na(src)] = "dante_ltr"
+src <- as.character(gff3_out$source)
+src[is.na(src)] <- "dante_ltr"
 gff3_out$source <- src
 
 
 export(gff3_out, con = paste0(outfile, ".gff3"), format = 'gff3')
 # summary statistics
-all_tbl = get_te_statistics(gff3_out, RT)
+all_tbl <- get_te_statistics(gff3_out, RT)
 write.table(all_tbl, file = paste0(outfile, "_statistics.csv"), sep = "\t", quote = FALSE, row.names = FALSE)
 # export fasta files:
-s_te = get_te_sequences(gff3_out, s)
+s_te <- get_te_sequences(gff3_out, s)
 
 for (i in seq_along(s_te)) {
-  outname = paste0(outfile, "_", names(s_te)[i], ".fasta")
+  outname <- paste0(outfile, "_", names(s_te)[i], ".fasta")
   writeXStringSet(s_te[[i]], filepath = outname)
 }
 
