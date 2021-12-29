@@ -1,11 +1,9 @@
 #!/usr/bin/env Rscript
-
 initial_options <- commandArgs(trailingOnly = FALSE)
 file_arg_name <- "--file="
 script_name <- normalizePath(sub(file_arg_name, "", initial_options[grep(file_arg_name, initial_options)]))
 script_dir <- dirname(script_name)
 library(optparse)
-
 
 parser <- OptionParser()
 option_list <- list(
@@ -34,18 +32,10 @@ suppressPackageStartupMessages({
   library(BSgenome)
   library(parallel)
 })
+# CONFIGURATION
 OFFSET <- 15000
-
-cat("reading gff...")
-g <- rtracklayer::import(opt$gff3)  # DANTE gff3
-cat("done\n")
-
-cat("reading fasta...")
-s <- readDNAStringSet(opt$reference_sequence)  # genome assembly
-cat("done\n")
-lineage_info <- read.table(paste0(script_dir, "/lineage_domain_order.csv"), sep = "\t", header = TRUE, as.is = TRUE)
+lineage_info <- read.table(paste0(script_dir, "/databases/lineage_domain_order.csv"), sep = "\t", header = TRUE, as.is = TRUE)
 trna_db <- paste0(script_dir, "/databases/tRNAscan-SE_ALL_spliced-no_plus-old-tRNAs_UC_unique-3ends.fasta")
-outfile <- opt$output
 
 
 # for testing
@@ -64,16 +54,8 @@ if (FALSE) {
   trna_db <- "./databases/tRNAscan-SE_ALL_spliced-no_plus-old-tRNAs_UC_unique-3ends.fasta"
 
 }
-if (file.exists(outfile)) {
-  stop("output file already exists")
-}
 
-# clean sequence names:
-names(s) <- gsub(" .+", "", names(s))
-lineage_domain <- lineage_info$Domains.order
-names(lineage_domain) <- gsub("ss/I", "ss_I", gsub("_", "/", gsub("/", "|", lineage_info$Lineage)))
-
-# functions
+# FUNCTIONS
 get_coordinates_of_closest_neighbor <- function(gff) {
   gff <- gff[order(seqnames(gff), start(gff))]
   # split to chromosomes:
@@ -490,6 +472,20 @@ get_te_sequences <- function(gr, s) {
 }
 
 # MAIN #############################################################
+
+# load data:
+
+cat("reading gff...")
+g <- rtracklayer::import(opt$gff3)  # DANTE gff3
+cat("done\n")
+cat("reading fasta...")
+s <- readDNAStringSet(opt$reference_sequence)  # genome assembly
+cat("done\n")
+outfile <- opt$output
+# clean sequence names:
+names(s) <- gsub(" .+", "", names(s))
+lineage_domain <- lineage_info$Domains.order
+names(lineage_domain) <- gsub("ss/I", "ss_I", gsub("_", "/", gsub("/", "|", lineage_info$Lineage)))
 
 seqlengths(g) <- seqlengths(s)[names(seqlengths(g))]
 g <- get_coordinates_of_closest_neighbor(g)
