@@ -49,14 +49,17 @@ if (FALSE) {
 
   g <- rtracklayer::import("/mnt/raid/users/petr/workspace/dante_ltr/test_data/DANTE_Vfaba_chr5.gff3")
   s <- readDNAStringSet("/mnt/ceph/454_data/Vicia_faba_assembly/assembly/ver_210910/fasta_parts/211010_Vfaba_chr5.fasta")
-  lineage_info <- read.table("/mnt/raid/users/petr/workspace/ltr_finder_test/lineage_domain_order.csv", sep = "\t", header = TRUE, as.is = TRUE)
+
+  g <- rtracklayer::import("./test_data/sample_DANTE.gff3")
+  s <- readDNAStringSet("./test_data/sample_genome.fasta")
   outfile <- "/mnt/raid/users/petr/workspace/ltr_finder_test/te_with_domains_2.gff3"
+  lineage_info <- read.table("databases/lineage_domain_order.csv", sep = "\t", header = TRUE, as.is = TRUE)
   trna_db <- "./databases/tRNAscan-SE_ALL_spliced-no_plus-old-tRNAs_UC_unique-3ends.fasta"
 
 }
 
 # FUNCTIONS
-get_coordinates_of_closest_neighbor <- function(gff) {
+add_coordinates_of_closest_neighbor <- function(gff) {
   gff <- gff[order(seqnames(gff), start(gff))]
   # split to chromosomes:
   gff_parts <- split(gff, seqnames(gff))
@@ -106,6 +109,7 @@ clean_domain_clusters <- function(gcl) {
 
 
 check_ranges <- function(gx, s, offset = OFFSET) {
+  # check is range is not out of sequence length
   START <- sapply(gx, function(x)min(x$start)) - offset
   END <- sapply(gx, function(x)max(x$end)) + offset
   MAX <- seqlengths(s)[sapply(gx, function(x)as.character(x$seqnames[1]))]
@@ -485,21 +489,28 @@ outfile <- opt$output
 # clean sequence names:
 names(s) <- gsub(" .+", "", names(s))
 lineage_domain <- lineage_info$Domains.order
-names(lineage_domain) <- gsub("ss/I", "ss_I", gsub("_", "/", gsub("/", "|", lineage_info$Lineage)))
+lineage_offset5prime <- lineage_info$offset5prime
+lineage_offset3prime <- lineage_info$offset3prime
+ln <- gsub("ss/I", "ss_I", gsub("_", "/", gsub("/", "|", lineage_info$Lineage)))
+names(lineage_offset3prime) <-  ln
+names(lineage_offset5prime) <-  ln
+names(lineage_domain) <- ln
+
 
 seqlengths(g) <- seqlengths(s)[names(seqlengths(g))]
-g <- get_coordinates_of_closest_neighbor(g)
-gcl <- get_domain_clusters(g)
+g <- add_coordinates_of_closest_neighbor(g)
 
+gcl <- get_domain_clusters(g)
 gcl_clean <- clean_domain_clusters(gcl)
 # glc annotation
-lineage <- sapply(gcl_clean, function(x)  x$Final_Classification[1])
-domains <- sapply(gcl_clean, function(x) ifelse(x$strand[1] == "-",
+gcl_clean_lineage <- sapply(gcl_clean, function(x)  x$Final_Classification[1])
+gcl_clean_domains <- sapply(gcl_clean, function(x) ifelse(x$strand[1] == "-",
                                                 paste(rev(x$Name), collapse = " "),
                                                 paste(x$Name, collapse = " "))
 )
+
 # get lineages which has correct number and order of domains
-gcl_clean2 <- gcl_clean[domains == lineage_domain[lineage]]
+gcl_clean2 <- gcl_clean[gcl_clean_domains == lineage_domain[gcl_clean_lineage]]
 gcl_clean_with_domains <- gcl_clean2[check_ranges(gcl_clean2, s)]
 gr <- get_ranges(gcl_clean_with_domains)
 
@@ -511,8 +522,13 @@ cat('Number of clusters with complete domain set : ', length(gcl_clean_with_doma
 
 
 te_strand <- sapply(gcl_clean_with_domains, function(x)x$strand[1])
-grL <- get_ranges_left(gcl_clean_with_domains)
-grR <- get_ranges_right(gcl_clean_with_domains)
+te_lineage <- sapply(gcl_clean_with_domains, function(x)x$Final_Classification[1])
+
+max_left_offset <- ifelse(te_strand == "+", lineage_offset5prime[te_lineage], lineage_offset3prime[te_lineage])
+max_right_offset <- ifelse(te_strand == "-", lineage_offset5prime[te_lineage], lineage_offset3prime[te_lineage])
+
+grL <- get_ranges_left(gcl_clean_with_domains, max_left_offset)
+grR <- get_ranges_right(gcl_clean_with_domains, max_right_offset)
 
 s_left <- getSeq(s, grL)
 s_right <- getSeq(s, grR)
