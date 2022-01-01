@@ -75,9 +75,6 @@ add_coordinates_of_closest_neighbor <- function(gff) {
 get_domain_clusters <- function(gff) {
   # get consecutive domains from same linage
   # must be sorted!
-  # TODO - sorting at this point is not probably necessary - remove and test
-  # gff <- gff[order(seqnames(gff), start(gff))]
-  # split before GAG (+) or after (- strand)
   gag_plus <- as.numeric(cumsum(gff$Name == "GAG" & strand(gff) == '+'))
   gag_minus <- rev(as.numeric(cumsum(rev(gff$Name == "GAG" & strand(gff) == '-'))))
   # split based on classification - must be same and consecutive
@@ -220,7 +217,11 @@ blast <- function(s1, s2) {
   CA_R <- substring(out$sseq, out$length - 1, out$length) == "CA"
   cond <- TG_L & TG_R & CA_L & CA_R
   out <- out[cond, , drop = FALSE]
+  unlink(tmp1)
+  unlink(tmp2)
+  unlink(tmp_out)
   # TODO - detele all temp files!
+  # unlink(tmp1, tmp2, tmp_out)
   return(out)
 }
 
