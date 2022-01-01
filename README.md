@@ -21,17 +21,17 @@ Options:
                 reference sequence as fasta
 
         -o OUTPUT, --output=OUTPUT
-                output gff3 file name
+                output file path and prefix
 
         -c NUMBER, --cpu=NUMBER
                 Number of cpu to use [default 5]
 
         -h, --help
                 Show this help message and exit
-
 ```
 
-## example
+## Example
 ```shell
+mkdir -p tmp
 ./extract_putative_ltr.R -g test_data/sample_DANTE.gff3 -s test_data/sample_genome.fasta -o tmp/ltr_annotation
 ```
