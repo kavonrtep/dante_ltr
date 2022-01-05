@@ -40,8 +40,8 @@ trna_db <- paste0(script_dir, "/databases/tRNAscan-SE_ALL_spliced-no_plus-old-tR
 if (file.exists(lineage_file) & file.exists(trna_db)) {
   lineage_info <- read.table(lineage_file, sep = "\t", header = TRUE, as.is = TRUE)
 }else {
-  lineage_file <- paste0(script_dir, "../share/dante_ltr/databases/lineage_domain_order.csv")
-  trna_db <- paste0(script_dir, "../share/dante_ltr/databases/tRNAscan-SE_ALL_spliced-no_plus-old-tRNAs_UC_unique-3ends.fasta")
+  lineage_file <- paste0(script_dir, "/../share/dante_ltr/databases/lineage_domain_order.csv")
+  trna_db <- paste0(script_dir, "/../share/dante_ltr/databases/tRNAscan-SE_ALL_spliced-no_plus-old-tRNAs_UC_unique-3ends.fasta")
   if (file.exists(lineage_file) & file.exists((trna_db))) {
     lineage_info <- read.table(lineage_file, sep = "\t", header = TRUE, as.is = TRUE)
   }else(
