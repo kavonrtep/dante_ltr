@@ -1,0 +1,28 @@
+Bootstrap: docker
+From: ubuntu:20.04
+    
+    %post
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get -y update
+    apt-get -y install git python3 ncbi-blast+
+    apt-get -y install r-base libcurl4-openssl-dev libxml2-dev libgtk2.0-dev libssl-dev build-essential gfortran libblas-dev liblapack-dev r-cran-future
+    apt-get -y install r-bioc-biostrings r-bioc-rtracklayer r-bioc-bsgenome r-cran-optparse
+    apt-get update
+    cd opt
+    git clone https://github.com/kavonrtep/dante_ltr.git
+    ln -s /opt/dante_ltr/extract_putative_ltr.R /usr/local/bin/extract_putative_ltr.R
+    %environment
+    export LC_ALL=C
+    export PATH=/usr/games:$PATH
+    export TMPDIR=""
+    %runscript
+    extract_putative_ltr.R $@
+    
+    %labels
+    Author petr@umbr.cas.cz
+    Version v0.0.1
+    
+    %test
+    echo $PWD
+    ls -la
+    extract_putative_ltr.R -g /opt/dante_ltr/test_data/sample_DANTE.gff3 -s /opt/dante_ltr/test_data/sample_genome.fasta -o testoutput

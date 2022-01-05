@@ -1,6 +1,7 @@
-# dante_ltr
+fr# dante_ltr
 
-Tool for identification of complete LTR retrotransposons based on analysis of protein domains identified by DANTE tool.
+Tool for identification of complete LTR retrotransposons based on analysis of protein
+domains identified by DANTE tool.
 
 ## Installation of requirements
 
