@@ -3,10 +3,10 @@ fr# dante_ltr
 Tool for identification of complete LTR retrotransposons based on analysis of protein
 domains identified by DANTE tool.
 
-## Installation of requirements
+## Installation:
 
 ```shell
-conda create -n dante_ltr -c bioconda -c conda-forge --file requirements.txt
+conda create -n dante_ltr -c bioconda -c conda-forge -c petrnovak dante_ltr
 ```
 ## Usage
 
@@ -36,3 +36,4 @@ Options:
 mkdir -p tmp
 ./extract_putative_ltr.R -g test_data/sample_DANTE.gff3 -s test_data/sample_genome.fasta -o tmp/ltr_annotation
 ```
+
