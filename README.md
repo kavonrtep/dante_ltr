@@ -37,3 +37,4 @@ mkdir -p tmp
 ./extract_putative_ltr.R -g test_data/sample_DANTE.gff3 -s test_data/sample_genome.fasta -o tmp/ltr_annotation
 ```
 
+## Output files : TODO 

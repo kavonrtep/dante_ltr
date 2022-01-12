@@ -3,3 +3,4 @@
 .idea
 
 /singularity/*.sif
+/test_data/big_test_data/
