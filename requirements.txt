@@ -3,3 +3,4 @@ bioconductor-biostrings=2.62.0
 bioconductor-bsgenome=1.62.0
 bioconductor-rtracklayer=1.54
 r-optparse=1.7.1
+r-dplyr=1.0.7

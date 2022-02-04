@@ -62,16 +62,21 @@ if (FALSE) {
   s <- readDNAStringSet("/mnt/raid/454_data/cuscuta/Ceuropea_assembly_v4/0_final_asm_hifiasm+longstitch/asm.bp.p.ctg_scaffolds.short_names.fa")
   lineage_info <- read.table("/mnt/raid/users/petr/workspace/ltr_finder_test/lineage_domain_order.csv", sep = "\t", header = TRUE, as.is = TRUE)
 
-  g <- rtracklayer::import("/mnt/raid/users/petr/workspace/ltr_finder_test/test_data/DANTE_filtered_part.gff3")
-  s <- readDNAStringSet("/mnt/raid/users/petr/workspace/ltr_finder_test/test_data/Rbp_part.fa")
+  g <- rtracklayer::import("/mnt/raid/users/petr/workspace/ltr_finder_test/test_data
+  /DANTE_filtered_part.gff3")
+  s <- readDNAStringSet("/mnt/raid/users/petr/workspace/ltr_finder_test/test_data
+  /Rbp_part.fa")
 
-  g <- rtracklayer::import("/mnt/raid/users/petr/workspace/dante_ltr/test_data/DANTE_Vfaba_chr5.gff3")
-  s <- readDNAStringSet("/mnt/ceph/454_data/Vicia_faba_assembly/assembly/ver_210910/fasta_parts/211010_Vfaba_chr5.fasta")
+  g <- rtracklayer::import("/mnt/raid/users/petr/workspace/dante_ltr/test_data
+  /DANTE_Vfaba_chr5.gff3")
+  s <- readDNAStringSet("/mnt/ceph/454_data/Vicia_faba_assembly/assembly/ver_210910
+  /fasta_parts/211010_Vfaba_chr5.fasta")
 
   g <- rtracklayer::import("./test_data/sample_DANTE.gff3")
   s <- readDNAStringSet("./test_data/sample_genome.fasta")
   outfile <- "/mnt/raid/users/petr/workspace/ltr_finder_test/te_with_domains_2.gff3"
-  lineage_info <- read.table("databases/lineage_domain_order.csv", sep = "\t", header = TRUE, as.is = TRUE)
+  lineage_info <- read.table("databases/lineage_domain_order.csv", sep = "\t", header =
+    TRUE, as.is = TRUE)
   trna_db <- "./databases/tRNAscan-SE_ALL_spliced-no_plus-old-tRNAs_UC_unique-3ends.fasta"
 
 }
@@ -81,7 +86,7 @@ if (FALSE) {
 # load data:
 
 cat("reading gff...")
-g <- rtracklayer::import(opt$gff3)  # DANTE gff3
+g <- rtracklayer::import(opt$gff3, format = 'gff3')  # DANTE gff3
 cat("done\n")
 cat("reading fasta...")
 s <- readDNAStringSet(opt$reference_sequence)  # genome assembly
