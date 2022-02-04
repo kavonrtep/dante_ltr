@@ -1,4 +1,4 @@
-fr# dante_ltr
+# dante_ltr
 
 Tool for identification of complete LTR retrotransposons based on analysis of protein
 domains identified by DANTE tool.
