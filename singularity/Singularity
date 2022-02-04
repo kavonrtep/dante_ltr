@@ -17,22 +17,22 @@ From: ubuntu:20.04
         git clone https://github.com/kavonrtep/dante_ltr.git
         ln -s /opt/dante_ltr/extract_putative_ltr.R /usr/local/bin/extract_putative_ltr.R
         
-        %environment
+%environment
         
         export LC_ALL=C
         export PATH=/usr/games:$PATH
         export TMPDIR=""
         
-        %runscript
+%runscript
         
         extract_putative_ltr.R $@
         
-        %labels
+%labels
         
         Author petr@umbr.cas.cz
         Version v0.0.1
         
-        %test
+%test
         
         echo $PWD
         ls -la
