@@ -34,8 +34,7 @@ suppressPackageStartupMessages({ library(rtracklayer)
   library(Biostrings)
   library(BSgenome)
   library(parallel)
-  library(dplyr) })
-
+   })
 
 # CONFIGURATION
 # load configuration files and functions:
@@ -171,6 +170,6 @@ c2 <- sapply(g$Parent, function(x)ifelse(length(x) == 0, "", x)) %in% ID[id_of_g
 gff_out <- g[c1 | c2]
 
 
-writeXStringSet(seq_representative, paste(opt$output, "_RM_lib.fasta"))
+writeXStringSet(seq_representative, paste0(opt$output, "_RM_lib.fasta"))
 export(gff_out, paste0(opt$output, "_clean.gff3"), format = "gff3")
 

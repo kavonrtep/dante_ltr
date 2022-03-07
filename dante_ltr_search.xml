@@ -1,0 +1,25 @@
+<tool id="dante_ltr_search" name="DANTE_LTR transposamble element search" version="0.1.0" python_template_version="3.5">
+    <requirements>
+        <requirement type="package">blast</requirement>
+        <requirement type="package">r-optparse</requirement>
+        <requirement type="package">bioconductor-bsgenome</requirement>
+        <requirement type="package">biocondutor-biostrings</requirement>
+        <requirement type="package">bioconductor-rtracklayer</requirement>
+
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+        Rscript ${__tool_directory__}/extract_putative_ltr.R --gff3 '$dante' --reference_sequence '$reference' --output output --cpu 10
+        &&
+        mv output.gff3 $te_ltr_gff
+    ]]></command>
+    <inputs>
+        <param type="data" name="dante" format="gff3" label="Filtered gff3 output from DANTE pipeline"/>
+        <param type="data" name="reference" format="fasta" label="Reference sequence matching DANTE output" />
+    </inputs>
+    <outputs>
+        <data name="te_ltr_gff" format="gff3"/>
+    </outputs>
+    <help><![CDATA[
+        This tool uses output from DANTE annotation pipeline to identify full length LTR transposable elements.
+    ]]></help>
+</tool>

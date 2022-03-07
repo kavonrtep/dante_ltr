@@ -37,4 +37,15 @@ mkdir -p tmp
 ./extract_putative_ltr.R -g test_data/sample_DANTE.gff3 -s test_data/sample_genome.fasta -o tmp/ltr_annotation
 ```
 
-## Output files : TODO 
+## Output files
+
+
+### Output of script `extract_putative_ltr.R`:
+
+
+- `prefix.gff3` - annotation of all identified elements
+- `prefix_DL.fasta` - elements with protein **d**omains and **L**TR
+- `prefix_DLTP.fasta` - elements with **d**omains, **L**TR, **T**SD and **P**BS
+- `prefix_DLP.fasta` - elements with **d**omains, **L**TR and **P**BS
+- `prefix_DLT.fasta` - elements with **d**omains, **L**TR, **T**SD and 
+- `prefix_statistics.csv` - number of elements in individual categories  
