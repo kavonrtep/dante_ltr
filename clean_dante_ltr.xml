@@ -1,4 +1,4 @@
-<tool id="clean_dante_ltr" name="filter DANTE_LTR transposamble elements" version="0.1.0" python_template_version="3.5">
+<tool id="clean_dante_ltr" name="DANTE_LTR transposamble elements filtering" version="0.1.0" python_template_version="3.5">
     <requirements>
 
         <requirement type="package">r-optparse</requirement>
@@ -8,7 +8,7 @@
         <requirement type="package">bioconductor-rtracklayer</requirement>
     </requirements>
     <command detect_errors="exit_code"><![CDATA[
-        Rscript ${__tool_directory__}/clean_ltr.R --gff3 '$dante_ltr' --reference_sequence '$reference' --output output --cpu 10
+        Rscript ${__tool_directory__}/clean_ltr.R --gff3 '$dante_ltr' --reference_sequence '$reference' --output output --cpu 32
         &&
         mv output_clean.gff3 $dante_ltr_clean
         &&
@@ -19,13 +19,15 @@
         <param type="data" name="reference" format="fasta" />
     </inputs>
     <outputs>
-        <data name="dante_ltr_clean" format="gff3" />
-        <data name="rm_lib" format="fasta"/>
+        <data name="dante_ltr_clean" format="gff3" label="Annotation of validated LTR transposable
+        elements based on annotation $dante_ltr.hid and reference $reference.hid"/>
+        <data name="rm_lib" format="fasta" label="Non-redundant library of LTR transposable
+        elements based on annotation $dante_ltr.hid and reference $reference.hid"/>
     </outputs>
     <help><![CDATA[
         This tool takes output from DANTE_LTR search identifies good quality transposable elements.
          Good quality TE are considered those which does not have any cross-similarity between distinct lineages.
-         Output from this tool is a annotation in GFF3 fromat and
+         Output from this tool is a annotation in GFF3 format and
          non-redundant library of elements for custom RepeatMasker search.
 
     ]]></help>

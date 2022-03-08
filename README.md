@@ -47,5 +47,5 @@ mkdir -p tmp
 - `prefix_DL.fasta` - elements with protein **d**omains and **L**TR
 - `prefix_DLTP.fasta` - elements with **d**omains, **L**TR, **T**SD and **P**BS
 - `prefix_DLP.fasta` - elements with **d**omains, **L**TR and **P**BS
-- `prefix_DLT.fasta` - elements with **d**omains, **L**TR, **T**SD and 
+- `prefix_DLT.fasta` - elements with **d**omains, **L**TR, **T**SD 
 - `prefix_statistics.csv` - number of elements in individual categories  

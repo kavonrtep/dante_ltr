@@ -1,4 +1,4 @@
-<tool id="dante_ltr_search" name="DANTE_LTR transposamble element search" version="0.1.0" python_template_version="3.5">
+<tool id="dante_ltr_search" name="DANTE_LTR transposable element identification" version="0.1.0" python_template_version="3.5">
     <requirements>
         <requirement type="package">blast</requirement>
         <requirement type="package">r-optparse</requirement>
@@ -8,7 +8,7 @@
 
     </requirements>
     <command detect_errors="exit_code"><![CDATA[
-        Rscript ${__tool_directory__}/extract_putative_ltr.R --gff3 '$dante' --reference_sequence '$reference' --output output --cpu 10
+        Rscript ${__tool_directory__}/extract_putative_ltr.R --gff3 '$dante' --reference_sequence '$reference' --output output --cpu 32
         &&
         mv output.gff3 $te_ltr_gff
     ]]></command>
@@ -17,9 +17,24 @@
         <param type="data" name="reference" format="fasta" label="Reference sequence matching DANTE output" />
     </inputs>
     <outputs>
-        <data name="te_ltr_gff" format="gff3"/>
+        <data name="te_ltr_gff" format="gff3" label="Annotation of detected LTR transposable elements
+         based on the annotation $dante.hid and reference $reference.hid" />
     </outputs>
     <help><![CDATA[
-        This tool uses output from DANTE annotation pipeline to identify full length LTR transposable elements.
+        This tool uses output from DANTE annotation pipeline to identify full length LTR
+        transposable elements. Output is in the GFF3 format and include annotation of
+        5' and 3' Longe Terminal Repeats, Target Site Duplication (TSD) and primer binding site (PBS).
+
+        All identified elements contains complete set of protein domains as defined in
+        REXdb_. Based on the results detection  structural feature,
+        elements falls into four categories:
+
+        - elements with domains, 5'LTR, 3'LTR, TSD and PBS
+        - elements with domains, 5'LTR, 3'LTR and PBS (TSD was not found)
+        - elements with domains, 5' LTR, 3'LTR, TSD (PBS was not found)
+        - elements with protein domains, 5'LTR and 3'LTR (PBS and LDS were not found)
+
+       .. _REXdb: https://doi.org/10.1186/s13100-018-0144-1
+
     ]]></help>
 </tool>
