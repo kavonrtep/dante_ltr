@@ -3,7 +3,7 @@
         <requirement type="package">blast</requirement>
         <requirement type="package">r-optparse</requirement>
         <requirement type="package">bioconductor-bsgenome</requirement>
-        <requirement type="package">biocondutor-biostrings</requirement>
+        <requirement type="package">bioconductor-biostrings</requirement>
         <requirement type="package">bioconductor-rtracklayer</requirement>
 
     </requirements>
