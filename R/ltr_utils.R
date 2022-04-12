@@ -92,22 +92,23 @@ lastCA <- function(ss) {
   }
 }
 
+
+
 trim2TGAC <- function(bl) {
   for (i in 1:nrow(bl)) {
-    tg_L <- firstTG(bl$qseq[i])
-    tg_R <- firstTG(bl$sseq[i])
-    ca_L <- lastCA(bl$qseq[i])
-    ca_R <- lastCA(bl$sseq[i])
-    e_dist <- bl$length[i] - ca_R
-    no_match <- any(tg_L == 0, tg_R == 0, ca_L == 0, ca_R == 0)
+    cons <- consensusString(c(bl$qseq[i], bl$sseq[i]), ambiguityMap="?")
+    tg_P <- firstTG(cons)
+    ca_P <- lastCA(cons)
+    e_dist <- bl$length[i] - ca_P
+    max_dist = 50 # was 25
+    no_match <- any(tg_P == 0, ca_P == 0)
     if (!no_match &
-      tg_L == tg_R &
-      ca_L == ca_R &
-      tg_L < 8 &
-      e_dist < 8) {
+      tg_P < max_dist &
+      e_dist < max_dist) {
       ## trim alignment
-      bl[i,] <- trim_blast_table(bl[i,], tg_L, e_dist - 1)
+      bl[i,] <- trim_blast_table(bl[i,], tg_P, e_dist - 1)
     }
+
   }
   return(bl)
 }
@@ -564,6 +565,30 @@ add_pbs <- function(te, s, trna_db) {
   unlink(tmp)
   unlink(tmp_out)
   return(te)
+}
+
+
+get_te_rank <- function (gr){
+  DL_id <- gr$ID[gr$type == "transposable_element" &
+                  gr$TSD == "not_found" &
+                  is.na(gr$trna_id)]
+  DLT_id <- gr$ID[gr$type == "transposable_element" &
+                          gr$TSD != "not_found" &
+                          is.na(gr$trna_id)]
+  DLTP_id <- gr$ID[gr$type == "transposable_element" &
+                              gr$TSD != "not_found" &
+                              !is.na(gr$trna_id)]
+  DLP_id <- gr$ID[gr$type == "transposable_element" &
+                          gr$TSD == "not_found" &
+                          !is.na(gr$trna_id)]
+  Rank <- character(length(gr))
+  ID <- unlist(ifelse(is.na(gr$ID), gr$Parent, gr$ID))
+
+  Rank[ID %in% DL_id] <- "DL"
+  Rank[ID %in% DLT_id] <- "DLT"
+  Rank[ID %in% DLP_id] <- "DLP"
+  Rank[ID %in% DLTP_id] <- "DLTP"
+  return(Rank)
 }
 
 get_te_statistics <- function(gr, RT) {

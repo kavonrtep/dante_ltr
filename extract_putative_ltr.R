@@ -72,6 +72,11 @@ if (FALSE) {
   s <- readDNAStringSet("/mnt/ceph/454_data/Vicia_faba_assembly/assembly/ver_210910
   /fasta_parts/211010_Vfaba_chr5.fasta")
 
+  g <- rtracklayer::import("/mnt/raid/users/petr/workspace/dante_ltr/test_data/big_test_data//Cocoa_theobroma_DANTE_filtered.gff3")
+  s <- readDNAStringSet("/mnt/raid/users/petr/workspace/dante_ltr/test_data/big_test_data/Cocoa_theobroma_chr1.fasta.gz")
+
+  source("R/ltr_utils.R")
+
   g <- rtracklayer::import("./test_data/sample_DANTE.gff3")
   s <- readDNAStringSet("./test_data/sample_genome.fasta")
   outfile <- "/mnt/raid/users/petr/workspace/ltr_finder_test/te_with_domains_2.gff3"
@@ -159,6 +164,7 @@ TE <- mclapply(seq_along(gr), function(x)get_TE(s_left[x],
                                                 grR[x]),
                mc.set.seed = TRUE, mc.cores = opt$cpu, mc.preschedule = FALSE
 )
+
 cat('done.\n')
 
 good_TE <- TE[!sapply(TE, is.null)]
@@ -177,14 +183,13 @@ gff3_out <- do.call(c, gff3_list2)
 src <- as.character(gff3_out$source)
 src[is.na(src)] <- "dante_ltr"
 gff3_out$source <- src
-
-# TODO export all files to single directory
-# TODO export individual groups DL, DLT, DLP DLPT gff3
+gff3_out$Rank <- get_te_rank(gff3_out)
+# TODO add attributte specifying individual groups DL, DLT, DLP DLPT gff3
 
 export(gff3_out, con = paste0(outfile, ".gff3"), format = 'gff3')
-# summary statistics
+
 all_tbl <- get_te_statistics(gff3_out, RT)
-write.table(all_tbl, file = paste0(outfile, "_statistics.csv"), sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(all_tbl, file = paste0(outfile, "_statistics.csv"), sep = "\t", quote = FALSE, row.names = TRUE)
 # export fasta files:
 s_te <- get_te_sequences(gff3_out, s)
 
