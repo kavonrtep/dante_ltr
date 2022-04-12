@@ -1,4 +1,4 @@
-<tool id="dante_ltr_search" name="DANTE_LTR transposable element identification" version="0.1.0" python_template_version="3.5">
+<tool id="dante_ltr_search" name="DANTE_LTR transposable element identification" version="0.1.4" python_template_version="3.5">
     <requirements>
         <requirement type="package">blast</requirement>
         <requirement type="package">r-optparse</requirement>
