@@ -1,4 +1,4 @@
-<tool id="clean_dante_ltr" name="DANTE_LTR transposamble elements filtering" version="0.1.0" python_template_version="3.5">
+<tool id="clean_dante_ltr" name="DANTE_LTR transposamble elements filtering" version="0.1.4" python_template_version="3.5">
     <requirements>
 
         <requirement type="package">r-optparse</requirement>
@@ -31,4 +31,4 @@
          non-redundant library of elements for custom RepeatMasker search.
 
     ]]></help>
-</tool>
+</tool>v
