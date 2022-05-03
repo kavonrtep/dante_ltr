@@ -160,7 +160,6 @@ blast_all2all <- function(seqs, db=NULL, ncpus=1, word_size=20, perc_identity=90
   bl_table <- do.call(rbind, bl_list)
   unlink(qf)
   #unlink(outf)
-  print(outf)
   unlink(dbf)
   unlink(script)
   return(bl_table)
@@ -185,7 +184,7 @@ identify_conflicts <- function (bl){
 
 
 analyze_TE <- function(seqs, ncpus = 10, word_size = 20){
-  blt <- blast_all2all(seqs, ncpus = ncpus, word_size = word_size)
+  blt <- blast_all2all(seqs, ncpus = ncpus, word_size = word_size, perc_identity = 90)
   te_conflict_info <- identify_conflicts(blt)
   blt_te_ok <- blast_table_subset(blt, te_conflict_info$ok)
   te_ok_lineages <- split(blt_te_ok,
@@ -284,7 +283,9 @@ blast_table_subset <- function(bl,id){
   return(bl[bl$qaccver %in% id & bl$saccver %in% id,, drop = FALSE])
 }
 
-get_representative_ranges <-  function(bl, min_length = 60){
+get_representative_ranges <-  function(bl, min_length = 200, min_identity = 98){
+  bl <- bl[bl$pident>=min_identity, , drop=FALSE]
+  bl <- bl[bl$pident>=min_identity & bl$length >= min_length, , drop=FALSE]
   score <- sort(unlist(by(bl$bitscore, bl$qaccver, sum, simplify = FALSE)),
                decreasing = TRUE)
   L <-  bl$qlen[!duplicated(bl$qaccver)]
@@ -320,7 +321,6 @@ expected_diversity <- function(seqs, niter=100, km = 6){
   L <- nchar(seqs)
   R <- matrix(ncol = niter, nrow = length(seqs))
   for (i in 1:niter){
-    print(i)
     seqs_rnd <- DNAStringSet(sapply(L, function(n) paste(sample(c("A", "C", "T", "G"), n, replace=TRUE), collapse="")))
     R[,i] <- seq_diversity(seqs_rnd, km = km)$richness
   }
@@ -623,9 +623,13 @@ get_te_statistics <- function(gr, RT) {
   return(out)
 }
 
-getSeqNamed <- function(s, gr) {
+getSeqNamed <- function(s, gr, name = NULL) {
   spart <- getSeq(s, gr)
-  id1 <- paste0(seqnames(gr), '_', start(gr), "_", end(gr))
+  if (is.null(name)){
+    id1 <- paste0(seqnames(gr), '_', start(gr), "_", end(gr))
+  }else{
+    id1 <- mcols(gr)[,name]
+  }
   id2 <- gr$Final_Classification
   names(spart) <- paste0(id1, "#", id2)
   spart

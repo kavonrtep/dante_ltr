@@ -108,7 +108,6 @@ TE_DLT_plus_DLP_info_DLTP_verified <- compare_TE_datasets(c(s_te$DLT, s_te$DLP),
 )
 
 TE_DLT_plus_DLP_info_multiplicity <- verify_based_on_multiplicity(TE_DLT_plus_DLP_info)
-
 # create additional library from rank 2 verified by multiplicity
 id_for_additional_library <- setdiff(
   TE_DLT_plus_DLP_info_multiplicity$id_ok_mp_verified,
@@ -133,7 +132,6 @@ if (length(id_for_additional_library) > 1) {
     seq_representative <- TE_DLTP_info$seqs_representative
   }
 }
-
 
 # TE  rank 3
 TE_DL_info_DLTP_verified <- compare_TE_datasets(
@@ -169,7 +167,46 @@ c2 <- sapply(g$Parent, function(x)ifelse(length(x) == 0, "", x)) %in% ID[id_of_g
 
 gff_out <- g[c1 | c2]
 
+gff_te <- gff_out[gff_out$type %in% "transposable_element"]
+gff_5ltr <- gff_out[gff_out$LTR %in% "5LTR"]
+gff_3ltr <- gff_out[gff_out$LTR %in% "3LTR"]
+full_te <- getSeqNamed(s, gff_te)
+ltr5 <-  getSeqNamed(s, gff_5ltr)
+ltr3 <-  getSeqNamed(s, gff_3ltr)
+inc <-  gff_te$Rank != "DL"
 
-writeXStringSet(seq_representative, paste0(opt$output, "_RM_lib.fasta"))
+writeXStringSet(seq_representative, paste0(opt$output, "_RM_lib_non_redundant.fasta"))
+writeXStringSet(full_te, paste0(opt$output, "_RM_lib_full_TE.fasta"))
+writeXStringSet(ltr5, paste0(opt$output, "_RM_lib_5LTR.fasta"))
+writeXStringSet(ltr3, paste0(opt$output, "_RM_lib_3LTR.fasta"))
+
 export(gff_out, paste0(opt$output, "_clean.gff3"), format = "gff3")
 
+lv <- sort(unique(gff_te$Final_Classification))
+te_count <- table(factor(gff_te$Final_Classification, levels=lv))
+
+pdf(paste0(opt$output, "_summary.pdf"), width = 13, height=8, pointsize = 10)
+par(mfrow=c(1,2), mar=c(5,7,2,0), las=1)
+boxplot(width(gff_te) ~ factor(gff_te$Final_Classification, levels=lv),
+        horizontal = TRUE, xlab="length[bp]", ylab="",
+        names = paste0(gsub("^.+[|]", "", lv), " (", te_count, ")"),
+        main = 'Full TE', at = seq_along(lv)*4
+)
+boxplot(width(gff_te[inc]) ~ factor(gff_te$Final_Classification[inc], levels=lv),
+        horizontal = TRUE, xlab="length[bp]", ylab="",
+        names = rep("", length(lv)),
+        main = 'Full TE', at = seq_along(lv)*4-1, add=TRUE, col=2
+)
+par(mar=c(5,0,2,7))
+boxplot(width(gff_5ltr) ~ factor(gff_5ltr$Final_Classification, levels=lv),
+        horizontal = TRUE, xlab="length[bp]", ylab="",
+        names = rep("", length(lv)),
+        main = "5'LTR", at = seq_along(lv)*4
+)
+boxplot(width(gff_5ltr[inc]) ~ factor(gff_5ltr$Final_Classification[inc], levels=lv),
+        horizontal = TRUE, xlab="length[bp]", ylab="",
+        names = rep("", length(lv)),
+        main = "5'LTR", at = seq_along(lv)*4-1, add=TRUE, col=2
+)
+legend('bottomright', col=c("grey","2"), legend=c("All TE", "TE with PBS/TSD"), pch=15)
+dev.off()
