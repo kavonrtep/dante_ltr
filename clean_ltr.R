@@ -76,6 +76,9 @@ g <- rtracklayer::import(opt$gff3, format = 'gff3')  # DANTE gff3
 cat("done\n")
 # testing
 if (FALSE) {
+  g <- rtracklayer::import("./test_data/big_test_data/dante_ltr_unfiltered_t.cacao.gff3")
+  s <- readDNAStringSet("./test_data/big_test_data/T_cacao_chromosomes.fasta")
+
   g <- rtracklayer::import("./test_data/sample_ltr_annotation.gff3")
   s <- readDNAStringSet("./test_data/sample_genome.fasta")
 
@@ -88,6 +91,12 @@ if (FALSE) {
   source("./R/ltr_utils.R")
 }
 
+## ID in g must be unique - this could be a problem if gff is concatenated from multiple files!
+## id ID is renamed - rename parent to!
+## add chromosom index to disctinguish same IDs
+suffix <- as.numeric(seqnames(g))
+g$ID <- ifelse(is.na(g$ID), NA, paste0(g$ID,"_", suffix))
+g$Parent <- ifelse(is.na(g$Parent), NA, paste0(g$Parent,"_", suffix))
 
 # get te sequence based on rank
 
@@ -101,11 +110,9 @@ TE_DLTP_info <- analyze_TE(s_te$DLTP, word_size = word_size, ncpus = ncpus)
 # TE rank 2:
 TE_DLT_plus_DLP_info <- analyze_TE(c(s_te$DLP, s_te$DLT), word_size = word_size, ncpus
   = ncpus)
-TE_DLT_plus_DLP_info_DLTP_verified <- compare_TE_datasets(c(s_te$DLT, s_te$DLP), ncpus
-  = ncpus,
-                                                          TE_DLTP_info$seqs_representative,
-                                                          word_size = word_size
-)
+  TE_DLT_plus_DLP_info_DLTP_verified <- compare_TE_datasets(c(s_te$DLT, s_te$DLP), ncpus
+    = ncpus,TE_DLTP_info$seqs_representative, word_size = word_size
+  )
 
 TE_DLT_plus_DLP_info_multiplicity <- verify_based_on_multiplicity(TE_DLT_plus_DLP_info)
 # create additional library from rank 2 verified by multiplicity
@@ -133,11 +140,11 @@ if (length(id_for_additional_library) > 1) {
   }
 }
 
-# TE  rank 3
+# TE  rank 3 - verify agains good DLTP
 TE_DL_info_DLTP_verified <- compare_TE_datasets(
   s_te$DL,
-  TE_DLTP_info$seqs_representative, min_coverage = 0.98,
-  ncpus = ncpus
+  TE_DLTP_info$seqs_representative, min_coverage = 0.95,
+  ncpus = ncpus, word_size = word_size
 )
 
 
