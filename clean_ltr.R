@@ -177,10 +177,14 @@ gff_out <- g[c1 | c2]
 gff_te <- gff_out[gff_out$type %in% "transposable_element"]
 gff_5ltr <- gff_out[gff_out$LTR %in% "5LTR"]
 gff_3ltr <- gff_out[gff_out$LTR %in% "3LTR"]
+
 full_te <- getSeqNamed(s, gff_te)
+names(full_te) <- paste0(gff_te$ID,":",names(full_te))
 ltr5 <-  getSeqNamed(s, gff_5ltr)
+names(ltr5) <-  paste0(gff_5ltr$Parent,":",names(ltr5))
 ltr3 <-  getSeqNamed(s, gff_3ltr)
-inc <-  gff_te$Rank != "DL"
+names(ltr3) <- paste0(gff_3ltr$Parent,":",names(ltr3))
+inc <- gff_te$Rank != "DL"
 
 writeXStringSet(seq_representative, paste0(opt$output, "_RM_lib_non_redundant.fasta"))
 writeXStringSet(full_te, paste0(opt$output, "_RM_lib_full_TE.fasta"))
