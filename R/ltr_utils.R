@@ -26,15 +26,16 @@ get_domain_clusters <- function(gff) {
   gff_clusters
 }
 
-clean_domain_clusters <- function(gcl) {
+clean_domain_clusters <- function(gcl, min_domains=5) {
   ## remove clusters wich does not have enough domains or domains
   ## are on different strand
   N_domains <- sapply(gcl, nrow)
   N_unique_domains <- sapply(gcl, function(x)length(unique(x$Name)))
   S <- sapply(gcl, function(x)paste(sort(unique(x$strand)), collapse = " "))
   S_OK <- S %in% c("+", "-")
-  min_domains <- 5
+  # TODO - max span should be set specifically for each lineage
   maxlength <- 15000 # max span between domains
+
   span <- sapply(gcl, function(x)max(x$end) - min(x$start))
   cond1 <- S_OK &
     N_unique_domains == N_domains &
@@ -92,6 +93,15 @@ lastCA <- function(ss) {
   }
 }
 
+domain_distance <- function(d_query, d_reference){
+  if (d_query == d_reference){
+    return (0)
+  }
+  d_query_p <-  strsplit(d_query," ")[[1]]
+  d_reference_p <-  strsplit(d_reference," ")[[1]]
+  d <- length(d_reference_p) - sum(d_query_p == d_reference_p[d_reference_p %in% d_query_p])
+  return(d)
+}
 
 
 trim2TGAC <- function(bl) {

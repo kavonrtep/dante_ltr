@@ -14,7 +14,11 @@ option_list <- list(
   make_option(c("-o", "--output"), action = "store", type = "character",
               help = "output file path and prefix", default = NULL),
   make_option(c("-c", "--cpu"), type = "integer", default = 5,
-              help = "Number of cpu to use [default %default]", metavar = "number")
+              help = "Number of cpu to use [default %default]", metavar = "number"),
+  make_option(c("-M", "--max_missing_domains"), type = "integer", default = 0,
+              help = "Maximum number of missing domains is retrotransposon [default %default]",
+              metavar = "number")
+
 
 )
 description <- paste(strwrap(""))
@@ -62,10 +66,8 @@ if (FALSE) {
   s <- readDNAStringSet("/mnt/raid/454_data/cuscuta/Ceuropea_assembly_v4/0_final_asm_hifiasm+longstitch/asm.bp.p.ctg_scaffolds.short_names.fa")
   lineage_info <- read.table("/mnt/raid/users/petr/workspace/ltr_finder_test/lineage_domain_order.csv", sep = "\t", header = TRUE, as.is = TRUE)
 
-  g <- rtracklayer::import("/mnt/raid/users/petr/workspace/ltr_finder_test/test_data
-  /DANTE_filtered_part.gff3")
-  s <- readDNAStringSet("/mnt/raid/users/petr/workspace/ltr_finder_test/test_data
-  /Rbp_part.fa")
+  g <- rtracklayer::import("/mnt/raid/users/petr/workspace/ltr_finder_test/test_data/DANTE_filtered_part.gff3")
+  s <- readDNAStringSet("/mnt/raid/users/petr/workspace/ltr_finder_test/test_data/Rbp_part.fa")
 
   g <- rtracklayer::import("/mnt/raid/users/petr/workspace/dante_ltr/test_data
   /DANTE_Vfaba_chr5.gff3")
@@ -120,8 +122,14 @@ gcl_clean_domains <- sapply(gcl_clean, function(x) ifelse(x$strand[1] == "-",
                                                 paste(x$Name, collapse = " "))
 )
 
+dd <- mapply(domain_distance,
+             d_query = gcl_clean_domains,
+             d_reference = lineage_domain[gcl_clean_lineage])
+
 # get lineages which has correct number and order of domains
-gcl_clean2 <- gcl_clean[gcl_clean_domains == lineage_domain[gcl_clean_lineage]]
+# gcl_clean2 <- gcl_clean[gcl_clean_domains == lineage_domain[gcl_clean_lineage]]
+gcl_clean2 <- gcl_clean[dd <= opt$max_missing_domains]
+
 gcl_clean_with_domains <- gcl_clean2[check_ranges(gcl_clean2, s)]
 gr <- get_ranges(gcl_clean_with_domains)
 
