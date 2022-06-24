@@ -8,31 +8,37 @@
 
     </requirements>
     <command detect_errors="exit_code"><![CDATA[
-        Rscript ${__tool_directory__}/extract_putative_ltr.R --gff3 '$dante' --reference_sequence '$reference' --output output --cpu 32
+        Rscript ${__tool_directory__}/extract_putative_ltr.R --gff3 '$dante' --reference_sequence '$reference' -M $max_missing --output output --cpu 32
         &&
         mv output.gff3 $te_ltr_gff
+        &&
+        mv output_statistics.csv $statistics
     ]]></command>
     <inputs>
         <param type="data" name="dante" format="gff3" label="Filtered GFF3 output from DANTE pipeline"/>
         <param type="data" name="reference" format="fasta" label="Reference sequence matching DANTE output" />
+        <param type="integer" name="max_missing" min="0" max="3" value="1" label="Maximum number of missing protein domains to tolerate in full length retrotransposon" />
     </inputs>
     <outputs>
         <data name="te_ltr_gff" format="gff3" label="LTR retrotransposons annotation (GFF3)
         based on DANTE annotation $dante.hid and reference $reference.hid" />
+        <data name="statistics" format="tabular" label="LTR retrotransposons detection
+        summary based on $dante.hid and reference $reference.hid" />
     </outputs>
     <help><![CDATA[
         This tool uses output from DANTE annotation pipeline to identify full length LTR
         transposable elements. Output is in the GFF3 format and include annotation of
-        5' and 3' Longe Terminal Repeats, Target Site Duplication (TSD) and primer binding site (PBS).
+        5' and 3' Long Terminal Repeats, Target Site Duplication (TSD) and primer binding site (PBS).
 
-        All identified elements contains complete set of protein domains as defined in
-        REXdb_. Based on the results detection  structural feature,
-        elements falls into four categories:
+        All identified elements contains set of protein domains as defined in
+        REXdb_.Based on the results of detection of structural features,
+        elements falls into five categories:
 
-        - elements with domains, 5'LTR, 3'LTR, TSD and PBS
-        - elements with domains, 5'LTR, 3'LTR and PBS (TSD was not found)
-        - elements with domains, 5' LTR, 3'LTR, TSD (PBS was not found)
-        - elements with protein domains, 5'LTR and 3'LTR (PBS and LDS were not found)
+        - elements with domains, 5'LTR, 3'LTR, TSD and PBS - rank DLTP
+        - elements with domains, 5'LTR, 3'LTR and PBS (TSD was not found) rank DLP
+        - elements with domains, 5' LTR, 3'LTR, TSD (PBS was not found) - rank DTL
+        - elements with protein domains, 5'LTR and 3'LTR (PBS and LDS were not found)  - rank DL
+        - elements as cluster of proteins domains with same classification, no LTRs - rank D
 
        .. _REXdb: https://doi.org/10.1186/s13100-018-0144-1
 

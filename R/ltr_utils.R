@@ -11,36 +11,115 @@ add_coordinates_of_closest_neighbor <- function(gff) {
   return(gff_updated)
 }
 
+get_domain_clusters_alt <- function(gff, dist_models, threshold=0.99){
+  gff <- sort(gff, by = ~ seqnames * start)
+  domain_pairs <- data.frame(
+    D1 = paste0(head(gff$Name,-1),"_S"),
+    D2 = paste0(gff$Name[-1],"_S"),
+    C1 =  head(gff$Final_Classification,-1),
+    C2 =  gff$Final_Classification[-1],
+    S1 =  head(strand(gff),-1),
+    S2 =  strand(gff)[-1],
+    start1 =  head(start(gff),-1),
+    start2 = start(gff)[-1],
+    chrpos= paste0(seqnames(gff)[-1],"_",start(gff)[-1])
+  )
+  domain_pairs$D_A <- with(domain_pairs, ifelse(D1 < D2, D1, D2))
+  domain_pairs$D_B <- with(domain_pairs, ifelse(D1 > D2, D1, D2))
+  domain_pairs$quantile <- 1
+  same_element_cluster <- domain_pairs$S1 == domain_pairs$S2 & domain_pairs$C1 == domain_pairs$C2
+  domain_pairs$same_element_cluster <- same_element_cluster
+
+  q_plus_function <- apply(domain_pairs[same_element_cluster,],
+                                         1,
+                                         function(x) dist_models$plus[[x["C1"]]][[x["D_A"]]][[x["D_B"]]])
+
+  D <- abs(domain_pairs[same_element_cluster,]$start1 - domain_pairs[same_element_cluster,]$start2)
+
+  q_plus_value <- mapply(function(x, D)if(is.null(x)){0}else{x(D)}, x= q_plus_function, D = D)
+
+  domain_pairs$quantile[same_element_cluster] <- q_plus_value
+
+  domain_pairs$split_position <- !same_element_cluster | domain_pairs$quantile > threshold
+  # combine clusters based on distances and original cluster
+  clusters <- paste(cumsum(c(TRUE, domain_pairs$split_position)), get_domain_clusters(gff))
+  return(clusters)
+}
+
+
 get_domain_clusters <- function(gff) {
   # get consecutive domains from same linage
   # must be sorted!
-  gag_plus <- as.numeric(cumsum(gff$Name == "GAG" & strand(gff) == '+'))
-  gag_minus <- rev(as.numeric(cumsum(rev(gff$Name == "GAG" & strand(gff) == '-'))))
+  plus_order_split <- c(0, as.numeric(cumsum(head(gff$domain_order, -1) >= gff$domain_order[-1] & strand(gff)[-1] == '+')))
+  minus_order_split <- rev(as.numeric(cumsum(rev(c(gff$domain_order[-1] >= head(gff$domain_order,-1) & strand(gff)[-1] == '-', FALSE)))))
   # split based on classification - must be same and consecutive
   x <- rle(gff$Final_Classification)
   # split on strand change
   s <- rep(seq_along(runLength(strand(gff))), runLength(strand(gff)))
   domain_cluster <- paste0(rep(seq_along(x$lengths), x$lengths), "_", seqnames(gff),
-                           "_", gag_plus, "_", gag_minus, "_", s)
-  gff_clusters <- split(as.data.frame(gff), factor(domain_cluster, levels = unique(domain_cluster)))
-  gff_clusters
+                           "_", plus_order_split, "_", minus_order_split, "_", s)
+  clusters <- factor(domain_cluster, levels = unique(domain_cluster))
+  return(clusters)
 }
 
-clean_domain_clusters <- function(gcl, min_domains=5) {
+# create partial TE from clusters
+get_partial_te_from_cluster_of_domains <- function (gpart){
+  ID <- paste("TE_partial_", gpart$Cluster[1], sep="")
+  te_partial <- GRanges(type="transposable_element_partial",
+                        strand=strand(gpart)[1],
+                        ID = ID,
+                        source = "dante_ltr",
+                        seqnames=seqnames(gpart)[1],
+                        Final_Classification=gpart$Final_Classification[1],
+                        Name=gpart$Final_Classification[1],
+                        IRanges(min(start(gpart)), max(end(gpart))))
+  gpart$Parent <- ID
+  return(c(te_partial,gpart))
+}
+
+# create partial TE from clusters
+get_partial_te_from_cluster_of_domains <- function(gpart, ID) {
+  te_partial <- makeGRangesFromDataFrame(
+    data.frame(type = "transposable_element_partial",
+               strand = gpart$strand[1],
+               ID = ID,
+               source = "dante_ltr",
+               seqnames = gpart$seqnames[1],
+               Final_Classification =
+                 gpart$Final_Classification[1],
+               Name = gpart$Final_Classification[1],
+               IRanges(min(gpart$start), max(gpart$end))),
+    keep.extra.columns = TRUE)
+
+
+  gpart$Parent <- ID
+  gpart_gr = makeGRangesFromDataFrame(gpart, keep.extra.columns = TRUE)
+  return(c(te_partial, gpart_gr))
+}
+
+# function to count for each element number of occurences:
+count_occurences_for_each_element <- function(x) {
+  counts_unique <- table(x)
+  counts <- counts_unique[x]
+  counts
+}
+
+
+clean_domain_clusters <- function(gcl, lineage_domain_span, min_domains) {
   ## remove clusters wich does not have enough domains or domains
   ## are on different strand
   N_domains <- sapply(gcl, nrow)
   N_unique_domains <- sapply(gcl, function(x)length(unique(x$Name)))
   S <- sapply(gcl, function(x)paste(sort(unique(x$strand)), collapse = " "))
   S_OK <- S %in% c("+", "-")
-  # TODO - max span should be set specifically for each lineage
-  maxlength <- 15000 # max span between domains
-
+  max_span <- lineage_domain_span[sapply(gcl, function(x)  x$Final_Classification[1])]
+  # set to zero if lineage is not covered in lineage domain span
+  max_span[is.na(max_span)] <- 0
   span <- sapply(gcl, function(x)max(x$end) - min(x$start))
   cond1 <- S_OK &
     N_unique_domains == N_domains &
     N_domains >= min_domains &
-    span <= maxlength
+    span <= max_span
   return(gcl[cond1])
 }
 
@@ -139,6 +218,9 @@ blast_all2all <- function(seqs, db=NULL, ncpus=1, word_size=20, perc_identity=90
     query <- list(seqs)
   }else{
     query <-split(seqs, round(seq(1,ncpus,length.out = length(seqs))))
+    if (length(query) < ncpus){
+      ncpus <- length(query)
+    }
   }
   if(is.null(db)){
     # search against itself
@@ -193,8 +275,8 @@ identify_conflicts <- function (bl){
 }
 
 
-analyze_TE <- function(seqs, ncpus = 10, word_size = 20){
-  blt <- blast_all2all(seqs, ncpus = ncpus, word_size = word_size, perc_identity = 90)
+analyze_TE <- function(seqs, ncpus = 10, word_size = 20, perc_identity = 90, ...){
+  blt <- blast_all2all(seqs, ncpus = ncpus, word_size = word_size, perc_identity = perc_identity, ...)
   te_conflict_info <- identify_conflicts(blt)
   blt_te_ok <- blast_table_subset(blt, te_conflict_info$ok)
   te_ok_lineages <- split(blt_te_ok,
@@ -208,7 +290,6 @@ analyze_TE <- function(seqs, ncpus = 10, word_size = 20){
   ))
   seqs_representative <- getSeq(seqs, Reduce(c, gr_representative))
   names(seqs_representative) <- seqnames(Reduce(c, gr_representative))
-  # TODO - add swithin group verification here, ! exclude self hits!!
 
   return(
     list(
@@ -250,8 +331,8 @@ verify_based_on_multiplicity <- function(TE_info, min_coverage=0.99, min_multipl
 
 }
 
-compare_TE_datasets <- function(Q, S, word_size = 20, min_coverage = 0.95, ncpus=10){
-  blt <- blast_all2all(seqs = Q, db = S, ncpus = ncpus, word_size = word_size)
+compare_TE_datasets <- function(Q, S, word_size = 20, min_coverage = 0.95, ncpus=10, ...){
+  blt <- blast_all2all(seqs = Q, db = S, ncpus = ncpus, word_size = word_size, ...)
   QL <- gsub(".+[|]", "", blt$qaccver)
   SL <- gsub(".+[|]", "", blt$saccver)
   id_with_conflict <- unique(c(blt$qaccver[QL != SL]))
@@ -350,7 +431,7 @@ seq_diversity <- function (seqs, km=6){
 
 
 
-blast <- function(s1, s2) {
+blast <- function(s1, s2, expected_aln_lenght=NULL) {
   tmp1 <- tempfile()
   tmp2 <- tempfile()
   tmp_out <- tempfile()
@@ -371,7 +452,9 @@ blast <- function(s1, s2) {
   }
   out <- trim2TGAC(out_raw)
   # remove alingment shorted that
-  out <- out[out$length > 100,]
+  # out <- out[out$length > 100,]
+  # alngment must be at least 80% of expected LTRmin95
+  out <- out[out$length > (expected_aln_lenght *0.8),]
   if (nrow(out) == 0) {
     return(out)
   }
@@ -492,15 +575,15 @@ get_te_gff3 <- function(g, ID) {
     TE$TSD <- as.character(g$ltr_info[[1]]$TSD_sequence)
   }
 
-  TE$Final_Classification <- D$Final_Classification[1]
+  TE$Name <- TE$Final_Classification <- D$Final_Classification[1]
 
   D$Parent <- ID
   out <- c(TE, LTR_3, LTR_5, D, TSD)
   return(out)
 }
 
-get_TE <- function(Lseq, Rseq, domains_gff, GR, GRL, GRR) {
-  xx <- blast(Lseq, Rseq)
+get_TE <- function(Lseq, Rseq, domains_gff, GR, GRL, GRR,LTR_length) {
+  xx <- blast(Lseq, Rseq, LTR_length)
   if (nrow(xx) == 0) {
     return(NULL)
   }else {
@@ -601,27 +684,40 @@ get_te_rank <- function (gr){
   return(Rank)
 }
 
-get_te_statistics <- function(gr, RT) {
-  DOMAINS_LTR <- gr[gr$type == "transposable_element" &
-                      gr$TSD == "not_found" &
-                      is.na(gr$trna_id)]
-  DOMAINS_LTR_TSD <- gr[gr$type == "transposable_element" &
-                          gr$TSD != "not_found" &
-                          is.na(gr$trna_id)]
-  DOMAINS_LTR_TSD_PBS <- gr[gr$type == "transposable_element" &
-                              gr$TSD != "not_found" &
-                              !is.na(gr$trna_id)]
-  DOMAINS_LTR_PBS <- gr[gr$type == "transposable_element" &
-                          gr$TSD == "not_found" &
-                          !is.na(gr$trna_id)]
+
+get_te_statistics <- function(gr, RT){
+  Ranks <- c("D", "DL", "DLT", "DLP", "DLTP")
+  all_class <- names(sort(table(RT$Final_Classification), decreasing = TRUE))
+  RT_domain <- as.integer(table(factor(RT$Final_Classification, levels = all_class)))
+  rank_table <- list()
+  for (i in 1:length(Ranks)) {
+    gr_part <- gr[gr$type == "transposable_element" & gr$Rank == Ranks[i]]
+    rank_table[[Ranks[i]]] <- as.integer(table(factor(gr_part$Final_Classification, levels = all_class)))
+
+  }
+  out <- cbind(do.call(cbind, rank_table), RT_domain=RT_domain)
+  out <- rbind(out, Total = colSums(out))
+  rownames(out) <- c(all_class, "Total")
+  return(out)
+}
+
+
+get_te_statistics_old <- function(gr, RT) {
+  DOMAINS <- gr[gr$type == "transposable_element" & gr$Rank == "D"]
+  DOMAINS_LTR <- gr[gr$type == "transposable_element" & gr$Rank == "DL"]
+  DOMAINS_LTR_TSD <- gr[gr$type == "transposable_element" & gr$Rank == "DLT"]
+  DOMAINS_LTR_TSD_PBS <- gr[gr$type == "transposable_element" &  gr$Rank == "DLTP"]
+  DOMAINS_LTR_PBS <- gr[gr$type == "transposable_element"  & gr$Rank == "DLP"]
 
   all_class <- names(sort(table(RT$Final_Classification), decreasing = TRUE))
   RT_domain <- as.integer(table(factor(RT$Final_Classification, levels = all_class)))
+  D <- as.integer(table(factor(DOMAINS$Final_Classification, levels = all_class)))
   DL <- as.integer(table(factor(DOMAINS_LTR$Final_Classification, levels = all_class)))
   DLT <- as.integer(table(factor(DOMAINS_LTR_TSD$Final_Classification, levels = all_class)))
   DLTP <- as.integer(table(factor(DOMAINS_LTR_TSD_PBS$Final_Classification, levels = all_class)))
   DLP <- as.integer(table(factor(DOMAINS_LTR_PBS$Final_Classification, levels = all_class)))
   out <- data.frame(RT_domain = RT_domain,
+                    DOMAINS = D,
                     DOMAINS_LTR = DL,
                     DOMAINS_LTR_TSD = DLT,
                     DOMAINS_LTR_PBS = DLP,
@@ -654,32 +750,19 @@ get_TE_id <- function (gr){
 
 }
 
-get_te_sequences <- function(gr, s) {
-  # return list of biostrings
-  DOMAINS_LTR <- gr[gr$type == "transposable_element" &
-                      gr$TSD == "not_found" &
-                      is.na(gr$trna_id)]
-  DOMAINS_LTR_TSD <- gr[gr$type == "transposable_element" &
-                          gr$TSD != "not_found" &
-                          is.na(gr$trna_id)]
-  DOMAINS_LTR_TSD_PBS <- gr[gr$type == "transposable_element" &
-                              gr$TSD != "not_found" &
-                              !is.na(gr$trna_id)]
-  DOMAINS_LTR_PBS <- gr[gr$type == "transposable_element" &
-                          gr$TSD == "not_found" &
-                          !is.na(gr$trna_id)]
-  s_DL <- getSeqNamed(s, DOMAINS_LTR)
-  s_DLT <- getSeqNamed(s, DOMAINS_LTR_TSD)
-  s_DLP <- getSeqNamed(s, DOMAINS_LTR_PBS)
-  s_DLTP <- getSeqNamed(s, DOMAINS_LTR_TSD_PBS)
-  return(DNAStringSetList(
-    DL = s_DL,
-    DLT = s_DLT,
-    DLP = s_DLP,
-    DLTP = s_DLTP
-  ))
 
+get_te_sequences <- function (gr, s) {
+  Ranks <- c("D", "DL", "DLT", "DLP", "DLTP")
+  s_te <- list()
+    for (i in 1:length(Ranks)) {
+        gr_te <- gr[gr$type == "transposable_element" & gr$Rank == Ranks[i]]
+        if (length(gr_te) > 0) {
+        s_te[[Ranks[i]]] <- getSeqNamed(s, gr_te)
+        }
+    }
+  return(s_te)
 }
+
 
 cd_hit_est <- function(seqs, min_identity = 0.9, word_size = 10, ncpu = 2){
   # runs cd-hi-est and return table with cluster membership, and size and if reads was repesentative
@@ -720,3 +803,54 @@ cd_hit_est <- function(seqs, min_identity = 0.9, word_size = 10, ncpu = 2){
   return(cls_info)
 }
 
+
+dante2dist <-  function(dc){
+  # dc - cluster of domains, granges
+  dpos <- get_dom_pos(dc)
+  D <-  c(dist(dpos))
+  NN <-  combn(names(dpos), 2)
+  # order feature in pair alphabeticaly
+  N1 <-  ifelse(NN[1,]<NN[2,], NN[1,], NN[2, ])
+  N2 <-  ifelse(NN[1,]>NN[2,], NN[1,], NN[2, ])
+  dfd <-  data.frame(F1 = N1, F2 = N2, distance = D)
+}
+
+
+
+dante_to_quantiles <- function(dc, model_function, lineage=NULL){
+  dfd <- dante2dist(dc)
+  if (is.null(lineage)){
+    lineage <- dc$Final_Classification[1]
+  }
+  # check if lineage has defined ecdf
+  if (lineage %in% names(model_function$plus)){
+    fn <- model_function$plus[[lineage]]
+    fnm <- model_function$minus[[lineage]]
+    dstat1 <- mapply(mapply(dfd$F1, dfd$F2, FUN=function(a, b)fn[[a]][[b]]), dfd$distance, FUN=function(f, x)f(x))
+    dstat2 <- mapply(mapply(dfd$F1, dfd$F2, FUN=function(a, b)fnm[[a]][[b]]), dfd$distance, FUN=function(f, x)f(-x))
+    dout <- cbind(dfd, dstat1, dstat2, dstat12 = ifelse(dstat1>dstat2, dstat2, dstat1))
+    return(dout)
+  }else{
+    return(NULL)
+  }
+}
+
+get_dom_pos <- function(g){
+  if (length(g) == 0){
+    return(NULL)
+  }
+  gdf <-  data.frame(rexdb = as.character(seqnames(g)),
+                   domain = g$Name,
+                   S = start(g),
+                   E = end(g),
+                   stringsAsFactors = FALSE)
+  gSmat <- xtabs(S  ~ rexdb + domain, data = gdf)
+  colnames(gSmat) <-  paste0(colnames(gSmat),"_S")
+  gEmat <- xtabs(E  ~ rexdb + domain, data = gdf)
+  colnames(gEmat) <-  paste0(colnames(gEmat),"_E")
+  SEmat <- cbind(gSmat,gEmat)
+  # reorder
+  dom_position <- colMeans(SEmat)
+  SEmat_sorted <-  SEmat[,order(dom_position)]
+  return(SEmat_sorted)
+}
