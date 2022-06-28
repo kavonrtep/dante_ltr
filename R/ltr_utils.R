@@ -138,17 +138,20 @@ get_ranges <- function(gx, offset = OFFSET) {
   gr <- GRanges(seqnames = sapply(gx, function(x)x$seqnames[1]), IRanges(start = S - offset, end = E + offset))
 }
 
-get_ranges_left <- function(gx, offset = OFFSET, offset2 = 300) {
+get_ranges_left <- function(gx, offset = OFFSET, offset2 = 10) {
+  ## offset2 - how many nt cen LTR extend to closes protein domain
+  ## this is necassary as some detected proteins domains does not have correct bopundaries
+  ## if LTR retrotransposons insters to other protein domain.
   S <- sapply(gx, function(x)min(x$start))
-  max_offset <- S - sapply(gx, function(x)min(x$upstream_domain))
+  max_offset <- S - sapply(gx, function(x)min(x$upstream_domain)) + offset2
   offset_adjusted <- ifelse(max_offset < offset, max_offset, offset)
   gr <- GRanges(seqnames = sapply(gx, function(x)x$seqnames[1]), IRanges(start = S - offset_adjusted, end = S + offset2))
   return(gr)
 }
 
-get_ranges_right <- function(gx, offset = OFFSET, offset2 = 300) {
+get_ranges_right <- function(gx, offset = OFFSET, offset2 = 10) {
   E <- sapply(gx, function(x)max(x$end))
-  max_offset <- sapply(gx, function(x)max(x$downstream_domain)) - E
+  max_offset <- sapply(gx, function(x)max(x$downstream_domain)) - E + offset2
   offset_adjusted <- ifelse(max_offset < offset, max_offset, offset)
   gr <- GRanges(seqnames = sapply(gx, function(x)x$seqnames[1]), IRanges(start = E - offset2, end = E + offset_adjusted))
   return(gr)
@@ -189,7 +192,7 @@ trim2TGAC <- function(bl) {
     tg_P <- firstTG(cons)
     ca_P <- lastCA(cons)
     e_dist <- bl$length[i] - ca_P
-    max_dist = 50 # was 25
+    max_dist <- 50 # was 25
     no_match <- any(tg_P == 0, ca_P == 0)
     if (!no_match &
       tg_P < max_dist &
@@ -684,6 +687,17 @@ get_te_rank <- function (gr){
   return(Rank)
 }
 
+dante_filtering <- function(dante_gff, min_similarity=0.4,
+                            min_identity=0.2, Relative_Length=0.6,
+                            min_relat_interuptions=8) {
+  include <- as.numeric(dante_gff$Similarity) >= min_similarity &
+    as.numeric(dante_gff$Identity) >= min_identity &
+    as.numeric(dante_gff$Relat_Length) >= Relative_Length &
+    as.numeric(dante_gff$Relat_Interruptions) <= min_relat_interuptions
+
+  include[is.na(include)] <- FALSE
+  return(dante_gff[include])
+}
 
 get_te_statistics <- function(gr, RT){
   Ranks <- c("D", "DL", "DLT", "DLP", "DLTP")

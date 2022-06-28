@@ -17,8 +17,10 @@ option_list <- list(
               help = "Number of cpu to use [default %default]", metavar = "number"),
   make_option(c("-M", "--max_missing_domains"), type = "integer", default = 0,
               help = "Maximum number of missing domains is retrotransposon [default %default]",
+              metavar = "number"),
+  make_option(c("-L", "--min_relative_length"), type = "numeric", default = 0.6,
+              help = "Minimum relative length of protein domain to be considered for retrostransposon detection [default %default]",
               metavar = "number")
-
 
 )
 description <- paste(strwrap(""))
@@ -71,6 +73,7 @@ if (FALSE) {
   s <- readDNAStringSet("/mnt/raid/454_data/cuscuta/Ceuropea_assembly_v4/0_final_asm_hifiasm+longstitch/asm.bp.p.ctg_scaffolds.short_names.fa")
   lineage_info <- read.table("/mnt/raid/users/petr/workspace/ltr_finder_test/lineage_domain_order.csv", sep = "\t", header = TRUE, as.is = TRUE)
 
+  g <- rtracklayer::import("/mnt/raid/users/petr/workspace/dante_ltr/test_data/sample_DANTE_unfiltered.gff3")
   g <- rtracklayer::import("/mnt/raid/users/petr/workspace/ltr_finder_test/test_data/DANTE_filtered_part.gff3")
   s <- readDNAStringSet("/mnt/raid/users/petr/workspace/ltr_finder_test/test_data/Rbp_part.fa")
 
@@ -122,6 +125,8 @@ lineage_domains_sequence <- unlist(mapply(function(d,l) {
   paste(strsplit(d, " ")[[1]], ":", l, sep = "")
 }, d = lineage_domain, l = names(lineage_domain)))
 
+# filter g gff3
+g <- dante_filtering(g, Relative_Length = opt$min_relative_length) # default
 
 seqlengths(g) <- seqlengths(s)[names(seqlengths(g))]
 g <- add_coordinates_of_closest_neighbor(g)
@@ -156,7 +161,7 @@ TE_partial <-  GRanges(seqnames =  sapply(gcl_alt, function(x) x$seqnames[1]),
 )
 g$Ndomains_in_cluster <- count_occurences_for_each_element(g$Cluster)
 g$Parent <- paste0("TE_partial_", g$Cluster)
-g$Rank="D"
+g$Rank <- "D"
 
 # keep only partial TE with more than one domain
 TE_partial_with_more_than_one_domain <- TE_partial[TE_partial$Ndomains > 1]

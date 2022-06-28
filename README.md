@@ -19,9 +19,14 @@ In the next step, the 5' and 3' regions of the putative retrotransposon  are exa
 ```shell
 conda create -n dante_ltr -c bioconda -c conda-forge -c petrnovak dante_ltr
 ```
+
+## Input data
+One input is a reference sequence in fasta fromat. The second input is an annotation of the reference genome using the tool DANTE in GFF3 format. For better results, use the unfiltered full output of the DANTE pipeline.
+
+
 ## Usage
 
-### detection of complete LTR retrotransposons
+### Detection of complete LTR retrotransposons
 
 ```shell
 Usage: ./extract_putative_ltr.R COMMAND [OPTIONS]
@@ -43,8 +48,11 @@ Options:
         -M NUMBER, --max_missing_domains=NUMBER
                 Maximum number of missing domains is retrotransposon [default 0]
 
+        -L NUMBER, --min_relative_length=NUMBER
+                Minimum relative length of protein domain to be considered for retrostransposon detection [default 0.6]
         -h, --help
                 Show this help message and exit
+
 ```
 
 #### Example:
