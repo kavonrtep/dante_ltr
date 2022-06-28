@@ -1,4 +1,4 @@
-<tool id="clean_dante_ltr" name="DANTE_LTR retrotransposons filtering" version="0.1.6" python_template_version="3.5">
+<tool id="clean_dante_ltr" name="DANTE_LTR retrotransposons filtering" version="0.1.6.1" python_template_version="3.5">
     <requirements>
 
         <requirement type="package">r-optparse</requirement>
