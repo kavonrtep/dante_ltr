@@ -138,20 +138,20 @@ get_ranges <- function(gx, offset = OFFSET) {
   gr <- GRanges(seqnames = sapply(gx, function(x)x$seqnames[1]), IRanges(start = S - offset, end = E + offset))
 }
 
-get_ranges_left <- function(gx, offset = OFFSET, offset2 = 10) {
+get_ranges_left <- function(gx, offset = OFFSET, offset2 = 300) {
   ## offset2 - how many nt cen LTR extend to closes protein domain
   ## this is necassary as some detected proteins domains does not have correct bopundaries
   ## if LTR retrotransposons insters to other protein domain.
   S <- sapply(gx, function(x)min(x$start))
-  max_offset <- S - sapply(gx, function(x)min(x$upstream_domain)) + offset2
+  max_offset <- S - sapply(gx, function(x)min(x$upstream_domain)) + 10
   offset_adjusted <- ifelse(max_offset < offset, max_offset, offset)
   gr <- GRanges(seqnames = sapply(gx, function(x)x$seqnames[1]), IRanges(start = S - offset_adjusted, end = S + offset2))
   return(gr)
 }
 
-get_ranges_right <- function(gx, offset = OFFSET, offset2 = 10) {
+get_ranges_right <- function(gx, offset = OFFSET, offset2 = 300) {
   E <- sapply(gx, function(x)max(x$end))
-  max_offset <- sapply(gx, function(x)max(x$downstream_domain)) - E + offset2
+  max_offset <- sapply(gx, function(x)max(x$downstream_domain)) - E + 10
   offset_adjusted <- ifelse(max_offset < offset, max_offset, offset)
   gr <- GRanges(seqnames = sapply(gx, function(x)x$seqnames[1]), IRanges(start = E - offset2, end = E + offset_adjusted))
   return(gr)
