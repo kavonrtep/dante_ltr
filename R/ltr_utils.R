@@ -1,5 +1,5 @@
 add_coordinates_of_closest_neighbor <- function(gff) {
-  gff <- gff[order(seqnames(gff), start(gff))]
+  gff <- gff[order(seqnames(gff), as.vector(start(gff)))]
   # split to chromosomes:
   gff_parts <- split(gff, seqnames(gff))
   upstreams <- c(sapply(gff_parts, function(x) c(1, head(end(x), -1))))
