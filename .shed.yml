@@ -1,0 +1,11 @@
+categories:
+- Genome annotation
+description: tool for identification of full length LTR TE
+homepage_url: https://github.com/kavonrtep/dante_ltr
+name: dante_ltr
+owner: petr-novak
+exclude:
+  - tmp
+  - test_data
+  - singularity
+  - todo_and_notes.md

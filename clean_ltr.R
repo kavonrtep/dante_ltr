@@ -95,9 +95,12 @@ if (FALSE) {
 ## ID in g must be unique - this could be a problem if gff is concatenated from multiple files!
 ## id ID is renamed - rename parent to!
 ## add chromosom index to disctinguish same IDs
-suffix <- as.numeric(seqnames(g))
-g$ID <- ifelse(is.na(g$ID), NA, paste0(g$ID,"_", suffix))
-g$Parent <- ifelse(is.na(g$Parent), NA, paste0(g$Parent,"_", suffix))
+## do this only if IDs are not unique
+if (any(duplicated(na.omit(g$ID)))){
+  suffix <- as.numeric(seqnames(g))
+  g$ID <- ifelse(is.na(g$ID), NA, paste0(g$ID,"_", suffix))
+  g$Parent <- ifelse(is.na(g$Parent), NA, paste0(g$Parent,"_", suffix))
+}
 
 # get te sequence based on rank
 

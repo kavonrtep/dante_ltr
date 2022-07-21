@@ -1,14 +1,16 @@
-<tool id="dante_ltr_search" name="DANTE_LTR retrotransposon identification" version="0.1.6.1" python_template_version="3.5">
+<tool id="dante_ltr_search" name="DANTE_LTR retrotransposon identification" version="0.1.7.0" python_template_version="3.5">
     <requirements>
         <requirement type="package">blast</requirement>
         <requirement type="package">r-optparse</requirement>
         <requirement type="package">bioconductor-bsgenome</requirement>
         <requirement type="package">bioconductor-biostrings</requirement>
         <requirement type="package">bioconductor-rtracklayer</requirement>
+        <requirement type="package" version="3.7.12">python</requirement>
 
     </requirements>
     <command detect_errors="exit_code"><![CDATA[
-        Rscript ${__tool_directory__}/extract_putative_ltr.R --gff3 '$dante' --reference_sequence '$reference' -M $max_missing --output output --cpu 32
+        python ${__tool_directory__}/detect_putative_ltr_wrapper.py --gff3 '$dante'
+          --reference_sequence '$reference' -M $max_missing --output output --cpu 32
         &&
         mv output.gff3 $te_ltr_gff
         &&
@@ -31,7 +33,7 @@
         5' and 3' Long Terminal Repeats, Target Site Duplication (TSD) and primer binding site (PBS).
 
         All identified elements contains set of protein domains as defined in
-        REXdb_.Based on the results of detection of structural features,
+        REXdb_. Based on the results of detection of structural features,
         elements falls into five categories:
 
         - elements with domains, 5'LTR, 3'LTR, TSD and PBS - rank DLTP
@@ -41,6 +43,11 @@
         - elements as cluster of proteins domains with same classification, no LTRs - rank D
 
        .. _REXdb: https://doi.org/10.1186/s13100-018-0144-1
+
+      Principles of detection of LTR retrotransposons is describet in github_ repository of this tool.
+
+      .. _github: https://github.com/kavonrtep/dante_ltr
+
 
     ]]></help>
 </tool>

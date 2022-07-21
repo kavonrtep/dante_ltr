@@ -1,4 +1,4 @@
-<tool id="clean_dante_ltr" name="DANTE_LTR retrotransposons filtering" version="0.1.6.1" python_template_version="3.5">
+<tool id="clean_dante_ltr" name="DANTE_LTR retrotransposons filtering" version="0.1.7.0" python_template_version="3.5">
     <requirements>
 
         <requirement type="package">r-optparse</requirement>
@@ -34,7 +34,7 @@
                $dante_ltr.hid and reference $reference.hid"/>
         <data name="rm_lib" format="fasta" label="Non-redundant library of LTR retrotransposons (FASTA) based on annotation $dante_ltr.hid and reference $reference.hid"/>
 
-        <data name="te_full" format="fasta" label="Library of full length LTR retrotransposons (FASTA) based on annotation $dante_ltr.hid and reference $reference.hid"/>
+        <data name="te_full" format="fasta" label="Library of LTR retrotransposons (FASTA) based on annotation $dante_ltr.hid and reference $reference.hid"/>
 
         <data name="ltr5" format="fasta" label="Library of 5'LTR of retrotransposons (FASTA) based on annotation $dante_ltr.hid and reference $reference.hid"/>
 

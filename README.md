@@ -29,7 +29,7 @@ One input is a reference sequence in fasta fromat. The second input is an annota
 ### Detection of complete LTR retrotransposons
 
 ```shell
-Usage: ./extract_putative_ltr.R COMMAND [OPTIONS]
+Usage: ./detect_putative_ltr.R COMMAND [OPTIONS]
 
 
 Options:
@@ -59,7 +59,7 @@ Options:
 
 ```shell
 mkdir -p tmp
-./extract_putative_ltr.R -g test_data/sample_DANTE.gff3 -s test_data/sample_genome.fasta -o tmp/ltr_annotation
+./detect_putative_ltr.R -g test_data/sample_DANTE.gff3 -s test_data/sample_genome.fasta -o tmp/ltr_annotation
 ```
 
 ####  Files in the output of `extract_putative_ltr.R`:
@@ -72,7 +72,35 @@ mkdir -p tmp
 - `prefix_DLT.fasta` - elements with **d**omains, **L**TR, **T**SD 
 - `prefix_statistics.csv` - number of elements in individual categories  
 
+For large genomes, you can your `detect_putative_ltr_wrapper.py`. This script will split input fasta to smaller chunks and run `detect_putative_ltr.R` on each chunk to limit memory usage. Output will be merged after all chunks are processed.
 
+```shell
+usage: detect_putative_ltr_wrapper.py [-h] -g GFF3 -s REFERENCE_SEQUENCE -o
+                                      OUTPUT [-c CPU] [-M MAX_MISSING_DOMAINS]
+                                      [-L MIN_RELATIVE_LENGTH]
+                                      [-S MAX_CHUNK_SIZE]
+
+detect_putative_ltr_wrapper.py is a wrapper for 
+    detect_putative_ltr.R
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -g GFF3, --gff3 GFF3  gff3 file
+  -s REFERENCE_SEQUENCE, --reference_sequence REFERENCE_SEQUENCE
+                        reference sequence as fasta file
+  -o OUTPUT, --output OUTPUT
+                        output file path and prefix
+  -c CPU, --cpu CPU     number of CPUs
+  -M MAX_MISSING_DOMAINS, --max_missing_domains MAX_MISSING_DOMAINS
+  -L MIN_RELATIVE_LENGTH, --min_relative_length MIN_RELATIVE_LENGTH
+                        Minimum relative length of protein domain to be considered
+                        for retrostransposon detection
+  -S MAX_CHUNK_SIZE, --max_chunk_size MAX_CHUNK_SIZE
+                        If size of reference sequence is greater than this value,
+                         reference is analyzed in chunks of this size. This is
+                          just approximate value - sequences which are longer 
+                          are are not split, default is 100000000
+```
 
 ### Validation of LTR retrotransposons detected un previous step:
 

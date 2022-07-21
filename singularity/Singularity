@@ -15,7 +15,10 @@ From: ubuntu:20.04
         apt-get update
         cd opt
         git clone https://github.com/kavonrtep/dante_ltr.git
-        ln -s /opt/dante_ltr/extract_putative_ltr.R /usr/local/bin/extract_putative_ltr.R
+        ln -s /opt/dante_ltr/detect_putative_ltr.R /usr/local/bin/detect_putative_ltr.R
+        ln -s /opt/dante_ltr/detect_putative_ltr_wrapper.py /usr/local/bin/detect_putative_ltr_wrapper.py
+        ln -s /opt/dante_ltr/clean_ltr.R /usr/local/bin/clean_ltr.R
+
         
 %environment
         
@@ -25,7 +28,7 @@ From: ubuntu:20.04
         
 %runscript
         
-        extract_putative_ltr.R $@
+        detect_putative_ltr.R $@
         
 %labels
         
@@ -36,4 +39,4 @@ From: ubuntu:20.04
         
         echo $PWD
         ls -la
-        extract_putative_ltr.R -g /opt/dante_ltr/test_data/sample_DANTE.gff3 -s /opt/dante_ltr/test_data/sample_genome.fasta -o testoutput
+        detect_putative_ltr.R -g /opt/dante_ltr/test_data/sample_DANTE.gff3 -s /opt/dante_ltr/test_data/sample_genome.fasta -o testoutput

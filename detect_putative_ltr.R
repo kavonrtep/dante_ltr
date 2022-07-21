@@ -88,6 +88,10 @@ if (FALSE) {
 
   g <- rtracklayer::import("/mnt/raid/users/petr/workspace/dante_ltr/test_data/big_test_data//Cocoa_theobroma_DANTE_filtered.gff3")
   s <- readDNAStringSet("/mnt/raid/users/petr/workspace/dante_ltr/test_data/big_test_data/Cocoa_theobroma_chr1.fasta.gz")
+  # test on bigger data:
+
+  g <- rtracklayer::import("/mnt/raid/users/petr/workspace/dante_ltr/test_data/tmp/DANTE_unfiltered/1.gff3")
+  s <- readDNAStringSet("/mnt/raid/users/petr/workspace/dante_ltr/test_data/tmp/fasta_parts/1.fasta")
 
   source("R/ltr_utils.R")
   ## feature distance model
@@ -98,6 +102,7 @@ if (FALSE) {
   lineage_info <- read.table("databases/lineage_domain_order.csv", sep = "\t", header =
     TRUE, as.is = TRUE)
   trna_db <- "./databases/tRNAscan-SE_ALL_spliced-no_plus-old-tRNAs_UC_unique-3ends.fasta"
+  opt <- list(min_relative_length=0.6, cpu = 8)
 
 }
 
@@ -154,7 +159,7 @@ gcl_alt <- split(as.data.frame(g), cls_alt)
 TE_partial <-  GRanges(seqnames =  sapply(gcl_alt, function(x) x$seqnames[1]),
                        Name = sapply(gcl_alt, function(x) x$Final_Classification[1]),
                        Final_Classification = sapply(gcl_alt, function(x) x$Final_Classification[1]),
-                       ID = sapply(gcl_alt, function(x) paste0("TE_partial_", x$Cluster[1])),
+                       ID = sapply(gcl_alt, function(x) paste0("TE_partial_", sprintf("%08d", x$Cluster[1]))),
                        strand = sapply(gcl_alt, function(x) x$strand[1]),
                        Ndomains = sapply(gcl_alt, function(x) nrow(x)),
                        type = "transposable_element",
@@ -164,7 +169,7 @@ TE_partial <-  GRanges(seqnames =  sapply(gcl_alt, function(x) x$seqnames[1]),
                                end = sapply(gcl_alt, function(x) max(x$end)))
 )
 g$Ndomains_in_cluster <- count_occurences_for_each_element(g$Cluster)
-g$Parent <- paste0("TE_partial_", g$Cluster)
+g$Parent <- paste0("TE_partial_", sprintf("%08d", g$Cluster))
 g$Rank <- "D"
 
 # keep only partial TE with more than one domain
@@ -260,6 +265,9 @@ TE_partial_parent_part <- TE_partial_with_more_than_one_domain[TE_partial_with_m
 TE_partial_domain_part <-  g[g$Parent %in% TE_partial_parent_part$ID]
 
 gff3_out <- sort(c(gff3_out, TE_partial_domain_part, TE_partial_parent_part), by = ~ seqnames * start)
+# modify ID and Parent - add seqname - this will ensure it is unique is done on chunk level
+gff3_out$ID[!is.na(gff3_out$ID)] <- paste0(gff3_out$ID[!is.na(gff3_out$ID)], "_", seqnames(gff3_out)[!is.na(gff3_out$ID)])
+gff3_out$Parent[!is.na(gff3_out$Parent)] <- paste0(gff3_out$Parent[!is.na(gff3_out$Parent)], "_", seqnames(gff3_out)[!is.na(gff3_out$Parent)])
 
 export(gff3_out, con = paste0(outfile, ".gff3"), format = 'gff3')
 
