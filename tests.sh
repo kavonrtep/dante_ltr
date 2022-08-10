@@ -41,6 +41,10 @@ echo "Running tests 5, detection of LTRs using python wrapper"
 -S 10000000
 cat tmp/test_output5_statistics.csv
 
-echo "Running tests 4, filtering gff"
+echo "Running tests 6, filtering gff"
 ./clean_ltr.R -g tmp/test_output5.gff3 -s test_data/sample_genome.fasta \
 -o tmp/test_output6 -c $NCPU_TO_USE
+
+/detect_putative_ltr_wrapper.py -s test_data/sample_genome_part.fasta \
+-g test_data/sample_DANTE_part.gff3 -o tmp/test_output7 -c $NCPU_TO_USE \
+-S 10000000 -M 2

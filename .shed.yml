@@ -5,7 +5,15 @@ homepage_url: https://github.com/kavonrtep/dante_ltr
 name: dante_ltr
 owner: petr-novak
 exclude:
+  - do_not_track_info
   - tmp
   - test_data
   - singularity
   - todo_and_notes.md
+  - venv/.gitignore
+  - venv
+  - .ipynb_checkpoints
+  - .git
+  - .idea
+  - dante_ltr_workflow.odg
+  - dante_ltr_workflow.png

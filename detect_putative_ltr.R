@@ -109,7 +109,6 @@ if (FALSE) {
 # MAIN #############################################################
 
 # load data:
-
 cat("reading gff...")
 g <- rtracklayer::import(opt$gff3, format = 'gff3')  # DANTE gff3
 cat("done\n")
@@ -134,150 +133,173 @@ lineage_domains_sequence <- unlist(mapply(function(d,l) {
   paste(strsplit(d, " ")[[1]], ":", l, sep = "")
 }, d = lineage_domain, l = names(lineage_domain)))
 
-# filter g gff3
-g <- dante_filtering(g, Relative_Length = opt$min_relative_length) # default
+# this repeat block is run just once
+# it can breaks in eny point if zero TE is found
+repeat{
 
-seqlengths(g) <- seqlengths(s)[names(seqlengths(g))]
-g <- add_coordinates_of_closest_neighbor(g)
+  # filter g gff3
+  g <- dante_filtering(g, Relative_Length = opt$min_relative_length) # default
 
-# add info about domain order:
-g$domain_order <- as.numeric(factor(paste(g$Name, g$Final_Classification, sep = ":"), levels = lineage_domains_sequence))
-# set NA to 0 in  g$domain_order ( some domains are not fromm ClassI elements
-g$domain_order[is.na(g$domain_order)] <- 0
+  seqlengths(g) <- seqlengths(s)[names(seqlengths(g))]
+  g <- add_coordinates_of_closest_neighbor(g)
 
-# NOTE - some operation is faster of GrangesList but some on list of data.frames
-# this is primary clusteing
-cls <- get_domain_clusters(g)
-gcl <- split(as.data.frame(g), cls)
-# gcl_as_GRL <- split(g, cls)  # delete?
+  # add info about domain order:
+  g$domain_order <- as.numeric(factor(paste(g$Name, g$Final_Classification, sep = ":"), levels = lineage_domains_sequence))
+  # set NA to 0 in  g$domain_order ( some domains are not fromm ClassI elements
+  g$domain_order[is.na(g$domain_order)] <- 0
 
-cls_alt <- get_domain_clusters_alt(g, FDM)
-g$Cluster <- as.numeric(factor(cls_alt))
+  # NOTE - some operation is faster of GrangesList but some on list of data.frames
+  # this is primary clusteing
+  cls <- get_domain_clusters(g)
+  gcl <- split(as.data.frame(g), cls)
+  # gcl_as_GRL <- split(g, cls)  # delete?
 
-gcl_alt <- split(as.data.frame(g), cls_alt)
+  cls_alt <- get_domain_clusters_alt(g, FDM)
+  g$Cluster <- as.numeric(factor(cls_alt))
 
-TE_partial <-  GRanges(seqnames =  sapply(gcl_alt, function(x) x$seqnames[1]),
-                       Name = sapply(gcl_alt, function(x) x$Final_Classification[1]),
-                       Final_Classification = sapply(gcl_alt, function(x) x$Final_Classification[1]),
-                       ID = sapply(gcl_alt, function(x) paste0("TE_partial_", sprintf("%08d", x$Cluster[1]))),
-                       strand = sapply(gcl_alt, function(x) x$strand[1]),
-                       Ndomains = sapply(gcl_alt, function(x) nrow(x)),
-                       type = "transposable_element",
-                       source = "dante_ltr",
-                       Rank="D",
-                       IRanges(start = sapply(gcl_alt, function(x) min(x$start)),
-                               end = sapply(gcl_alt, function(x) max(x$end)))
-)
-g$Ndomains_in_cluster <- count_occurences_for_each_element(g$Cluster)
-g$Parent <- paste0("TE_partial_", sprintf("%08d", g$Cluster))
-g$Rank <- "D"
+  gcl_alt <- split(as.data.frame(g), cls_alt)
 
-# keep only partial TE with more than one domain
-TE_partial_with_more_than_one_domain <- TE_partial[TE_partial$Ndomains > 1]
-g_with_more_than_one_domain <- g[as.vector(g$Ndomains_in_cluster > 1)]
+  TE_partial <-  GRanges(seqnames =  sapply(gcl_alt, function(x) x$seqnames[1]),
+                         Name = sapply(gcl_alt, function(x) x$Final_Classification[1]),
+                         Final_Classification = sapply(gcl_alt, function(x) x$Final_Classification[1]),
+                         ID = sapply(gcl_alt, function(x) paste0("TE_partial_", sprintf("%08d", x$Cluster[1]))),
+                         strand = sapply(gcl_alt, function(x) x$strand[1]),
+                         Ndomains = sapply(gcl_alt, function(x) nrow(x)),
+                         type = "transposable_element",
+                         source = "dante_ltr",
+                         Rank="D",
+                         IRanges(start = sapply(gcl_alt, function(x) min(x$start)),
+                                 end = sapply(gcl_alt, function(x) max(x$end)))
+  )
+  g$Ndomains_in_cluster <- count_occurences_for_each_element(g$Cluster)
+  g$Parent <- paste0("TE_partial_", sprintf("%08d", g$Cluster))
+  g$Rank <- "D"
+  # for statistics
+  RT <- g[g$Name == "RT" & substring(g$Final_Classification, 1, 11) == "Class_I|LTR"]
 
-# first filtering  - remove TEs with low number of domains
-gcl_clean <- clean_domain_clusters(gcl, lineage_domain_span, min_domains = 5 - opt$max_missing_domains)
+  # keep only partial TE with more than one domain
+  TE_partial_with_more_than_one_domain <- TE_partial[TE_partial$Ndomains > 1]
+  g_with_more_than_one_domain <- g[as.vector(g$Ndomains_in_cluster > 1)]
 
-# glc annotation
-gcl_clean_lineage <- sapply(gcl_clean, function(x)  x$Final_Classification[1])
-gcl_clean_domains <- sapply(gcl_clean, function(x) ifelse(x$strand[1] == "-",
-                                                paste(rev(x$Name), collapse = " "),
-                                                paste(x$Name, collapse = " "))
-)
+  # first filtering  - remove TEs with low number of domains
+  gcl_clean <- clean_domain_clusters(gcl, lineage_domain_span, min_domains = 5 - opt$max_missing_domains)
 
-# compare detected domains with domains in lineages from REXdb database
-dd <- mapply(domain_distance,
-             d_query = gcl_clean_domains,
-             d_reference = lineage_domain[gcl_clean_lineage])
+  # glc annotation
+  gcl_clean_lineage <- sapply(gcl_clean, function(x)  x$Final_Classification[1])
+  gcl_clean_domains <- sapply(gcl_clean, function(x) ifelse(x$strand[1] == "-",
+                                                  paste(rev(x$Name), collapse = " "),
+                                                  paste(x$Name, collapse = " "))
+  )
 
-# get lineages which has correct number and order of domains
-# gcl_clean2 <- gcl_clean[gcl_clean_domains == lineage_domain[gcl_clean_lineage]]
-gcl_clean2 <- gcl_clean[dd <= opt$max_missing_domains]
+  # compare detected domains with domains in lineages from REXdb database
+  dd <- mapply(domain_distance,
+               d_query = gcl_clean_domains,
+               d_reference = lineage_domain[gcl_clean_lineage])
 
-gcl_clean_with_domains <- gcl_clean2[check_ranges(gcl_clean2, s)]
-gr <- get_ranges(gcl_clean_with_domains)
-
-
-cat('Number of analyzed regions:\n')
-cat('Total number of domain clusters             : ', length(gcl), '\n')
-cat('Number of clean clusters                    : ', length(gcl_clean), '\n')
-cat('Number of clusters with complete domain set : ', length(gcl_clean_with_domains), '\n')
+  # get lineages which has correct number and order of domains
+  # gcl_clean2 <- gcl_clean[gcl_clean_domains == lineage_domain[gcl_clean_lineage]]
 
 
-te_strand <- sapply(gcl_clean_with_domains, function(x)x$strand[1])
-te_lineage <- sapply(gcl_clean_with_domains, function(x)x$Final_Classification[1])
+  gcl_clean2 <- gcl_clean[dd <= opt$max_missing_domains]
 
-max_left_offset <- ifelse(te_strand == "+", lineage_offset5prime[te_lineage], lineage_offset3prime[te_lineage])
-max_right_offset <- ifelse(te_strand == "-", lineage_offset5prime[te_lineage], lineage_offset3prime[te_lineage])
+  if(length(gcl_clean2) == 0) {
+    cat("No complete TE found\n")
+    good_TE <- list()
+    break
+  }
+  gcl_clean_with_domains <- gcl_clean2[check_ranges(gcl_clean2, s)]
+  gr <- get_ranges(gcl_clean_with_domains)
 
-grL <- get_ranges_left(gcl_clean_with_domains, max_left_offset)
-grR <- get_ranges_right(gcl_clean_with_domains, max_right_offset)
+  cat('Number of analyzed regions:\n')
+  cat('Total number of domain clusters             : ', length(gcl), '\n')
+  cat('Number of clean clusters                    : ', length(gcl_clean), '\n')
+  cat('Number of clusters with complete domain set : ', length(gcl_clean_with_domains), '\n')
 
-s_left <- getSeq(s, grL)
-s_right <- getSeq(s, grR)
 
-expected_ltr_length <- lineage_ltr_mean_length[sapply(gcl_clean_with_domains, function (x)x$Final_Classification[1])]
-# for statistics
-RT <- g[g$Name == "RT" & substring(g$Final_Classification, 1, 11) == "Class_I|LTR"]
-# cleanup
-#rm(g)
-rm(gcl)
-rm(gcl_clean)
-rm(gcl_clean2)
+  te_strand <- sapply(gcl_clean_with_domains, function(x)x$strand[1])
+  te_lineage <- sapply(gcl_clean_with_domains, function(x)x$Final_Classification[1])
 
-names(te_strand) <- paste(seqnames(gr), start(gr), end(gr), sep = "_")
-names(s_left) <- paste(seqnames(grL), start(grL), end(grL), sep = "_")
-names(s_right) <- paste(seqnames(grR), start(grR), end(grR), sep = "_")
-cat('Identification of LTRs...')
-TE <- mclapply(seq_along(gr), function(x)get_TE(s_left[x],
-                                                s_right[x],
-                                                gcl_clean_with_domains[[x]],
-                                                gr[x],
-                                                grL[x],
-                                                grR[x],
-                                                expected_ltr_length[x]),
-               mc.set.seed = TRUE, mc.cores = opt$cpu, mc.preschedule = FALSE
-)
+  max_left_offset <- ifelse(te_strand == "+", lineage_offset5prime[te_lineage], lineage_offset3prime[te_lineage])
+  max_right_offset <- ifelse(te_strand == "-", lineage_offset5prime[te_lineage], lineage_offset3prime[te_lineage])
 
-cat('done.\n')
+  grL <- get_ranges_left(gcl_clean_with_domains, max_left_offset)
+  grR <- get_ranges_right(gcl_clean_with_domains, max_right_offset)
 
-good_TE <- TE[!sapply(TE, is.null)]
-cat('Number of putative TE with identified LTR   :', length(good_TE), '\n')
+  s_left <- getSeq(s, grL)
+  s_right <- getSeq(s, grR)
 
-# TODO - extent TE region to cover also TSD
-ID <- paste0('TE_', sprintf("%08d", seq(good_TE)))
-gff3_list <- mcmapply(get_te_gff3, g = good_TE, ID = ID, mc.cores = opt$cpu)
+  expected_ltr_length <- lineage_ltr_mean_length[sapply(gcl_clean_with_domains, function (x)x$Final_Classification[1])]
 
-cat('Identification of PBS ...')
-gff3_list2 <- mclapply(gff3_list, FUN = add_pbs, s = s, trna_db = trna_db, mc.set.seed = TRUE, mc.cores = opt$cpu, mc.preschedule = FALSE)
-cat('done\n')
-gff3_out <- do.call(c, gff3_list2)
+  # cleanup
+  #rm(g)
+  rm(gcl)
+  rm(gcl_clean)
+  rm(gcl_clean2)
 
-# define new source
-src <- as.character(gff3_out$source)
-src[is.na(src)] <- "dante_ltr"
-gff3_out$source <- src
-gff3_out$Rank <- get_te_rank(gff3_out)
+  names(te_strand) <- paste(seqnames(gr), start(gr), end(gr), sep = "_")
+  names(s_left) <- paste(seqnames(grL), start(grL), end(grL), sep = "_")
+  names(s_right) <- paste(seqnames(grR), start(grR), end(grR), sep = "_")
+  cat('Identification of LTRs...')
+  TE <- mclapply(seq_along(gr), function(x)get_TE(s_left[x],
+                                                  s_right[x],
+                                                  gcl_clean_with_domains[[x]],
+                                                  gr[x],
+                                                  grL[x],
+                                                  grR[x],
+                                                  expected_ltr_length[x]),
+                 mc.set.seed = TRUE, mc.cores = opt$cpu, mc.preschedule = FALSE
+  )
 
-# add partial TEs but first remove all ovelaping
-TE_partial_parent_part <- TE_partial_with_more_than_one_domain[TE_partial_with_more_than_one_domain %outside% gff3_out]
-TE_partial_domain_part <-  g[g$Parent %in% TE_partial_parent_part$ID]
+  cat('done.\n')
+  good_TE <- TE[!sapply(TE, is.null)]
+  cat('Number of putative TE with identified LTR   :', length(good_TE), '\n')
+  break
+  }
 
-gff3_out <- sort(c(gff3_out, TE_partial_domain_part, TE_partial_parent_part), by = ~ seqnames * start)
+if (length(good_TE)>0){   # handle empty list
+  ID <- paste0('TE_', sprintf("%08d", seq(good_TE)))
+  gff3_list <- mcmapply(get_te_gff3, g = good_TE, ID = ID, mc.cores = opt$cpu)
+
+  cat('Identification of PBS ...')
+  gff3_list2 <- mclapply(gff3_list, FUN = add_pbs, s = s, trna_db = trna_db, mc.set.seed = TRUE, mc.cores = opt$cpu, mc.preschedule = FALSE)
+  cat('done\n')
+  gff3_out <- do.call(c, gff3_list2)
+
+  # define new source
+  src <- as.character(gff3_out$source)
+  src[is.na(src)] <- "dante_ltr"
+  gff3_out$source <- src
+  gff3_out$Rank <- get_te_rank(gff3_out)
+  # add partial TEs but first remove all ovelaping
+  TE_partial_parent_part <- TE_partial_with_more_than_one_domain[TE_partial_with_more_than_one_domain %outside% gff3_out]
+  TE_partial_domain_part <-  g[g$Parent %in% TE_partial_parent_part$ID]
+  gff3_out <- sort(c(gff3_out, TE_partial_domain_part, TE_partial_parent_part), by = ~ seqnames * start)
+}else{
+  # but this could be a problem if there are no TEs in the sequence
+  if (length(TE_partial_with_more_than_one_domain)>0){
+    TE_partial_parent_part <- TE_partial_with_more_than_one_domain
+    TE_partial_domain_part <-  g[g$Parent %in% TE_partial_parent_part$ID]
+    gff3_out <- sort(c(TE_partial_domain_part, TE_partial_parent_part), by = ~ seqnames * start)
+  }else{
+    gff3_out <- NULL
+  }
+}
+
+if (is.null(gff3_out)){
+  cat('No TEs found.\n')
+}else{
 # modify ID and Parent - add seqname - this will ensure it is unique is done on chunk level
-gff3_out$ID[!is.na(gff3_out$ID)] <- paste0(gff3_out$ID[!is.na(gff3_out$ID)], "_", seqnames(gff3_out)[!is.na(gff3_out$ID)])
-gff3_out$Parent[!is.na(gff3_out$Parent)] <- paste0(gff3_out$Parent[!is.na(gff3_out$Parent)], "_", seqnames(gff3_out)[!is.na(gff3_out$Parent)])
-
-export(gff3_out, con = paste0(outfile, ".gff3"), format = 'gff3')
-
-all_tbl <- get_te_statistics(gff3_out, RT)
-all_tbl <- cbind(Classification = rownames(all_tbl), all_tbl)
-write.table(all_tbl, file = paste0(outfile, "_statistics.csv"), sep = "\t", quote = FALSE, row.names = FALSE)
-# export fasta files:
-s_te <- get_te_sequences(gff3_out, s)
-for (i in seq_along(s_te)) {
-  outname <- paste0(outfile, "_", names(s_te)[i], ".fasta")
-  writeXStringSet(s_te[[i]], filepath = outname)
+  gff3_out$ID[!is.na(gff3_out$ID)] <- paste0(gff3_out$ID[!is.na(gff3_out$ID)], "_", seqnames(gff3_out)[!is.na(gff3_out$ID)])
+  gff3_out$Parent[!is.na(gff3_out$Parent)] <- paste0(gff3_out$Parent[!is.na(gff3_out$Parent)], "_", seqnames(gff3_out)[!is.na(gff3_out$Parent)])
+  export(gff3_out, con = paste0(outfile, ".gff3"), format = 'gff3')
+  all_tbl <- get_te_statistics(gff3_out, RT)
+  all_tbl <- cbind(Classification = rownames(all_tbl), all_tbl)
+  write.table(all_tbl, file = paste0(outfile, "_statistics.csv"), sep = "\t", quote = FALSE, row.names = FALSE)
+  # export fasta files:
+  s_te <- get_te_sequences(gff3_out, s)
+  for (i in seq_along(s_te)) {
+    outname <- paste0(outfile, "_", names(s_te)[i], ".fasta")
+    writeXStringSet(s_te[[i]], filepath = outname)
+  }
 }
 
