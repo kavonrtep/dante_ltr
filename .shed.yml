@@ -17,3 +17,5 @@ exclude:
   - .idea
   - dante_ltr_workflow.odg
   - dante_ltr_workflow.png
+  - changlog_builder.sh
+
