@@ -12,7 +12,8 @@ add_coordinates_of_closest_neighbor <- function(gff) {
 }
 
 get_domain_clusters_alt <- function(gff, dist_models, threshold=0.99){
-  gff <- sort(gff, by = ~ seqnames * start)
+  # gff <- sort(gff, by = ~ seqnames * start)
+  ## it must be already sorted by seqnames and start
   domain_pairs <- data.frame(
     D1 = paste0(head(gff$Name,-1),"_S"),
     D2 = paste0(gff$Name[-1],"_S"),
@@ -93,7 +94,7 @@ get_partial_te_from_cluster_of_domains <- function(gpart, ID) {
 
 
   gpart$Parent <- ID
-  gpart_gr = makeGRangesFromDataFrame(gpart, keep.extra.columns = TRUE)
+  gpart_gr <- makeGRangesFromDataFrame(gpart, keep.extra.columns = TRUE)
   return(c(te_partial, gpart_gr))
 }
 
@@ -432,23 +433,76 @@ seq_diversity <- function (seqs, km=6){
   list(richness=R, shannon_index=SI)
 }
 
+mask_tandem_repeats <- function(fasta_file){
+  # use tidehunte to detect tandem repeats
+  # this function require tidehunter and bedtools to be installed
+  bed_mask <- tempfile()
+  fasta_masked <- tempfile()
+  system(paste("TideHunter -f 2" , fasta_file, " |cut -f 1,4,5 >", bed_mask))
+  system(paste("bedtools maskfasta -fi", fasta_file, "-bed", bed_mask, "-fo", fasta_masked, "-soft"))
+  bed <- read.table(bed_mask, header = FALSE, col.names = c("seqname", "start", "end"), sep = "\t")
+  unlist(bed_mask)
+  return(list(fasta=fasta_masked, bed=bed))
+}
 
+overlap_size_perc <- function(interval1, interval2){
+  if (interval1[1] > interval2[2] | interval1[2] < interval2[1]){
+    return(0)
+  }else{
+    interval_size <- interval1[2] - interval1[1] + 1
+    ovl_size <- (min(interval1[2], interval2[2]) - max(interval1[1], interval2[1]))
+    return(ovl_size/interval_size)
+  }
+}
 
-blast <- function(s1, s2, expected_aln_lenght=NULL) {
+blast <- function(s1, s2, expected_aln_lenght=NULL, min_identity=70){
   tmp1 <- tempfile()
   tmp2 <- tempfile()
   tmp_out <- tempfile()
   writeXStringSet(DNAStringSet(s1), tmp1)
   writeXStringSet(DNAStringSet(s2), tmp2)
+  # masking - test
+  masks1 <- mask_tandem_repeats(tmp1)
+  masks2 <- mask_tandem_repeats(tmp2)
+
+
+
   # alternative blast:
-  cmd <- paste("blastn -task blastn -word_size 7 -dust no -gapextend 1 -gapopen 2 -reward 1 -penalty -1",
-               " -query ", tmp1, ' -subject ', tmp2, ' -strand plus ',
+  cmd <- paste("blastn -task blastn -lcase_masking -word_size 7 -dust no -gapextend 1 -gapopen 2 -reward 1 -penalty -1",
+               " -query ", masks1$fasta, ' -subject ', masks2$fasta, ' -strand plus ', '-perc_identity ', min_identity,
                '-outfmt "6 qaccver saccver pident length mismatch gapopen qstart qend sstart send evalue bitscore qseq sseq"',
                '  -out', tmp_out)
 
   system(cmd)
   out_raw <- read.table(tmp_out, as.is = TRUE, sep = "\t",
                         col.names = strsplit("qaccver saccver pident length mismatch gapopen qstart qend sstart send evalue bitscore qseq sseq", split = ' ')[[1]])
+  if (nrow(out_raw) == 0) {
+    return(out_raw)
+  }
+  # calculate form bed what percent of the blast hits is masked
+  # if more than 90% is masked remove the hit
+  out_raw$masked_perc_query <- 0
+  out_raw$masked_perc_subject <- 0
+  for (bl in 1:nrow(out_raw)){
+    int_query <- c(out_raw$qstart[bl], out_raw$qend[bl])
+    int_subject <- c(out_raw$sstart[bl], out_raw$send[bl])
+    # check query
+    q_ovl <- 0
+    for (m in seq_along(masks1$bed$seqname)){
+      int_mask <- c(masks1$bed$start[m], masks1$bed$end[m])
+      q_ovl <-  q_ovl + overlap_size_perc(int_query, int_mask)
+    }
+    out_raw$masked_perc_query[bl] <- q_ovl
+    # check subject
+    s_ovl <- 0
+    for (m in seq_along(masks2$bed$seqname)){
+      int_mask <- c(masks2$bed$start[m], masks2$bed$end[m])
+      s_ovl <- s_ovl + overlap_size_perc(int_subject, int_mask)
+    }
+    out_raw$masked_perc_subject[bl] <- s_ovl
+  }
+
+  out_raw <- out_raw[out_raw$masked_perc_query < 0.9 & out_raw$masked_perc_subject < 0.9, , drop = FALSE]
 
   if (nrow(out_raw) == 0) {
     return(out_raw)
@@ -471,8 +525,6 @@ blast <- function(s1, s2, expected_aln_lenght=NULL) {
   unlink(tmp1)
   unlink(tmp2)
   unlink(tmp_out)
-  # TODO - detele all temp files!
-  # unlink(tmp1, tmp2, tmp_out)
   return(out)
 }
 
@@ -522,11 +574,16 @@ get_best_ltr <- function(x) {
   tsd_ok <- sapply(x, function(k)k$TSD_Length > 3)
   te_length_ok <- sapply(x, function(k)k$TE_Length < 30000)
   ltr_length_ok <- sapply(x, function(k)width(k$LTR_R_position) >= 100 & width(k$LTR_L_position) >= 100)
+  print("--------------------------------------------------------------------")
   if (sum(tsd_ok & te_length_ok & ltr_length_ok) >= 1) {
     # return the first one (best bitscore)
+    print("number of OK ltr after filtering")
+    print(length(x[tsd_ok & te_length_ok]))
     return(x[tsd_ok & te_length_ok][1])
   }
   if (any(te_length_ok & ltr_length_ok)) {
+    print("number of OK ltr after filtering")
+    print(length(x[te_length_ok & ltr_length_ok]))
     return(x[te_length_ok & ltr_length_ok][1])
   }else {
     return(NULL)
@@ -587,6 +644,9 @@ get_te_gff3 <- function(g, ID) {
 
 get_TE <- function(Lseq, Rseq, domains_gff, GR, GRL, GRR,LTR_length) {
   xx <- blast(Lseq, Rseq, LTR_length)
+  # sort by ltr position - first are the ltr closest to the domains
+  ord <-  order(xx$qend - xx$sstart, decreasing = TRUE)
+  xx <- xx[ord, , drop = FALSE]
   if (nrow(xx) == 0) {
     return(NULL)
   }else {
@@ -594,7 +654,14 @@ get_TE <- function(Lseq, Rseq, domains_gff, GR, GRL, GRR,LTR_length) {
     for (j in 1:nrow(xx)) {
       ltr_tmp[[j]] <- evaluate_ltr(GR, GRL, GRR, xx[j, , drop = FALSE], Lseq, Rseq)
     }
+    print("number of ltr_tmp found")
+    print(length(ltr_tmp))
+    if (length(ltr_tmp) == 2) {
+      print(ltr_tmp)
+      print("~~~~~~~~~~~~~~~~~~~~~~~~~~")
+    }
     ltr <- get_best_ltr(ltr_tmp)
+    print("====================================================================")
     if (length(ltr) == 0) {
       return(NULL)
       ## add good ltr

@@ -6,7 +6,8 @@
         <requirement type="package">bioconductor-biostrings</requirement>
         <requirement type="package">bioconductor-rtracklayer</requirement>
         <requirement type="package" version="3.7.12">python</requirement>
-
+        <requirement type="package" version="1.4.3">tidehunter</requirement>
+        <requirement type="package">bedtools</requirement>
     </requirements>
     <command detect_errors="exit_code"><![CDATA[
         python ${__tool_directory__}/detect_putative_ltr_wrapper.py --gff3 '$dante'
@@ -17,7 +18,7 @@
         mv output_statistics.csv $statistics
     ]]></command>
     <inputs>
-        <param type="data" name="dante" format="gff3" label="Filtered GFF3 output from DANTE pipeline"/>
+        <param type="data" name="dante" format="gff3" label="GFF3 output from DANTE pipeline - full output"/>
         <param type="data" name="reference" format="fasta" label="Reference sequence matching DANTE output" />
         <param type="integer" name="max_missing" min="0" max="3" value="1" label="Maximum number of missing protein domains to tolerate in full length retrotransposon" />
     </inputs>

@@ -93,6 +93,11 @@ if (FALSE) {
   g <- rtracklayer::import("/mnt/raid/users/petr/workspace/dante_ltr/test_data/tmp/DANTE_unfiltered/1.gff3")
   s <- readDNAStringSet("/mnt/raid/users/petr/workspace/dante_ltr/test_data/tmp/fasta_parts/1.fasta")
 
+  # test - TE insertion in satellite:
+  g <- rtracklayer::import("/mnt/raid/users/petr/workspace/dante_ltr/tmp/var_sequences/dante.gff3")
+  s <- readDNAStringSet("/mnt/raid/users/petr/workspace/dante_ltr/tmp/var_sequences/extracted20000.fasta")
+
+
   source("R/ltr_utils.R")
   ## feature distance model
   FDM <- readRDS("./databases/feature_distances_model.RDS")
@@ -102,7 +107,7 @@ if (FALSE) {
   lineage_info <- read.table("databases/lineage_domain_order.csv", sep = "\t", header =
     TRUE, as.is = TRUE)
   trna_db <- "./databases/tRNAscan-SE_ALL_spliced-no_plus-old-tRNAs_UC_unique-3ends.fasta"
-  opt <- list(min_relative_length=0.6, cpu = 8)
+  opt <- list(min_relative_length=0.6, cpu = 8, max_missing_domains = 0)
 
 }
 
@@ -139,6 +144,7 @@ repeat{
 
   # filter g gff3
   g <- dante_filtering(g, Relative_Length = opt$min_relative_length) # default
+  g <- sort(g, by = ~ seqnames * start)
 
   seqlengths(g) <- seqlengths(s)[names(seqlengths(g))]
   g <- add_coordinates_of_closest_neighbor(g)
@@ -249,7 +255,6 @@ repeat{
                                                   expected_ltr_length[x]),
                  mc.set.seed = TRUE, mc.cores = opt$cpu, mc.preschedule = FALSE
   )
-
   cat('done.\n')
   good_TE <- TE[!sapply(TE, is.null)]
   cat('Number of putative TE with identified LTR   :', length(good_TE), '\n')
@@ -259,7 +264,6 @@ repeat{
 if (length(good_TE)>0){   # handle empty list
   ID <- paste0('TE_', sprintf("%08d", seq(good_TE)))
   gff3_list <- mcmapply(get_te_gff3, g = good_TE, ID = ID, mc.cores = opt$cpu)
-
   cat('Identification of PBS ...')
   gff3_list2 <- mclapply(gff3_list, FUN = add_pbs, s = s, trna_db = trna_db, mc.set.seed = TRUE, mc.cores = opt$cpu, mc.preschedule = FALSE)
   cat('done\n')
