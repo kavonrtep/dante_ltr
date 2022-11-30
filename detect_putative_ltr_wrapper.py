@@ -118,7 +118,11 @@ def get_arguments():
     detect_putative_ltr.R""", formatter_class=argparse.RawTextHelpFormatter
         )
     parser.add_argument(
-        '-g', '--gff3', default=None, required=True, help="gff3 file", type=str,
+        '-g', '--gff3', default=None, required=True,
+        help=("gff3 file with full output from Domain Based Annotation of Transposable "
+             "Elements (DANTE)"),
+
+        type=str,
         action='store'
         )
     parser.add_argument(
@@ -143,9 +147,9 @@ def get_arguments():
         )
     parser.add_argument(
         '-S', '--max_chunk_size', default=100000000, required=False, type=int,
-        help='If size of reference sequence is greater than this value, reference is '
-             'analyzed in chunks of this size. default is %(default)s'
-             'Setting this value too small  will slow down the analysis'
+        help=('If size of reference sequence is greater than this value, reference is '
+             'analyzed in chunks of this size. default is %(default)s '
+             'Setting this value too small  will slow down the analysis')
         )
     args = parser.parse_args()
     return args
@@ -457,6 +461,29 @@ def filter_gff3_file(gff3_file, good_id, output_file):
                     if feature.attributes_dict['Parent'] in good_id:
                         fout.write(line)
                         continue
+def verify_seqnames(gff3, fasta):
+    """
+    Verify that ate least some seqnames in gff3 file are in fasta file
+    :param gff3:
+    :param fasta:
+    :return: True/False
+    """
+    gff_seqnames = set()
+    fasta_seqnames = set()
+    with open(gff3, 'r') as fh:
+        for line in fh:
+            if line[0] == '#':
+                continue
+            gff_seqnames.add(line.split('\t')[0])
+    with open(fasta, 'r') as fh:
+        for line in fh:
+            if line[0] == '>':
+                # seqname in fasta could contain additional description after space
+                fasta_seqnames.add(line[1:].split()[0])
+    if gff_seqnames.intersection(fasta_seqnames):
+        return True
+    else:
+        return False
 
 
 def main():
@@ -466,6 +493,17 @@ def main():
     args = get_arguments()
     # locate directory of current script
     tool_path = os.path.dirname(os.path.realpath(__file__))
+    # verify that at least some seqnames in gff3 match seqnames in reference fasta file.
+    # If not, exit
+    if not verify_seqnames(args.gff3, args.reference_sequence):
+        # print error message to stderr
+        sys.stderr.write(
+            'ERROR: No seqnames in gff3 file match seqnames in reference fasta file. '
+            'Please check that gff3 file was created from reference fasta file.'
+            )
+        sys.exit(1)
+
+
     # split fasta file to chunks
     fasta_file_split, matching_table = split_fasta_to_chunks(
         args.reference_sequence, chunk_size=args.max_chunk_size
