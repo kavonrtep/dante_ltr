@@ -15,6 +15,7 @@ In the next step, the 5' and 3' regions of the putative retrotransposon  are exa
 
 
 ## Installation:
+[![Anaconda-Server Badge](https://anaconda.org/petrnovak/dante/badges/version.svg)](https://anaconda.org/petrnovak/dante)
 
 ```shell
 conda create -n dante_ltr -c bioconda -c conda-forge -c petrnovak dante_ltr
