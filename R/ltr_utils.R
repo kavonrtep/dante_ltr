@@ -557,10 +557,20 @@ evaluate_ltr <- function(GR, GRL, GRR, blast_line, Lseq, Rseq) {
     TSD_Length <- max(p)
     TSD_sequence <- TSD_L_seq[TSD_Length]
     TSD_position <- append(TSD_R[TSD_Length], TSD_L[TSD_Length])
-  }else {
+  }else{
+    # check if there is a TSD, allow for 1 mismatch, min lenght must be 5
+    N_mismatch <- sapply(mapply("!=", strsplit(as.character(TSD_L_seq), ""),
+                               strsplit(as.character(TSD_R_seq), "")), sum)
+    p <- which(N_mismatch <= 1 & nchar(TSD_L_seq) >= 5)
+    if (length(p) > 0) {
+      TSD_Length <- max(p)
+      TSD_sequence <- paste0(TSD_R_seq[TSD_Length],"/", TSD_L_seq[TSD_Length])
+      TSD_position <- append(TSD_R[TSD_Length], TSD_L[TSD_Length])
+    }else {
     TSD_Length <- 0
     TSD_sequence <- ""
     TSD_position <- NA
+    }
   }
 
   TE_Length <- end(LTR_R) - start(LTR_L)
