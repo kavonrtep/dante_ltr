@@ -598,7 +598,8 @@ get_te_gff3 <- function(g, ID) {
                 IRanges(start = start(g$ltr_info[[1]]$LTR_L_position),
                         end = end(g$ltr_info[[1]]$LTR_R_position)), strand = S)
   TE$type <- "transposable_element"
-  TE$Ndomains <- length(g$domain)
+
+  TE$Ndomains <- nrow(g$domain)
   TE$ID <- ID
 
   if (as.character(S) == "+") {
