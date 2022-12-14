@@ -14,6 +14,9 @@ add_coordinates_of_closest_neighbor <- function(gff) {
 get_domain_clusters_alt <- function(gff, dist_models, threshold=0.99){
   # gff <- sort(gff, by = ~ seqnames * start)
   ## it must be already sorted by seqnames and start
+b  ## it must take into account strand
+  strand1 <- head(strand(gff) == "+", -1)
+  strand2 <- strand(gff)[-1] == "+"
   domain_pairs <- data.frame(
     D1 = paste0(head(gff$Name,-1),"_S"),
     D2 = paste0(gff$Name[-1],"_S"),
@@ -21,8 +24,8 @@ get_domain_clusters_alt <- function(gff, dist_models, threshold=0.99){
     C2 =  gff$Final_Classification[-1],
     S1 =  head(strand(gff),-1),
     S2 =  strand(gff)[-1],
-    start1 =  head(start(gff),-1),
-    start2 = start(gff)[-1],
+    start1 =  ifelse(strand1, head(start(gff),-1), head(end(gff),-1)),
+    start2 = ifelse(strand2, start(gff)[-1], end(gff)[-1]),
     chrpos= paste0(seqnames(gff)[-1],"_",start(gff)[-1])
   )
   domain_pairs$D_A <- with(domain_pairs, ifelse(D1 < D2, D1, D2))

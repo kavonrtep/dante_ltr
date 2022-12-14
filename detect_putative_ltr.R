@@ -20,9 +20,12 @@ option_list <- list(
               metavar = "number"),
   make_option(c("-L", "--min_relative_length"), type = "numeric", default = 0.6,
               help = "Minimum relative length of protein domain to be considered for retrostransposon detection [default %default]",
-              metavar = "number")
+              metavar = "number"),
+  make_option(c("-d", "--debug"), action = "store_true", default = FALSE,
+              help = "Debug mode [default %default]")
 
 )
+
 description <- paste(strwrap(""))
 
 epilogue <- ""
@@ -66,6 +69,11 @@ if (file.exists(lineage_file) & file.exists(trna_db)) {
   )
 }
 
+if (opt$debug) {
+  # create additional directory with extra information
+  debug_dir <- paste0(opt$output, "_debug")
+  dir.create(debug_dir, showWarnings = FALSE)
+}
 
 # for testing
 if (FALSE) {
@@ -92,6 +100,10 @@ if (FALSE) {
 
   g <- rtracklayer::import("/mnt/raid/users/petr/workspace/dante_ltr/test_data/tmp/DANTE_unfiltered/1.gff3")
   s <- readDNAStringSet("/mnt/raid/users/petr/workspace/dante_ltr/test_data/tmp/fasta_parts/1.fasta")
+
+  g <- rtracklayer::import("/mnt/raid/454_data/dante/Intact_LTR_dataset/assembly_o_sativa/Oryza_sativa_msu7_dante.gff3")
+  s <- readDNAStringSet("/mnt/raid/454_data/dante/Intact_LTR_dataset/assembly_o_sativa/Oryza_sativa_msu7.fasta")
+
 
   # test - TE insertion in satellite:
   g <- rtracklayer::import("/mnt/raid/users/petr/workspace/dante_ltr/tmp/var_sequences/dante.gff3")
@@ -177,6 +189,9 @@ repeat{
                          IRanges(start = sapply(gcl_alt, function(x) min(x$start)),
                                  end = sapply(gcl_alt, function(x) max(x$end)))
   )
+  if (opt$debug) {
+    export(TE_partial, con = paste0(debug_dir,"/TE_partial_all.gff3"), format = "gff3")
+  }
   g$Ndomains_in_cluster <- count_occurences_for_each_element(g$Cluster)
   g$Parent <- paste0("TE_partial_", sprintf("%08d", g$Cluster))
   g$Rank <- "D"
@@ -258,6 +273,9 @@ repeat{
   cat('done.\n')
   good_TE <- TE[!sapply(TE, is.null)]
   cat('Number of putative TE with identified LTR   :', length(good_TE), '\n')
+  if (opt$debug) {
+    saveRDS(good_TE, paste0(debug_dir, "/good_TE.rds"))
+  }
   break
   }
 
