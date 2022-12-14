@@ -101,6 +101,9 @@ if (FALSE) {
   g <- rtracklayer::import("/mnt/raid/users/petr/workspace/dante_ltr/test_data/tmp/DANTE_unfiltered/1.gff3")
   s <- readDNAStringSet("/mnt/raid/users/petr/workspace/dante_ltr/test_data/tmp/fasta_parts/1.fasta")
 
+  g <- rtracklayer::import("/mnt/raid/users/petr/workspace/dante_ltr/test_data/ikeros_test_dante.gff3")
+  s <- readDNAStringSet("/mnt/raid/users/petr/workspace/dante_ltr/test_data/ikeros_test.fasta")
+
   g <- rtracklayer::import("/mnt/raid/454_data/dante/Intact_LTR_dataset/assembly_o_sativa/Oryza_sativa_msu7_dante.gff3")
   s <- readDNAStringSet("/mnt/raid/454_data/dante/Intact_LTR_dataset/assembly_o_sativa/Oryza_sativa_msu7.fasta")
 
