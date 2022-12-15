@@ -109,8 +109,8 @@ if (FALSE) {
 
 
   # test - TE insertion in satellite:
-  g <- rtracklayer::import("/mnt/raid/users/petr/workspace/dante_ltr/tmp/var_sequences/dante.gff3")
-  s <- readDNAStringSet("/mnt/raid/users/petr/workspace/dante_ltr/tmp/var_sequences/extracted20000.fasta")
+  g <- rtracklayer::import("/mnt/raid/users/petr/workspace/dante_ltr/test_data/retand_test.gff3")
+  s <- readDNAStringSet("/mnt/raid/users/petr/workspace/dante_ltr/test_data/retand_test.fasta")
 
 
   source("R/ltr_utils.R")

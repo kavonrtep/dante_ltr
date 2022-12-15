@@ -197,10 +197,13 @@ trim2TGAC <- function(bl) {
     ca_P <- lastCA(cons)
     e_dist <- bl$length[i] - ca_P
     max_dist <- 50 # was 25
+    # count mismatches in the trimming region (?)
+    S_mismatch <- sum(strsplit(substring(cons,1, tg_P),"")[[1]] == "?")
+    E_mismatch <- sum(strsplit(substring(cons, ca_P, nchar(cons)),"")[[1]] == "?")
     no_match <- any(tg_P == 0, ca_P == 0)
     if (!no_match &
-      tg_P < max_dist &
-      e_dist < max_dist) {
+      tg_P - S_mismatch < max_dist &
+      e_dist - E_mismatch < max_dist) {
       ## trim alignment
       bl[i,] <- trim_blast_table(bl[i,], tg_P, e_dist - 1)
     }
