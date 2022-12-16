@@ -24,9 +24,9 @@ Class_I/LTR/Ty3_gypsy/chromovirus/Tcn1	GAG PROT RT RH INT CHD	2000	2000	5400	387
 Class_I/LTR/Ty3_gypsy/chromovirus/Tekay	GAG PROT RT RH INT CHD	6000	6000	6000	298
 Class_I/LTR/Ty3_gypsy/non-chromovirus/OTA/Athila	GAG PROT RT RH INT	3500	5000	7000	281
 Class_I/LTR/Ty3_gypsy/non-chromovirus/OTA/Tat/Ogre	GAG PROT RT RH aRH INT	12000	14000	10000	667
-Class_I/LTR/Ty3_gypsy/non-chromovirus/OTA/Tat/Retand	GAG PROT RT RH aRH INT	4000	12000	7000	419
-Class_I/LTR/Ty3_gypsy/non-chromovirus/OTA/Tat/TatI	GAG PROT aRH RT RH INT	5000	5000	7700	187
-Class_I/LTR/Ty3_gypsy/non-chromovirus/OTA/Tat/TatII	GAG PROT aRH RT RH INT	5000	5000	7400	149
+Class_I/LTR/Ty3_gypsy/non-chromovirus/OTA/Tat/Retand	GAG PROT RT RH aRH INT	6000	12000	7000	419
+Class_I/LTR/Ty3_gypsy/non-chromovirus/OTA/Tat/TatI	GAG PROT aRH RT RH INT	6000	6000	7700	187
+Class_I/LTR/Ty3_gypsy/non-chromovirus/OTA/Tat/TatII	GAG PROT aRH RT RH INT	6000	6000	7400	149
 Class_I/LTR/Ty3_gypsy/non-chromovirus/OTA/Tat/TatIII	GAG PROT RT RH INT aRH	10000	10000	7700	847
 Class_I/LTR/Ty3_gypsy/non-chromovirus/Phygy	GAG PROT RT RH INT	4000	4000	7400	1129
 Class_I/LTR/Ty3_gypsy/non-chromovirus/Selgy	GAG PROT RT RH INT	2000	2000	5600	163

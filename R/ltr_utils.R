@@ -779,9 +779,15 @@ dante_filtering <- function(dante_gff, min_similarity=0.4,
     as.numeric(dante_gff$Identity) >= min_identity &
     as.numeric(dante_gff$Relat_Length) >= Relative_Length &
     as.numeric(dante_gff$Relat_Interruptions) <= min_relat_interuptions
+  # alternative threshold - if similarity is high, allow loew relative length
+  min_rel_length_sim <- 0.35
+  include2 <- as.numeric(dante_gff$Similarity) * as.numeric(dante_gff$Relat_Length) > min_rel_length_sim &
+    as.numeric(dante_gff$Identity) >= min_identity &
+    as.numeric(dante_gff$Relat_Interruptions) <= min_relat_interuptions
 
   include[is.na(include)] <- FALSE
-  return(dante_gff[include])
+  include2[is.na(include2)] <- FALSE
+  return(dante_gff[include | include2,])
 }
 
 get_te_statistics <- function(gr, RT){
