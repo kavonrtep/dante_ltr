@@ -109,8 +109,8 @@ if (FALSE) {
 
 
   # test - TE insertion in satellite:
-  g <- rtracklayer::import("/mnt/raid/users/petr/workspace/dante_ltr/test_data/retand_test.gff3")
-  s <- readDNAStringSet("/mnt/raid/users/petr/workspace/dante_ltr/test_data/retand_test.fasta")
+  g <- rtracklayer::import("/mnt/raid/454_data/dante/Intact_LTR_dataset/assembly_o_sativa/crm_test_dante.gff3")
+  s <- readDNAStringSet("/mnt/raid/454_data/dante/Intact_LTR_dataset/assembly_o_sativa/crm_test.fasta")
 
 
   source("R/ltr_utils.R")
@@ -122,7 +122,7 @@ if (FALSE) {
   lineage_info <- read.table("databases/lineage_domain_order.csv", sep = "\t", header =
     TRUE, as.is = TRUE)
   trna_db <- "./databases/tRNAscan-SE_ALL_spliced-no_plus-old-tRNAs_UC_unique-3ends.fasta"
-  opt <- list(min_relative_length=0.6, cpu = 8, max_missing_domains = 0)
+  opt <- list(min_relative_length=0.6, cpu = 8, max_missing_domains = 0, debug = FALSE)
 
 }
 
@@ -157,10 +157,26 @@ lineage_domains_sequence <- unlist(mapply(function(d,l) {
 # it can breaks in eny point if zero TE is found
 repeat{
 
-  # filter g gff3
-  g <- dante_filtering(g, Relative_Length = opt$min_relative_length) # default
+  # prefilering analysis gff3
+  # clusters of domain are identified, domains which are close to expected othe domains
+  # are filterer with less strict criteria
   g <- sort(g, by = ~ seqnames * start)
+  # add info about domain order:
+  g$domain_order <- as.numeric(factor(paste(g$Name, g$Final_Classification, sep = ":"), levels = lineage_domains_sequence))
+  # set NA to 0 in  g$domain_order ( some domains are not fromm ClassI elements
+  g$domain_order[is.na(g$domain_order)] <- 0
 
+  cls_prefilter <- paste(get_domain_clusters_alt(g, FDM), get_domain_clusters(g))
+  g$cls_prefilter <- cls_prefilter
+  neighbors_count <- c(head(cls_prefilter, -1) == cls_prefilter[-1], 0)
+  neighbors_count <- c(0, head(neighbors_count,-1)) + neighbors_count
+  # neighbors_count is number of direct neighbors witch are in the same cluster
+  # it is used to improve domain filtering. If there are 2 neigbors, filtering can
+  # be less strict
+
+  # filtering
+  g$neighbors_count <- neighbors_count
+  g <- dante_filtering(g, Relative_Length = opt$min_relative_length) # default
   seqlengths(g) <- seqlengths(s)[names(seqlengths(g))]
   g <- add_coordinates_of_closest_neighbor(g)
 
@@ -177,7 +193,6 @@ repeat{
 
   cls_alt <- get_domain_clusters_alt(g, FDM)
   g$Cluster <- as.numeric(factor(cls_alt))
-
   gcl_alt <- split(as.data.frame(g), cls_alt)
 
   TE_partial <-  GRanges(seqnames =  sapply(gcl_alt, function(x) x$seqnames[1]),
@@ -264,6 +279,9 @@ repeat{
   names(s_left) <- paste(seqnames(grL), start(grL), end(grL), sep = "_")
   names(s_right) <- paste(seqnames(grR), start(grR), end(grR), sep = "_")
   cat('Identification of LTRs...')
+  if (opt$debug){
+    save.image(file = paste0("debug_dante_ltr.RData"))
+  }
   TE <- mclapply(seq_along(gr), function(x)get_TE(s_left[x],
                                                   s_right[x],
                                                   gcl_clean_with_domains[[x]],
@@ -296,9 +314,19 @@ if (length(good_TE)>0){   # handle empty list
   gff3_out$source <- src
   gff3_out$Rank <- get_te_rank(gff3_out)
   # add partial TEs but first remove all ovelaping
-  TE_partial_parent_part <- TE_partial_with_more_than_one_domain[TE_partial_with_more_than_one_domain %outside% gff3_out]
+  if (opt$debug) {
+    save.image(file = paste0("debug_dante_ltr.RData"))
+  }
+  # use complete TE as mask for partial TE
+  TE_partial_parent_part <- trim_gr(TE_partial_with_more_than_one_domain, gff3_out)
   TE_partial_domain_part <-  g[g$Parent %in% TE_partial_parent_part$ID]
-  gff3_out <- sort(c(gff3_out, TE_partial_domain_part, TE_partial_parent_part), by = ~ seqnames * start)
+  # and trim it
+  TE_partial_domain_part <-  trim_gr(TE_partial_domain_part, gff3_out)
+
+  gff3_out <- sort(merge_gr(gff3_out, TE_partial_parent_part, TE_partial_domain_part), by = ~ seqnames * start)
+  # this is to convert Parent from characterList
+  gff3_out$Parent <- as.character(gff3_out$Parent)
+
 }else{
   # but this could be a problem if there are no TEs in the sequence
   if (length(TE_partial_with_more_than_one_domain)>0){

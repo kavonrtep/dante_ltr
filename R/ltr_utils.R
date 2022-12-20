@@ -11,6 +11,54 @@ add_coordinates_of_closest_neighbor <- function(gff) {
   return(gff_updated)
 }
 
+
+trim_gr <- function (grA, grMask){
+  # this function trims genomicragnes in grA by genomicranges in grMask
+  # metadata is preserved, if the resulting range is empty, reange is removed completelly
+  # uses bedtools substract
+
+  #grA = GRanges("chr1", IRanges(start = c(1, 10, 20, 30, 50, 60), width = c(5, 5, 5, 5, 5, 5)))
+  #grA$Name= c("A", "B", "C", "D", "E", "F")
+  #grMask = GRanges("chr1", IRanges(start = c(4, 20,55, 59), width = c(8,8,7,8)))
+
+  tmp_gr <- tempfile(fileext = ".gff3")
+  tmp_mask <- tempfile(fileext = ".gff3")
+  tmp_out <- tempfile(fileext = ".gff3")
+
+  export(grA, tmp_gr, format = "gff3")
+  export(grMask, tmp_mask, format = "gff3")
+
+  cmd <- paste0("bedtools subtract -a ", tmp_gr, " -b ", tmp_mask, " > ", tmp_out)
+  system(cmd)
+
+  gr_out <- import(tmp_out, format = "gff3")
+  # delete tmp files
+  unlink(tmp_gr)
+  unlink(tmp_mask)
+  unlink(tmp_out)
+  return(gr_out)
+}
+
+merge_gr = function(a,b,c){
+  tmpA <- tempfile(fileext = ".gff3")
+  tmpB <- tempfile(fileext = ".gff3")
+  tmpC <- tempfile(fileext = ".gff3")
+  tmpOut <- tempfile(fileext = ".gff3")
+  export(a, tmpA, format = "gff3")
+  export(b, tmpB, format = "gff3")
+  export(c, tmpC, format = "gff3")
+  # concatenate files
+  cmd <- paste0("cat ", tmpA, " ", tmpB, " ", tmpC, " > ", tmpOut)
+  system(cmd)
+  g <- import(tmpOut, format = "gff3")
+  unlink(tmpA)
+  unlink(tmpB)
+  unlink(tmpC)
+  unlink(tmpOut)
+  return(g)
+
+}
+
 get_domain_clusters_alt <- function(gff, dist_models, threshold=0.99){
   # gff <- sort(gff, by = ~ seqnames * start)
   ## it must be already sorted by seqnames and start
@@ -145,9 +193,9 @@ get_ranges <- function(gx, offset = OFFSET) {
 get_ranges_left <- function(gx, offset = OFFSET, offset2 = 300) {
   ## offset2 - how many nt cen LTR extend to closes protein domain
   ## this is necassary as some detected proteins domains does not have correct bopundaries
-  ## if LTR retrotransposons insters to other protein domain.
+  ## if LTR retrotransposons insert to other protein domain.
   S <- sapply(gx, function(x)min(x$start))
-  max_offset <- S - sapply(gx, function(x)min(x$upstream_domain)) + 10
+  max_offset <- S - sapply(gx, function(x)min(x$upstream_domain)) + 100
   offset_adjusted <- ifelse(max_offset < offset, max_offset, offset)
   gr <- GRanges(seqnames = sapply(gx, function(x)x$seqnames[1]), IRanges(start = S - offset_adjusted, end = S + offset2))
   return(gr)
@@ -155,7 +203,7 @@ get_ranges_left <- function(gx, offset = OFFSET, offset2 = 300) {
 
 get_ranges_right <- function(gx, offset = OFFSET, offset2 = 300) {
   E <- sapply(gx, function(x)max(x$end))
-  max_offset <- sapply(gx, function(x)max(x$downstream_domain)) - E + 10
+  max_offset <- sapply(gx, function(x)max(x$downstream_domain)) - E + 100
   offset_adjusted <- ifelse(max_offset < offset, max_offset, offset)
   gr <- GRanges(seqnames = sapply(gx, function(x)x$seqnames[1]), IRanges(start = E - offset2, end = E + offset_adjusted))
   return(gr)
@@ -213,10 +261,16 @@ trim2TGAC <- function(bl) {
 }
 
 trim_blast_table <- function(b, T1, T2) {
-  b$qstart <- b$qstart + T1
-  b$sstart <- b$sstart + T1
-  b$qend <- b$qend - T2
-  b$send <- b$send - T2
+  ## count gaps in trimmed region ajdust start/end accordingly
+  QSgap <- sum(strsplit(substring(b$qseq, 1, T1),"")[[1]] == "-")
+  SSgap <- sum(strsplit(substring(b$sseq, 1, T1),"")[[1]] == "-")
+  QEgap <- sum(strsplit(substring(b$qseq, nchar(b$qseq) - T2, nchar(b$qseq)),"")[[1]] == "-")
+  SEgap <- sum(strsplit(substring(b$sseq, nchar(b$sseq) - T2, nchar(b$sseq)),"")[[1]] == "-")
+
+  b$qstart <- b$qstart + T1 - QSgap
+  b$sstart <- b$sstart + T1 - SSgap
+  b$qend <- b$qend - T2 + QEgap
+  b$send <- b$send - T2 + SEgap
   b$sseq <- substring(b$sseq, T1, b$length - T2)
   b$qseq <- substring(b$qseq, T1, b$length - T2)
   b$length <- nchar(b$sseq)
@@ -783,8 +837,8 @@ dante_filtering <- function(dante_gff, min_similarity=0.4,
   min_rel_length_sim <- 0.35
   include2 <- as.numeric(dante_gff$Similarity) * as.numeric(dante_gff$Relat_Length) > min_rel_length_sim &
     as.numeric(dante_gff$Identity) >= min_identity &
-    as.numeric(dante_gff$Relat_Interruptions) <= min_relat_interuptions
-
+    as.numeric(dante_gff$Relat_Interruptions) <= min_relat_interuptions &
+    dante_gff$neighbors_count > 0
   include[is.na(include)] <- FALSE
   include2[is.na(include2)] <- FALSE
   return(dante_gff[include | include2,])
