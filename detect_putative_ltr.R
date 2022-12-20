@@ -48,7 +48,7 @@ OFFSET <- 15000
 # load configuration files and functions:
 lineage_file <- paste0(script_dir, "/databases/lineage_domain_order.csv")
 FDM_file <- paste0(script_dir, "/databases/feature_distances_model.RDS")
-trna_db <- paste0(script_dir, "/databases/tRNAscan-SE_ALL_spliced-no_plus-old-tRNAs_UC_unique-3ends.fasta")
+trna_db <- paste0(script_dir, "/databases/tRNAscan-SE_ALL_spliced-yes_2022-12-14_plus-old-tRNAs_UC_unique-3ends.fasta")
 ltr_utils_r <- paste0(script_dir, "/R/ltr_utils.R")
 if (file.exists(lineage_file) & file.exists(trna_db)) {
   lineage_info <- read.table(lineage_file, sep = "\t", header = TRUE, as.is = TRUE)
@@ -58,7 +58,7 @@ if (file.exists(lineage_file) & file.exists(trna_db)) {
   # this destination work is installed using conda
   lineage_file <- paste0(script_dir, "/../share/dante_ltr/databases/lineage_domain_order.csv")
   FDM_file <- paste0(script_dir, "/../share/dante_ltr/databases/feature_distances_model.RDS")
-  trna_db <- paste0(script_dir, "/../share/dante_ltr/databases/tRNAscan-SE_ALL_spliced-no_plus-old-tRNAs_UC_unique-3ends.fasta")
+  trna_db <- paste0(script_dir, "/../share/dante_ltr/databases/tRNAscan-SE_ALL_spliced-yes_2022-12-14_plus-old-tRNAs_UC_unique-3ends.fasta")
   ltr_utils_r <- paste0(script_dir, "/../share/dante_ltr/R/ltr_utils.R")
   if (file.exists(lineage_file) & file.exists((trna_db))) {
     lineage_info <- read.table(lineage_file, sep = "\t", header = TRUE, as.is = TRUE)
@@ -121,7 +121,7 @@ if (FALSE) {
   outfile <- "/mnt/raid/users/petr/workspace/ltr_finder_test/te_with_domains_2.gff3"
   lineage_info <- read.table("databases/lineage_domain_order.csv", sep = "\t", header =
     TRUE, as.is = TRUE)
-  trna_db <- "./databases/tRNAscan-SE_ALL_spliced-no_plus-old-tRNAs_UC_unique-3ends.fasta"
+  trna_db <- "./databases/tRNAscan-SE_ALL_spliced-yes_2022-12-14_plus-old-tRNAs_UC_unique-3ends.fasta"
   opt <- list(min_relative_length=0.6, cpu = 8, max_missing_domains = 0, debug = FALSE)
 
 }
