@@ -743,6 +743,71 @@ get_TE <- function(Lseq, Rseq, domains_gff, GR, GRL, GRR,LTR_length) {
   }
 }
 
+add_pbs_hemi <- function(te, s, trna_db) {
+  # these are hemi trna
+   ltr5 <- te[which(te$LTR == "5LTR")]
+  STRAND <- as.character(strand(te)[1])
+  if (STRAND == "+") {
+    pbs_gr <- GRanges(seqnames(ltr5), IRanges(start = end(ltr5) + 1, end = end(ltr5) + 31))
+    pbs_s <- reverseComplement(getSeq(s, pbs_gr))
+  }else {
+    pbs_gr <- GRanges(seqnames(ltr5), IRanges(end = start(ltr5) - 1, start = start(ltr5) - 30))
+    pbs_s <- getSeq(s, pbs_gr)
+  }
+
+  names(pbs_s) <- "pbs_region"
+  # find trna match
+  tmp <- tempfile()
+  tmp_out <- tempfile()
+  writeXStringSet(DNAStringSet(pbs_s), tmp)
+  # alternative blast:
+  cmd <- paste("blastn -task blastn -word_size 7 -dust no -perc_identity 90 -ungapped",
+               " -query ", tmp, ' -db ', trna_db, ' -strand plus ',
+               '-outfmt "6 qaccver saccver pident length mismatch gapopen qstart qend sstart send evalue bitscore qseq sseq"',
+               '  -out', tmp_out)
+
+  system(cmd)
+  pbs_exact_gr <- NULL
+  out_raw <- read.table(tmp_out, as.is = TRUE, sep = "\t",
+                        col.names = strsplit(
+                          "qaccver saccver pident length mismatch gapopen qstart qend sstart send evalue bitscore qseq sseq",
+                          split = ' ')[[1]])
+  if (nrow(out_raw) > 0){
+    close_to_end <- out_raw$send >16 # align to end of sequence
+    max_dist <- out_raw$qend > 26 # max 5 bp from ltr  # was 25!
+    min_length <- out_raw$length >= 12
+    out_pass <- out_raw[close_to_end & max_dist & min_length,]
+    # out_pass <- out_raw[min_length,]
+
+
+    if (nrow(out_pass) > 0) {
+      trna_id <- out_pass$saccver[1]
+      if (STRAND == "+") {
+        S <- end(ltr5) + 32 - out_pass$qend[1]
+        E <- end(ltr5) + 32 - out_pass$qstart[1]
+      }else {
+        S <- start(ltr5) - 31 + out_pass$qstart[1]
+        E <- start(ltr5) - 31 + out_pass$qend[1]
+      }
+      pbs_exact_gr <- GRanges(seqnames(ltr5), IRanges(start = S, end = E))
+        pbs_exact_gr$trna_id <- trna_id
+      pbs_exact_gr$Length <- out_pass$Length
+      strand(pbs_exact_gr) <- STRAND
+      pbs_exact_gr$type <- 'primer_binding_site'
+      pbs_exact_gr$Parent <- te[1]$ID
+      pbs_exact_gr$evalue <- out_pass$evalue[1]
+      te$trna_id <- c(trna_id, rep(NA, length(te) - 1))
+
+    }
+  }
+  te <- append(te, pbs_exact_gr)
+   unlink(tmp)
+   unlink(tmp_out)
+   return(te)
+}
+
+
+
 add_pbs <- function(te, s, trna_db) {
   ltr5 <- te[which(te$LTR == "5LTR")]
   STRAND <- as.character(strand(te)[1])
@@ -790,6 +855,7 @@ add_pbs <- function(te, s, trna_db) {
       pbs_exact_gr$trna_id <- trna_id
       pbs_exact_gr$Length <- out_pass$Length
       strand(pbs_exact_gr) <- STRAND
+      pbs_exact_gr$evalue <- out_pass$evalue[1]
       pbs_exact_gr$type <- 'primer_binding_site'
       pbs_exact_gr$Parent <- te[1]$ID
       te$trna_id <- c(trna_id, rep(NA, length(te) - 1))
