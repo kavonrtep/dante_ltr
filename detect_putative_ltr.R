@@ -156,9 +156,12 @@ lineage_domains_sequence <- unlist(mapply(function(d,l) {
 # this repeat block is run just once
 # it can breaks in eny point if zero TE is found
 repeat{
+  # remove reduntaunt attributes:
+  g$Region_Hits_Classifications <- NULL
+  g$Region_Hits_Classifications_ <- NULL
 
   # prefilering analysis gff3
-  # clusters of domain are identified, domains which are close to expected othe domains
+  # clusters of domain are identified, domains which are close to expected other domains
   # are filterer with less strict criteria
   g <- sort(g, by = ~ seqnames * start)
   # add info about domain order:
@@ -358,6 +361,8 @@ if (is.null(gff3_out)){
 # modify ID and Parent - add seqname - this will ensure it is unique is done on chunk level
   gff3_out$ID[!is.na(gff3_out$ID)] <- paste0(gff3_out$ID[!is.na(gff3_out$ID)], "_", seqnames(gff3_out)[!is.na(gff3_out$ID)])
   gff3_out$Parent[!is.na(gff3_out$Parent)] <- paste0(gff3_out$Parent[!is.na(gff3_out$Parent)], "_", seqnames(gff3_out)[!is.na(gff3_out$Parent)])
+  gff3_out <- convert_gr_Lists_to_Vectors(gff3_out)
+  save.image(file = paste0("debug_dante_ltr.RData"))
   export(gff3_out, con = paste0(outfile, ".gff3"), format = 'gff3')
   all_tbl <- get_te_statistics(gff3_out, RT)
   all_tbl <- cbind(Classification = rownames(all_tbl), all_tbl)

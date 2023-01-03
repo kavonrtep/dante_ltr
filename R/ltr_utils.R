@@ -797,6 +797,7 @@ add_pbs_hemi <- function(te, s, trna_db) {
       pbs_exact_gr$Parent <- te[1]$ID
       pbs_exact_gr$evalue <- out_pass$evalue[1]
       te$trna_id <- c(trna_id, rep(NA, length(te) - 1))
+      te$evalue <- c(out_pass$evalue[1], rep(NA, length(te) - 1))
 
     }
   }
@@ -859,6 +860,7 @@ add_pbs <- function(te, s, trna_db) {
       pbs_exact_gr$type <- 'primer_binding_site'
       pbs_exact_gr$Parent <- te[1]$ID
       te$trna_id <- c(trna_id, rep(NA, length(te) - 1))
+      te$evalue <- c(out_pass$evalue[1], rep(NA, length(te) - 1))
 
     }
   }
@@ -909,6 +911,25 @@ dante_filtering <- function(dante_gff, min_similarity=0.4,
   include2[is.na(include2)] <- FALSE
   return(dante_gff[include | include2,])
 }
+
+convert_gr_Lists_to_Vectors <- function(gr){
+  for (i in 1:ncol(elementMetadata(gr))) {
+    if (is.list(elementMetadata(gr)[,i])) {
+      # check is all elements are length 1
+      if (all(sapply(elementMetadata(gr)[,i], length) == 1)) {
+        elementMetadata(gr)[,i] <- unlist(elementMetadata(gr)[,i])
+        elementMetadata(gr)[,i][elementMetadata(gr)[,i]=="NA"] <- NA
+      }else {
+        elementMetadata(gr)[,i] <- sapply(elementMetadata(gr)[,i], paste, collapse = ",")
+      }
+    }
+  }
+  return(gr)
+}
+
+
+
+
 
 get_te_statistics <- function(gr, RT){
   Ranks <- c("D", "DL", "DLT", "DLP", "DLTP")
