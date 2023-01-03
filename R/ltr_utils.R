@@ -797,7 +797,7 @@ add_pbs_hemi <- function(te, s, trna_db) {
       pbs_exact_gr$Parent <- te[1]$ID
       pbs_exact_gr$evalue <- out_pass$evalue[1]
       te$trna_id <- c(trna_id, rep(NA, length(te) - 1))
-      te$evalue <- c(out_pass$evalue[1], rep(NA, length(te) - 1))
+      te$PBS_evalue <- c(out_pass$evalue[1], rep(NA, length(te) - 1))
 
     }
   }
@@ -860,7 +860,7 @@ add_pbs <- function(te, s, trna_db) {
       pbs_exact_gr$type <- 'primer_binding_site'
       pbs_exact_gr$Parent <- te[1]$ID
       te$trna_id <- c(trna_id, rep(NA, length(te) - 1))
-      te$evalue <- c(out_pass$evalue[1], rep(NA, length(te) - 1))
+      te$PBS_evalue <- c(out_pass$evalue[1], rep(NA, length(te) - 1))
 
     }
   }

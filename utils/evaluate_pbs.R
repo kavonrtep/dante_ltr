@@ -43,10 +43,29 @@ gff_te_p <- split(gff_te, gff_te$Final_Classification)
 pdf(paste0(f, "_pbs.pdf"), width = 11, height = 20)
 for (n in names(gff_te_p)){
   pbs <- gff_te_p[[n]]$trna_id
+  eval <- as.numeric(gff_te_p[[n]]$evalue)
   AAp <-  sapply(strsplit(sapply(strsplit(pbs,"__"),"[[", 2),"-"), "[[", 1)
+  AA_levels <- names(sort(table(AAp)))
+  if (all(eval >= 0.1)){
+    AAp01 <- character(0)
+  }else{
+    AAp01 <-  sapply(strsplit(sapply(strsplit(pbs[eval < 0.1],"__"),"[[", 2),"-"), "[[", 1)
+  }
+  if (all(eval >= 0.5)){
+    AAp05 <- character(0)
+  }else{
+    AAp05 <-  sapply(strsplit(sapply(strsplit(pbs[eval < 0.5],"__"),"[[", 2),"-"), "[[", 1)
+  }
   par(mfrow = c(3,1), mar = c(4,20,2,2))
   barplot(sort(table(gff_te_p[[n]]$trna_id), decreasing = TRUE), main = n, horiz = TRUE, las = 1)
-  barplot(sort(table(AAp), decreasing = TRUE), main = n, horiz = TRUE, las = 1)
+  AAp_all <- table(factor(AAp, levels = AA_levels))
+  AAp_01 <- table(factor(AAp01, levels = AA_levels))
+  AAp_05 <- table(factor(AAp05, levels = AA_levels))
+  AAp2 <- rbind(AAp_all, AAp_01)
+  barplot(AAp_all, main = n, horiz = TRUE, las = 1)
+  barplot(AAp_05, main = n, horiz = TRUE, las = 1, add = TRUE, col = "orange")
+  barplot(AAp_01, main = n, horiz = TRUE, las = 1, add = TRUE, col = "red")
+  legend("bottomright", legend = c("all", "evalue < 0.5", "evalue < 0.1"), fill = c("gray", "orange", "red"))
   hist(-log10(as.numeric(gff_te_p[[n]]$evalue)), xlab = "-log10 evlaue", main = n, breaks = 100)
 }
 par(mfrow = c(3,1))
