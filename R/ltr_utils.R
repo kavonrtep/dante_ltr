@@ -20,18 +20,22 @@ trim_gr <- function (grA, grMask){
   #grA = GRanges("chr1", IRanges(start = c(1, 10, 20, 30, 50, 60), width = c(5, 5, 5, 5, 5, 5)))
   #grA$Name= c("A", "B", "C", "D", "E", "F")
   #grMask = GRanges("chr1", IRanges(start = c(4, 20,55, 59), width = c(8,8,7,8)))
-
+  if (is.null(grA)){
+    return(grA)
+  }
   tmp_gr <- tempfile(fileext = ".gff3")
   tmp_mask <- tempfile(fileext = ".gff3")
   tmp_out <- tempfile(fileext = ".gff3")
-
   export(grA, tmp_gr, format = "gff3")
   export(grMask, tmp_mask, format = "gff3")
-
   cmd <- paste0("bedtools subtract -a ", tmp_gr, " -b ", tmp_mask, " > ", tmp_out)
   system(cmd)
-
-  gr_out <- import(tmp_out, format = "gff3")
+  # output culd be empty! check
+  if (file.size(tmp_out) == 0) {
+        gr_out <- NULL
+  }else{
+    gr_out <- import(tmp_out, format = "gff3")
+  }
   # delete tmp files
   unlink(tmp_gr)
   unlink(tmp_mask)
@@ -57,6 +61,23 @@ merge_gr = function(a,b,c){
   unlink(tmpOut)
   return(g)
 
+}
+
+## CHDCR - CHD correction
+CHD_CHDCR_correction=function(g){
+  CHD <- g$Name=="CHD" & g$Final_Classification=="Class_I|LTR|Ty3/gypsy|chromovirus|CRM"
+  g$CHDCR <- FALSE
+  g$CHDCR[g$Name=="CHDCR"] <-  TRUE
+  g$Name[CHD] <- "CHDCR"
+  return(g)
+}
+
+revert_CHDCR_correction=function(g){
+  if (any(g$CHDCR==FALSE & g$Name=="CHDCR")){
+    g$Name[g$CHDCR==FALSE & g$Name=="CHDCR"] <- "CHD"
+  }
+  g$CHDCR <- NULL
+  return(g)
 }
 
 get_domain_clusters_alt <- function(gff, dist_models, threshold=0.99){
@@ -175,11 +196,15 @@ clean_domain_clusters <- function(gcl, lineage_domain_span, min_domains) {
   return(gcl[cond1])
 }
 
-check_ranges <- function(gx, s, offset = OFFSET) {
+check_ranges <- function(gx, s, offset = 200) {
   # check is range is not out of sequence length
   START <- sapply(gx, function(x)min(x$start)) - offset
   END <- sapply(gx, function(x)max(x$end)) + offset
   MAX <- seqlengths(s)[sapply(gx, function(x)as.character(x$seqnames[1]))]
+  print(START)
+  print(END)
+  print(MAX)
+  print(s)
   good_ranges <- (START > 0) & (END <= MAX)
   return(good_ranges)
 }
@@ -197,15 +222,22 @@ get_ranges_left <- function(gx, offset = OFFSET, offset2 = 300) {
   S <- sapply(gx, function(x)min(x$start))
   max_offset <- S - sapply(gx, function(x)min(x$upstream_domain)) + 100
   offset_adjusted <- ifelse(max_offset < offset, max_offset, offset)
-  gr <- GRanges(seqnames = sapply(gx, function(x)x$seqnames[1]), IRanges(start = S - offset_adjusted, end = S + offset2))
+  STARTS <- S - offset_adjusted
+  STARTS[STARTS < 1] <- 1   # left side could be out of sequence
+  gr <- GRanges(seqnames = sapply(gx, function(x)x$seqnames[1]), IRanges(start = STARTS, end = S + offset2))
   return(gr)
 }
 
-get_ranges_right <- function(gx, offset = OFFSET, offset2 = 300) {
+get_ranges_right <- function(gx, offset = OFFSET, offset2 = 300, SL) {
   E <- sapply(gx, function(x)max(x$end))
   max_offset <- sapply(gx, function(x)max(x$downstream_domain)) - E + 100
   offset_adjusted <- ifelse(max_offset < offset, max_offset, offset)
-  gr <- GRanges(seqnames = sapply(gx, function(x)x$seqnames[1]), IRanges(start = E - offset2, end = E + offset_adjusted))
+  ENDS = E + offset_adjusted
+  # right side could be out of sequence
+  gr <- GRanges(seqnames = sapply(gx, function(x)x$seqnames[1]), IRanges(start = E - offset2, end = ENDS))
+  # check if right side is out of sequence
+  new_end = ifelse(end(gr) < SL[as.vector(seqnames(gr))], end(gr),SL[as.vector(seqnames(gr))])
+  end(gr) <- new_end
   return(gr)
 }
 

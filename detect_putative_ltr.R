@@ -131,6 +131,9 @@ if (FALSE) {
 # load data:
 cat("reading gff...")
 g <- rtracklayer::import(opt$gff3, format = 'gff3')  # DANTE gff3
+
+
+g <- CHD_CHDCR_correction(g)
 cat("done\n")
 cat("reading fasta...")
 s <- readDNAStringSet(opt$reference_sequence)  # genome assembly
@@ -193,7 +196,8 @@ repeat{
   cls <- get_domain_clusters(g)
   gcl <- split(as.data.frame(g), cls)
   # gcl_as_GRL <- split(g, cls)  # delete?
-
+  print("gcl length")
+  print(length(gcl))
   cls_alt <- get_domain_clusters_alt(g, FDM)
   g$Cluster <- as.numeric(factor(cls_alt))
   gcl_alt <- split(as.data.frame(g), cls_alt)
@@ -232,7 +236,7 @@ repeat{
                                                   paste(rev(x$Name), collapse = " "),
                                                   paste(x$Name, collapse = " "))
   )
-
+  print(length(gcl_clean))
   # compare detected domains with domains in lineages from REXdb database
   dd <- mapply(domain_distance,
                d_query = gcl_clean_domains,
@@ -243,13 +247,17 @@ repeat{
 
 
   gcl_clean2 <- gcl_clean[dd <= opt$max_missing_domains]
-
   if(length(gcl_clean2) == 0) {
     cat("No complete TE found\n")
     good_TE <- list()
     break
   }
+
+  print("Number of complete TE found:")
+  print(length(gcl_clean2))
   gcl_clean_with_domains <- gcl_clean2[check_ranges(gcl_clean2, s)]
+
+
   gr <- get_ranges(gcl_clean_with_domains)
 
   cat('Number of analyzed regions:\n')
@@ -263,12 +271,16 @@ repeat{
 
   max_left_offset <- ifelse(te_strand == "+", lineage_offset5prime[te_lineage], lineage_offset3prime[te_lineage])
   max_right_offset <- ifelse(te_strand == "-", lineage_offset5prime[te_lineage], lineage_offset3prime[te_lineage])
-
+  print("max_left_offset")
   grL <- get_ranges_left(gcl_clean_with_domains, max_left_offset)
-  grR <- get_ranges_right(gcl_clean_with_domains, max_right_offset)
-
+  print("max_right_offset")
+  save.image(file = "debug.RData")
+  grR <- get_ranges_right(gcl_clean_with_domains, offset=max_right_offset, SL = seqlengths(s))
+  print('done')
   s_left <- getSeq(s, grL)
+  print('done2')
   s_right <- getSeq(s, grR)
+  print('done3')
 
   expected_ltr_length <- lineage_ltr_mean_length[sapply(gcl_clean_with_domains, function (x)x$Final_Classification[1])]
 
@@ -335,12 +347,20 @@ if (length(good_TE)>0){   # handle empty list
     save.image(file = paste0("debug_dante_ltr.RData"))
   }
   # use complete TE as mask for partial TE
-  TE_partial_parent_part <- trim_gr(TE_partial_with_more_than_one_domain, gff3_out)
-  TE_partial_domain_part <-  g[g$Parent %in% TE_partial_parent_part$ID]
-  # and trim it
-  TE_partial_domain_part <-  trim_gr(TE_partial_domain_part, gff3_out)
 
-  gff3_out <- sort(merge_gr(gff3_out, TE_partial_parent_part, TE_partial_domain_part), by = ~ seqnames * start)
+  TE_partial_parent_part <- trim_gr(TE_partial_with_more_than_one_domain, gff3_out)
+
+  if (!is.null(TE_partial_parent_part)) {
+    TE_partial_domain_part <-  g[g$Parent %in% TE_partial_parent_part$ID]
+    # and trim it
+    TE_partial_domain_part <-  trim_gr(TE_partial_domain_part, gff3_out)
+    gff3_out <- sort(merge_gr(gff3_out, TE_partial_parent_part, TE_partial_domain_part), by = ~ seqnames * start)
+  }else{
+    gff3_out <- sort(gff3_out, by = ~ seqnames * start)
+
+  }
+
+
   # this is to convert Parent from characterList
   gff3_out$Parent <- as.character(gff3_out$Parent)
 
@@ -362,7 +382,7 @@ if (is.null(gff3_out)){
   gff3_out$ID[!is.na(gff3_out$ID)] <- paste0(gff3_out$ID[!is.na(gff3_out$ID)], "_", seqnames(gff3_out)[!is.na(gff3_out$ID)])
   gff3_out$Parent[!is.na(gff3_out$Parent)] <- paste0(gff3_out$Parent[!is.na(gff3_out$Parent)], "_", seqnames(gff3_out)[!is.na(gff3_out$Parent)])
   gff3_out <- convert_gr_Lists_to_Vectors(gff3_out)
-  save.image(file = paste0("debug_dante_ltr.RData"))
+  gff3_out <- revert_CHDCR_correction(gff3_out)
   export(gff3_out, con = paste0(outfile, ".gff3"), format = 'gff3')
   all_tbl <- get_te_statistics(gff3_out, RT)
   all_tbl <- cbind(Classification = rownames(all_tbl), all_tbl)
