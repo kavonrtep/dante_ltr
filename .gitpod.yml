@@ -2,7 +2,7 @@ image: condaforge/mambaforge:22.9.0-1
 # List the start up tasks. Learn more: https://www.gitpod.io/docs/configure/workspaces/tasks
 tasks:
   - name: Script Task
-    init: mamba create -m dante_ltr --file requirements.txt -c conda-forge -c bioconda
+    init: mamba create -m dante_ltr -y --file requirements.txt -c conda-forge -c bioconda
           conda activate dante_ltr
     command: echo 'start script'
 
