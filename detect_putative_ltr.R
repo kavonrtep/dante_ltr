@@ -330,9 +330,8 @@ if (length(good_TE)>0){   # handle empty list
 
   cat("Identification of PBS - hemi")
   gff3_list3 <- mclapply(gff3_list2_pbs_negative, FUN = add_pbs_hemi, s = s,
-                         trna_db = "/mnt/raid/users/petr/workspace/dante_ltr/databases/tRNAscan-SE_ALL_spliced-yes_2022-12-14_plus-old-tRNAs_UC_numbered_unique-half-tRNA-20nt.fasta",
+                         trna_db = trna_db,
                          mc.set.seed = TRUE, mc.cores = opt$cpu, mc.preschedule = FALSE)
-
 
 
   gff3_out <- do.call(c, append(gff3_list3, gff3_list2_pbs_positive))

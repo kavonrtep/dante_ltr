@@ -71,10 +71,9 @@ CHD_CHDCR_correction=function(g){
   g$Name[CHD] <- "CHDCR"
   return(g)
 }
-
 revert_CHDCR_correction=function(g){
-  if (any(g$CHDCR==FALSE & g$Name=="CHDCR")){
-    g$Name[g$CHDCR==FALSE & g$Name=="CHDCR"] <- "CHD"
+  if (any(g$CHDCR==FALSE & g$Name=="CHDCR", na.rm = TRUE)){
+    g$Name[which(g$CHDCR==FALSE & g$Name=="CHDCR")] <- "CHD"
   }
   g$CHDCR <- NULL
   return(g)
