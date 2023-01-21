@@ -3,7 +3,7 @@ image: condaforge/mambaforge:22.9.0-1
 tasks:
   - name: Script Task
     init: | 
-      mamba create -m dante_ltr -y --file requirements.txt -c conda-forge -c bioconda
+      mamba create -n dante_ltr -y --file requirements.txt -c conda-forge -c bioconda
       conda activate dante_ltr
     command: echo 'start script'
 
