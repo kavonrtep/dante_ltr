@@ -21,6 +21,8 @@ In the next step, the 5' and 3' regions of the putative retrotransposon  are exa
 conda create -n dante_ltr -c bioconda -c conda-forge -c petrnovak dante_ltr
 ```
 
+[![Open in Gitpod](https://gitpod.io/button/open-in-gitpod.svg)](https://gitpod.io/#https://github.com/kavonrtep/dante_ltr)
+
 ## Input data
 One input is a reference sequence in fasta fromat. The second input is an annotation of the reference genome using the tool DANTE in GFF3 format. For better results, use the unfiltered full output of the DANTE pipeline.
 
