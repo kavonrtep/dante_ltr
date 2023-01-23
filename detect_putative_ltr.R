@@ -49,6 +49,7 @@ OFFSET <- 15000
 lineage_file <- paste0(script_dir, "/databases/lineage_domain_order.csv")
 FDM_file <- paste0(script_dir, "/databases/feature_distances_model.RDS")
 trna_db <- paste0(script_dir, "/databases/tRNAscan-SE_ALL_spliced-yes_2022-12-14_plus-old-tRNAs_UC_unique-3ends.fasta")
+trna_db_hemi <- paste0(script_dir, "/databases/tRNAscan-SE_ALL_spliced-yes_2022-12-14_plus-old-tRNAs_UC_numbered_unique-half-tRNA-20nt.fasta")
 ltr_utils_r <- paste0(script_dir, "/R/ltr_utils.R")
 if (file.exists(lineage_file) & file.exists(trna_db)) {
   lineage_info <- read.table(lineage_file, sep = "\t", header = TRUE, as.is = TRUE)
@@ -59,6 +60,7 @@ if (file.exists(lineage_file) & file.exists(trna_db)) {
   lineage_file <- paste0(script_dir, "/../share/dante_ltr/databases/lineage_domain_order.csv")
   FDM_file <- paste0(script_dir, "/../share/dante_ltr/databases/feature_distances_model.RDS")
   trna_db <- paste0(script_dir, "/../share/dante_ltr/databases/tRNAscan-SE_ALL_spliced-yes_2022-12-14_plus-old-tRNAs_UC_unique-3ends.fasta")
+  trna_db_half <- paste0(script_dir, "/../share/dante_ltr/databases/tRNAscan-SE_ALL_spliced-yes_2022-12-14_plus-old-tRNAs_UC_numbered_unique-half-tRNA-20nt.fasta")
   ltr_utils_r <- paste0(script_dir, "/../share/dante_ltr/R/ltr_utils.R")
   if (file.exists(lineage_file) & file.exists((trna_db))) {
     lineage_info <- read.table(lineage_file, sep = "\t", header = TRUE, as.is = TRUE)
@@ -122,6 +124,7 @@ if (FALSE) {
   lineage_info <- read.table("databases/lineage_domain_order.csv", sep = "\t", header =
     TRUE, as.is = TRUE)
   trna_db <- "./databases/tRNAscan-SE_ALL_spliced-yes_2022-12-14_plus-old-tRNAs_UC_unique-3ends.fasta"
+  trna_db_hemi <- "./databases/tRNAscan-SE_ALL_spliced-yes_2022-12-14_plus-old-tRNAs_UC_unique-3ends_hemi.fasta"
   opt <- list(min_relative_length=0.6, cpu = 8, max_missing_domains = 0, debug = FALSE)
 
 }
@@ -330,9 +333,9 @@ if (length(good_TE)>0){   # handle empty list
 
   cat("Identification of PBS - hemi")
   gff3_list3 <- mclapply(gff3_list2_pbs_negative, FUN = add_pbs_hemi, s = s,
-                         trna_db = trna_db,
+                         trna_db = trna_db_hemi,
                          mc.set.seed = TRUE, mc.cores = opt$cpu, mc.preschedule = FALSE)
-
+  cat("done\n")
 
   gff3_out <- do.call(c, append(gff3_list3, gff3_list2_pbs_positive))
 
