@@ -4,7 +4,7 @@ file_arg_name <- "--file="
 script_name <- normalizePath(sub(file_arg_name, "", initial_options[grep(file_arg_name, initial_options)]))
 script_dir <- dirname(script_name)
 library(optparse)
-
+# TODO: remove unnecessary print statements
 parser <- OptionParser()
 option_list <- list(
   make_option(c("-g", "--gff3"), action = "store", type = "character",

@@ -24,14 +24,14 @@ conda create -n dante_ltr -c bioconda -c conda-forge -c petrnovak dante_ltr
 [![Open in Gitpod](https://gitpod.io/button/open-in-gitpod.svg)](https://gitpod.io/#https://github.com/kavonrtep/dante_ltr)
 
 ## Input data
-One input is a reference sequence in fasta fromat. The second input is an annotation of the reference genome using the tool DANTE in GFF3 format. For better results, use the unfiltered full output of the DANTE pipeline.
+One input is a reference sequence in fasta format. The second input is an annotation of the reference genome using the tool DANTE in GFF3 format. For better results, use the unfiltered full output of the DANTE pipeline.
 
 
 ## Usage
 
 ### Detection of complete LTR retrotransposons
 
-```shell
+```
 Usage: ./detect_putative_ltr.R COMMAND [OPTIONS]
 
 
@@ -60,7 +60,7 @@ Options:
 
 #### Example:
 
-```shell
+```bash
 mkdir -p tmp
 ./detect_putative_ltr.R -g test_data/sample_DANTE.gff3 -s test_data/sample_genome.fasta -o tmp/ltr_annotation
 ```
@@ -77,7 +77,7 @@ mkdir -p tmp
 
 For large genomes, you can your `detect_putative_ltr_wrapper.py`. This script will split input fasta to smaller chunks and run `detect_putative_ltr.R` on each chunk to limit memory usage. Output will be merged after all chunks are processed.
 
-```shell
+```
 usage: detect_putative_ltr_wrapper.py [-h] -g GFF3 -s REFERENCE_SEQUENCE -o
                                       OUTPUT [-c CPU] [-M MAX_MISSING_DOMAINS]
                                       [-L MIN_RELATIVE_LENGTH]
@@ -105,9 +105,9 @@ optional arguments:
                           are are not split, default is 100000000
 ```
 
-### Validation of LTR retrotransposons detected un previous step:
+### Validation of LTR retrotransposons detected in previous step:
 
-```shell
+```
 ./clean_ltr.R --help
 Usage: ./clean_ltr.R COMMAND [OPTIONS]
 
@@ -132,7 +132,7 @@ Options:
 This script check for potentially chimeric elements and removes them from GFF3 file.
 
 #### Example
-```shell
+```bash
 ./clean_ltr.R -g test_data/sample_DANTE_LTR_annotation.gff3 -s test_data/sample_genome.fasta -o tmp/ltr_annotation_clean
 ```
 
