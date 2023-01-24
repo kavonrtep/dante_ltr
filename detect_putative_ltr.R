@@ -4,7 +4,6 @@ file_arg_name <- "--file="
 script_name <- normalizePath(sub(file_arg_name, "", initial_options[grep(file_arg_name, initial_options)]))
 script_dir <- dirname(script_name)
 library(optparse)
-# TODO: remove unnecessary print statements
 parser <- OptionParser()
 option_list <- list(
   make_option(c("-g", "--gff3"), action = "store", type = "character",
@@ -199,8 +198,6 @@ repeat{
   cls <- get_domain_clusters(g)
   gcl <- split(as.data.frame(g), cls)
   # gcl_as_GRL <- split(g, cls)  # delete?
-  print("gcl length")
-  print(length(gcl))
   cls_alt <- get_domain_clusters_alt(g, FDM)
   g$Cluster <- as.numeric(factor(cls_alt))
   gcl_alt <- split(as.data.frame(g), cls_alt)
@@ -239,7 +236,6 @@ repeat{
                                                   paste(rev(x$Name), collapse = " "),
                                                   paste(x$Name, collapse = " "))
   )
-  print(length(gcl_clean))
   # compare detected domains with domains in lineages from REXdb database
   dd <- mapply(domain_distance,
                d_query = gcl_clean_domains,
@@ -256,8 +252,8 @@ repeat{
     break
   }
 
-  print("Number of complete TE found:")
-  print(length(gcl_clean2))
+  cat("Number of complete TE found:")
+  cat(length(gcl_clean2), "\n")
   gcl_clean_with_domains <- gcl_clean2[check_ranges(gcl_clean2, s)]
 
 
@@ -274,16 +270,12 @@ repeat{
 
   max_left_offset <- ifelse(te_strand == "+", lineage_offset5prime[te_lineage], lineage_offset3prime[te_lineage])
   max_right_offset <- ifelse(te_strand == "-", lineage_offset5prime[te_lineage], lineage_offset3prime[te_lineage])
-  print("max_left_offset")
   grL <- get_ranges_left(gcl_clean_with_domains, max_left_offset)
-  print("max_right_offset")
   save.image(file = "debug.RData")
   grR <- get_ranges_right(gcl_clean_with_domains, offset=max_right_offset, SL = seqlengths(s))
-  print('done')
   s_left <- getSeq(s, grL)
-  print('done2')
   s_right <- getSeq(s, grR)
-  print('done3')
+
 
   expected_ltr_length <- lineage_ltr_mean_length[sapply(gcl_clean_with_domains, function (x)x$Final_Classification[1])]
 

@@ -200,10 +200,6 @@ check_ranges <- function(gx, s, offset = 200) {
   START <- sapply(gx, function(x)min(x$start)) - offset
   END <- sapply(gx, function(x)max(x$end)) + offset
   MAX <- seqlengths(s)[sapply(gx, function(x)as.character(x$seqnames[1]))]
-  print(START)
-  print(END)
-  print(MAX)
-  print(s)
   good_ranges <- (START > 0) & (END <= MAX)
   return(good_ranges)
 }
@@ -675,16 +671,11 @@ get_best_ltr <- function(x) {
   tsd_ok <- sapply(x, function(k)k$TSD_Length > 3)
   te_length_ok <- sapply(x, function(k)k$TE_Length < 30000)
   ltr_length_ok <- sapply(x, function(k)width(k$LTR_R_position) >= 100 & width(k$LTR_L_position) >= 100)
-  print("--------------------------------------------------------------------")
   if (sum(tsd_ok & te_length_ok & ltr_length_ok) >= 1) {
     # return the first one (best bitscore)
-    print("number of OK ltr after filtering")
-    print(length(x[tsd_ok & te_length_ok]))
     return(x[tsd_ok & te_length_ok][1])
   }
   if (any(te_length_ok & ltr_length_ok)) {
-    print("number of OK ltr after filtering")
-    print(length(x[te_length_ok & ltr_length_ok]))
     return(x[te_length_ok & ltr_length_ok][1])
   }else {
     return(NULL)
@@ -757,14 +748,7 @@ get_TE <- function(Lseq, Rseq, domains_gff, GR, GRL, GRR,LTR_length) {
     for (j in 1:nrow(xx)) {
       ltr_tmp[[j]] <- evaluate_ltr(GR, GRL, GRR, xx[j, , drop = FALSE], Lseq, Rseq)
     }
-    print("number of ltr_tmp found")
-    print(length(ltr_tmp))
-    if (length(ltr_tmp) == 2) {
-      print(ltr_tmp)
-      print("~~~~~~~~~~~~~~~~~~~~~~~~~~")
-    }
     ltr <- get_best_ltr(ltr_tmp)
-    print("====================================================================")
     if (length(ltr) == 0) {
       return(NULL)
       ## add good ltr
