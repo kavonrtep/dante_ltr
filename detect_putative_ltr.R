@@ -305,11 +305,11 @@ repeat{
   good_TE <- TE[!sapply(TE, is.null)]
   cat('Number of putative TE with identified LTR   :', length(good_TE), '\n')
   if (opt$debug) {
-    saveRDS(good_TE, paste0(debug_dir, "/good_TE.rds"))
+    cat('Exporting debug files...')
+    save.image(file = paste0("debug_dante_ltr.RData"))
   }
   break
   }
-
 if (length(good_TE)>0){   # handle empty list
   ID <- paste0('TE_', sprintf("%08d", seq(good_TE)))
   gff3_list <- mcmapply(get_te_gff3, g = good_TE, ID = ID, mc.cores = opt$cpu)
