@@ -230,12 +230,20 @@ repeat{
   # first filtering  - remove TEs with low number of domains
   gcl_clean <- clean_domain_clusters(gcl, lineage_domain_span, min_domains = 5 - opt$max_missing_domains)
 
+  if(length(gcl_clean) == 0) {
+    cat("No complete TE found\n")
+    good_TE <- list()
+    break
+  }
   # glc annotation
   gcl_clean_lineage <- sapply(gcl_clean, function(x)  x$Final_Classification[1])
   gcl_clean_domains <- sapply(gcl_clean, function(x) ifelse(x$strand[1] == "-",
                                                   paste(rev(x$Name), collapse = " "),
                                                   paste(x$Name, collapse = " "))
   )
+  if (opt$debug) {
+    save.image(file = paste0(debug_dir,"/dante_ltr.RData"))
+  }
   # compare detected domains with domains in lineages from REXdb database
   dd <- mapply(domain_distance,
                d_query = gcl_clean_domains,
