@@ -133,8 +133,12 @@ if (FALSE) {
 # load data:
 cat("reading gff...")
 g <- rtracklayer::import(opt$gff3, format = 'gff3')  # DANTE gff3
-
-
+# check seqlevels:
+if (all(URLencode(seqlevels(g), reserved = TRUE) == seqlevels(g))){
+  decode <- FALSE
+}else{
+  decode <- TRUE
+}
 g <- CHD_CHDCR_correction(g)
 cat("done\n")
 cat("reading fasta...")
@@ -143,6 +147,12 @@ cat("done\n")
 outfile <- opt$output
 # clean sequence names:
 names(s) <- gsub(" .+", "", names(s))
+
+# verify that seqlevels in g match seqlevels in s:
+if (!all(seqlevels(g) %in% seqlevels(s))){
+  stop("\nSequence names in input GFF3 do not match sequence names in FASTA file\n\n")
+}
+
 lineage_domain <- lineage_info$Domains.order
 lineage_domain_span <- lineage_info$domain_span
 lineage_ltr_mean_length <- lineage_info$ltr_length
@@ -331,11 +341,11 @@ if (length(good_TE)>0){   # handle empty list
 
   gff3_list2_pbs_negative <- gff3_list[!sapply(gff3_list2, function(x) "primer_binding_site" %in% x$type)]
 
-  cat("Identification of PBS - hemi")
+  cat("Identification of PBS - half-molecule tRNA")
   gff3_list3 <- mclapply(gff3_list2_pbs_negative, FUN = add_pbs_hemi, s = s,
                          trna_db = trna_db_hemi,
                          mc.set.seed = TRUE, mc.cores = opt$cpu, mc.preschedule = FALSE)
-  cat("done\n")
+  cat(" done\n")
 
   gff3_out <- do.call(c, append(gff3_list3, gff3_list2_pbs_positive))
 
@@ -351,21 +361,17 @@ if (length(good_TE)>0){   # handle empty list
   # use complete TE as mask for partial TE
 
   TE_partial_parent_part <- trim_gr(TE_partial_with_more_than_one_domain, gff3_out)
-
   if (!is.null(TE_partial_parent_part)) {
     TE_partial_domain_part <-  g[g$Parent %in% TE_partial_parent_part$ID]
     # and trim it
     TE_partial_domain_part <-  trim_gr(TE_partial_domain_part, gff3_out)
+
     gff3_out <- sort(merge_gr(gff3_out, TE_partial_parent_part, TE_partial_domain_part), by = ~ seqnames * start)
   }else{
     gff3_out <- sort(gff3_out, by = ~ seqnames * start)
-
   }
-
-
   # this is to convert Parent from characterList
   gff3_out$Parent <- as.character(gff3_out$Parent)
-
 }else{
   # but this could be a problem if there are no TEs in the sequence
   if (length(TE_partial_with_more_than_one_domain)>0){
@@ -374,9 +380,9 @@ if (length(good_TE)>0){   # handle empty list
     gff3_out <- sort(c(TE_partial_domain_part, TE_partial_parent_part), by = ~ seqnames * start)
   }else{
     gff3_out <- NULL
+
   }
 }
-
 if (is.null(gff3_out)){
   cat('No TEs found.\n')
 }else{
@@ -385,7 +391,11 @@ if (is.null(gff3_out)){
   gff3_out$Parent[!is.na(gff3_out$Parent)] <- paste0(gff3_out$Parent[!is.na(gff3_out$Parent)], "_", seqnames(gff3_out)[!is.na(gff3_out$Parent)])
   gff3_out <- convert_gr_Lists_to_Vectors(gff3_out)
   gff3_out <- revert_CHDCR_correction(gff3_out)
-  export(gff3_out, con = paste0(outfile, ".gff3"), format = 'gff3')
+  if (decode){
+    export_gff3_without_url_encoding(gff3_out, con = paste0(outfile, ".gff3"))
+  }else{
+    export(gff3_out, con = paste0(outfile, ".gff3"), format = 'gff3')
+  }
   all_tbl <- get_te_statistics(gff3_out, RT)
   all_tbl <- cbind(Classification = rownames(all_tbl), all_tbl)
   write.table(all_tbl, file = paste0(outfile, "_statistics.csv"), sep = "\t", quote = FALSE, row.names = FALSE)

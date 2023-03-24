@@ -28,13 +28,21 @@ trim_gr <- function (grA, grMask){
   tmp_out <- tempfile(fileext = ".gff3")
   export(grA, tmp_gr, format = "gff3")
   export(grMask, tmp_mask, format = "gff3")
-  cmd <- paste0("bedtools subtract -a ", tmp_gr, " -b ", tmp_mask, " > ", tmp_out)
+  cmd <- paste0("bedtools subtract -a ", tmp_gr, " -b ", tmp_mask, " -nonamecheck", " > ", tmp_out)
+
   system(cmd)
-  # output culd be empty! check
+  # output could be empty! check
   if (file.size(tmp_out) == 0) {
         gr_out <- NULL
   }else{
     gr_out <- import(tmp_out, format = "gff3")
+  }
+  if (!all(seqlevels(gr_out) %in% seqlevels(grA))){
+    seqlevels(gr_out) <- URLdecode(seqlevels(gr_out))
+    if (!all(seqlevels(gr_out) %in% seqlevels(grA))){
+        stop("seqlevels are not the same after URLdecode")
+    }
+
   }
   # delete tmp files
   unlink(tmp_gr)
@@ -43,7 +51,7 @@ trim_gr <- function (grA, grMask){
   return(gr_out)
 }
 
-merge_gr = function(a,b,c){
+merge_gr <-  function(a,b,c){
   tmpA <- tempfile(fileext = ".gff3")
   tmpB <- tempfile(fileext = ".gff3")
   tmpC <- tempfile(fileext = ".gff3")
@@ -51,14 +59,19 @@ merge_gr = function(a,b,c){
   export(a, tmpA, format = "gff3")
   export(b, tmpB, format = "gff3")
   export(c, tmpC, format = "gff3")
+  all_seqlevels <- unique(c(seqlevels(a), seqlevels(b), seqlevels(c)))
   # concatenate files
   cmd <- paste0("cat ", tmpA, " ", tmpB, " ", tmpC, " > ", tmpOut)
   system(cmd)
   g <- import(tmpOut, format = "gff3")
+  if (! all(seqlevels(g) %in% all_seqlevels)){
+    seqlevels(g) <- URLdecode(seqlevels(g))
+  }else{
   unlink(tmpA)
   unlink(tmpB)
   unlink(tmpC)
   unlink(tmpOut)
+  }
   return(g)
 
 }
@@ -525,7 +538,8 @@ mask_tandem_repeats <- function(fasta_file){
   # this function require tidehunter and bedtools to be installed
   bed_mask <- tempfile()
   fasta_masked <- tempfile()
-  system(paste("TideHunter -f 2" , fasta_file, " |cut -f 1,4,5 >", bed_mask))
+  th_out <- system(paste("TideHunter -f 2" , fasta_file, "2>/dev/null  ", " | cut -f 1,4,5 >", bed_mask))
+
   system(paste("bedtools maskfasta -fi", fasta_file, "-bed", bed_mask, "-fo", fasta_masked, "-soft"))
   bed <- read.table(bed_mask, header = FALSE, col.names = c("seqname", "start", "end"), sep = "\t")
   unlist(bed_mask)
@@ -991,6 +1005,8 @@ get_te_statistics_old <- function(gr, RT) {
 }
 
 getSeqNamed <- function(s, gr, name = NULL) {
+  saveRDS(gr, "gr.rds")
+  saveRDS(s, "s.rds")
   spart <- getSeq(s, gr)
   if (is.null(name)){
     id1 <- paste0(seqnames(gr), '_', start(gr), "_", end(gr))
@@ -1018,6 +1034,7 @@ get_te_sequences <- function (gr, s) {
     for (i in 1:length(Ranks)) {
         gr_te <- gr[gr$type == "transposable_element" & gr$Rank == Ranks[i]]
         if (length(gr_te) > 0) {
+
         s_te[[Ranks[i]]] <- getSeqNamed(s, gr_te)
         }
     }
@@ -1115,3 +1132,14 @@ get_dom_pos <- function(g){
   SEmat_sorted <-  SEmat[,order(dom_position)]
   return(SEmat_sorted)
 }
+
+export_gff3_without_url_encoding <- function(g, con) {
+  cat('exporting without url encoding\n')
+  gf <- export(g, format = "gff3")
+  # decode only firts column (string before tab)
+  gf1 <- URLdecode(gsub("\t.+", "", gf))
+  gf2 <- gsub("^.+\t", "", gf)
+  gout <- paste(gf1, gf2, sep = "\t")
+  cat(gout, file = con, sep = "\n")
+  }
+
