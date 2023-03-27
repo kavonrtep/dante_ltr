@@ -12,7 +12,7 @@ import sys
 import tempfile
 from itertools import cycle
 import subprocess
-
+from version import __version__
 
 class Gff3Feature:
     """
@@ -151,9 +151,12 @@ def get_arguments():
              'analyzed in chunks of this size. default is %(default)s '
              'Setting this value too small  will slow down the analysis')
         )
+    parser.add_argument(
+        '-v', '--version', action='version', version='%(prog)s ' + __version__
+        )
+
     args = parser.parse_args()
     return args
-
 
 def read_fasta_sequence_size(fasta_file):
     """Read size of sequence into dictionary"""
@@ -635,4 +638,5 @@ if __name__ == '__main__':
     if sys.version_info < (3, 6):
         print('Python version must be 3.6 or greater')
         sys.exit(1)
+
     main()
