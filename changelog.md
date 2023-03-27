@@ -1,87 +1,127 @@
-# Changelog
+## 0.2.2.2 (2023-03-24)
+
+*  bugfix - error when no TE detected 
+*  bugfix #3 
+
+
+## 0.2.2.1 (2023-01-31)
+
+*  readme updated 
+*  readme updated, some print statement removed 
+*  save complete environment if debug is on 
+
+
+## 0.2.2.0 (2023-01-23)
+
+*  chdcr bugfix 
+*  gitpod conf added 
+*  bugfix trna database path + chdcr 
+*  gitpod updated 
+*  bug fix in path for trna_db_hemi 
+
+
+## 0.2.1.0 (2023-01-03)
+
+*  readme updated 
+*  Ndomains attribute added to transposable_element 
+*  Ndomains attribute added to transposable_element - bugfix 
+*  allow for one mismatch in TSD 
+*  bug fix in calculation of domain distances, debug option added 
+*  bug fix in lineage ltr constrains 
+*  improved TG/CA detection mismatches are not countexd into TG/CA distance from alignment end 
+*  adjusted threshold for dante filtering, ltr distance constrains adjusted 
+*  improved removing of overlaping partial te, corrected reporting of LTR coordinated (some LTR did not have TG/CA) 
+*  database of tRNA updated - 1/2tRNA added 
+*  evalue for PBS added, some bug fixes 
+*  evalue changed to PBS_evalue 
+
+
+## 0.1.9.0 (2022-11-30)
+
+*  change log added 
+*  tandem repeat masking - using TideHunter output gff is not sorted 
+*  validation of input added 
 
 
 ## 0.1.8.0 (2022-08-10)
 
-* dante_ltr now runs on chunks if input is large, long contigs split into smaller sequences. This will make it be more memory efficiend on genomes with long contigs/scaffolds
-* More test files added [View](https://bitbucket.org/projects/test/repos/my-project/commits/139c041f671459192beb10ae45a8b371367c23b6)
+*  dante_ltr now runs on chunks if input is large, long contigs split to chunks too more test files added 
 
 
 ## 0.1.7.0 (2022-07-21)
 
-*  Version in Galaxy files updated [View](https://bitbucket.org/projects/test/repos/my-project/commits/d6433b48c9bae079edb06364147f19500501c986)
-*  Bugfix - correction in get_ranges functions [View](https://bitbucket.org/projects/test/repos/my-project/commits/9488b982bae902f1868785ec4ad47134dac50ff3)
-*  Bugfix - handling sequences with no DANTE domains [View](https://bitbucket.org/projects/test/repos/my-project/commits/ca5a8b9bbf761419a408bce11a17e880d1b1152c)
-*  dante_ltr now runs on chunks if input is large. Min size of chunk is size of contigs  [View](https://bitbucket.org/projects/test/repos/my-project/commits/414119ad7c44562d2e956b765e97ca113bc35b2b)
+*  version in galaxy files updated 
+*  bugfix - correction in get_ranges functions 
+*  bugfix -handling sequences with no DANTE domains 
+*  dante_ltr now runs on chunks if input is large 
 
 
 ## 0.1.6.1 (2022-06-28)
 
-*  Improved detection of incomplete elements, better sensitivity statistical model for individual lineages added [View](https://bitbucket.org/projects/test/repos/my-project/commits/4db58014077f152fe34b4d8c872f4cdd1f75c197)
-*  Improved detection of incomplete elements, better sensitivity statistical model for individual lineages added [View](https://bitbucket.org/projects/test/repos/my-project/commits/50884f7f0269a0bbde078f24fe5020975693bcd9)
-*  Documentation update [View](https://bitbucket.org/projects/test/repos/my-project/commits/f378bc289375ec5d15ea3c567a1c5faff5eab9ab)
-*  Documentation update + figure [View](https://bitbucket.org/projects/test/repos/my-project/commits/7b9006891f4196c18f425e840d05bbe10b84699e)
-*  Filtering of DANTE is part of preprocessing of DANTE GFF3. This allows to use full DANTE output. This improves the sensitivity of detection. [View](https://bitbucket.org/projects/test/repos/my-project/commits/810929f20c085413a341a2d8d3c6037e4ca08006)
+*  improved detection of incomplete elements, better sensitivity statistical model for individual lineages added 
+*  documentation update 
+*  documentation update + figure 
+*  filtering of DANTE is part of preprocessing of DANTE GFF3 this allow to use full DANTE gff -> better sensitivity 
 
 
 ## 0.1.6.0 (2022-06-24)
 
-*  Improved detection of incomplete elements, better sensitivity statistical model for individual lineages added [View](https://bitbucket.org/projects/test/repos/my-project/commits/8636bf88cbd06a8d30750377d78eda874186dfe0)
+*  improved detection of incomplete elements, better sensitivity statistical model for individual lineages added 
 
 
 ## 0.1.5.4 (2022-05-31)
 
-*  New option added - to tolerate missing domains [View](https://bitbucket.org/projects/test/repos/my-project/commits/d0eb5f0179a32af920a14958f0df9678e5ee40f2)
+*  new option added - to tolerate missing domains 
 
 
 ## 0.1.5.3 (2022-05-19)
 
-*  Bugfix - adjusted Orge and Retand max ltr distance [View](https://bitbucket.org/projects/test/repos/my-project/commits/5a81f1734493a3acf5ff24a573fa2887d92b58a8)
-*  Tool description updated. Common ID to fasta libraries output [View](https://bitbucket.org/projects/test/repos/my-project/commits/9633fb98932151f059ce02a0ce202a4374ef8d68)
+*  bugfix - adjusted orge and retand max ltr distance 
+*  tool description updated added common ID to fasta libraries output 
 
 
 ## 0.1.5.2 (2022-05-16)
 
-*  Bugfix - adjusted Athila max ltr distance [View](https://bitbucket.org/projects/test/repos/my-project/commits/50daf5f968f97a6790d86a5c3c3219f92ceffe2f)
+*  bugfix - adjusted athila max ltr distance 
 
 
 ## 0.1.5.1 (2022-05-09)
 
-*  Bugfix - handle duplicated ID on input [View](https://bitbucket.org/projects/test/repos/my-project/commits/57a4f4a749b60b4e1d992dc3a879add7bb4bb56b)
+*  bugfix - handle duplicated ID on input 
 
 
 ## 0.1.5 (2022-05-03)
 
-*  Version in tool xml updated, typo in xml corrected [View](https://bitbucket.org/projects/test/repos/my-project/commits/891bfe9acf7349c2b887aff6d7e52a7f4ebf3b3a)
-*  Full TE output added, summary pdf output added [View](https://bitbucket.org/projects/test/repos/my-project/commits/8bd6029a4de4a8f5031a5cc71303bb06217cc88a)
+*  version in tool xml updated, typo in xml corrected 
+*  full TE output added, summary pdf output added 
 
 
 ## 0.1.4 (2022-04-12)
 
-*  Galaxy tool definition added [View](https://bitbucket.org/projects/test/repos/my-project/commits/723af6154554eefeb246c457cab1a701c17f694f)
-*  Documentation updated [View](https://bitbucket.org/projects/test/repos/my-project/commits/92c684dff3b377c8c08654c7f3d46a133385e3e0)
-*  bug fix- typo in requirements [View](https://bitbucket.org/projects/test/repos/my-project/commits/e3385df50052b11d3bdd5c997abae5fb1b87ed56)
-*  Search of LTR boundaries adjusted - more sensitive [View](https://bitbucket.org/projects/test/repos/my-project/commits/48ef1fef9c0429344789579e80b445aa72397a4c)
-*  Version in tool xml updated [View](https://bitbucket.org/projects/test/repos/my-project/commits/f4e73f9b0ed6a1909f328257e3455d72d5e22245)
+*  galaxy tool definition added 
+*  documentation updated 
+*  bug fix - typo in requirements 
+*  search of ltr boundaries adjusted - more sensitive 
+*  version in tool xml updated 
 
 
 ## 0.1.3.1 (2022-02-04)
 
-*  Singularity definition corrected [View](https://bitbucket.org/projects/test/repos/my-project/commits/bddc8e67e984fea8dbc34e5acafe56e96775a31d)
-*  Singularity definition corrected [View](https://bitbucket.org/projects/test/repos/my-project/commits/2fdcd10f1a802e041d2c47806d01290cfd9e4c18)
-*  Singularity definition corrected [View](https://bitbucket.org/projects/test/repos/my-project/commits/4d6c909a7fdd7ed8b722c75d14f8e7f14be16369)
-*  Bug fix - ltr_utils added to git [View](https://bitbucket.org/projects/test/repos/my-project/commits/8ae28ee4685637c0cdf78b1ad125a9d6b1e1bd99)
+*  singularity definition corrected 
+*  singularity definition corrected 
+*  singularity definition corrected 
+*  bug fix - ltr_utils added to git 
 
 
 ## 0.1.3 (2022-02-04)
 
-*  Documentation updated - installation instruction using conda [View](https://bitbucket.org/projects/test/repos/my-project/commits/934eb512c055cd0b5306bc9f55538e671605c3cb)
-*  R function moved to separate file [View](https://bitbucket.org/projects/test/repos/my-project/commits/bae34bf138f1fdff8217d3f5c0a596471c64453f)
-*  Bug fixes, script for annotation cleaning added [View](https://bitbucket.org/projects/test/repos/my-project/commits/b34a47894990fe98e4f215bda168e0476127e2a7)
+*  dokumentation updated - installation instruction using conda 
+*  R function moved to separate file 
+*  bug fixes, script for annotation cleaning added 
 
 
 ## 0.1.2 (2022-01-05)
 
-*  Bugfix - path to alternative configuration corrected [View](https://bitbucket.org/projects/test/repos/my-project/commits/8b6c6808580c6b28d3f9a4636239a170bcc0dc5f)
+*  bugfix - path to alternative configuration corrected 
 
 
