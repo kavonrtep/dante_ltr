@@ -391,6 +391,9 @@ if (is.null(gff3_out)){
   gff3_out$Parent[!is.na(gff3_out$Parent)] <- paste0(gff3_out$Parent[!is.na(gff3_out$Parent)], "_", seqnames(gff3_out)[!is.na(gff3_out$Parent)])
   gff3_out <- convert_gr_Lists_to_Vectors(gff3_out)
   gff3_out <- revert_CHDCR_correction(gff3_out)
+  # TODO - check for overlapping TEs
+  # it is possible that there are overlapping TEs, these must be reduced to D rank
+
   if (decode){
     export_gff3_without_url_encoding(gff3_out, con = paste0(outfile, ".gff3"))
   }else{

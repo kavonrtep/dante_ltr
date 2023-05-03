@@ -1,0 +1,414 @@
+#!/usr/bin/env Rscript
+library(optparse)
+option_list <- list(
+  make_option(c("-g", "--gff3"), action = "store", type = "character",
+              help = "gff3  with LTR Transposable elements", default = NULL),
+  make_option(c("-o", "--output"), action = "store", type = "character",
+              help = "output file prefix", default = NULL)
+)
+description <- paste(strwrap(""))
+epilogue <- ""
+parser <- OptionParser(option_list = option_list, epilogue = epilogue, description =
+  description, usage = "usage: %prog COMMAND [OPTIONS]")
+
+
+opt <- parse_args(parser, args = commandArgs(TRUE))
+
+suppressPackageStartupMessages(
+{library(rtracklayer)
+})
+
+
+
+plot_multiple_elements <- function (segments_info, feature_colors){
+  N <- ncol(segments_info$segment_width)
+  NS <- nrow(segments_info$segment_width)
+  max_length <- max(colSums(segments_info$segment_width), na.rm = TRUE)
+  segment_name <-  names(segments_info$segment_mean_position)
+  col <-  feature_colors[sapply(strsplit(segment_name, " "),
+                        function(x) paste(unique(sub("_.+", "", x)),
+                                          collapse = "_"))]
+  col[is.na(col)] <-  "#AAAAAA"
+  #ord <- hclust(dist(t(segments_info$segment_position), method='max'), method = 'ward.D2')$order
+  #ord <- hclust(dist(t(segments_info$segment_position), method='euc'), method = 'ward.D2')$order
+  ord <- hclust(dist(t(segments_info$segment_position), method='man'), method = 'average')$order
+
+
+  x1 <- c(segments_info$segment_position[,ord] - (segments_info$segment_width/2)[,ord])
+  x2 <- c(segments_info$segment_position[,ord] + (segments_info$segment_width/2)[,ord])
+  y1 <- c(sapply(1:N, rep, times = NS))
+  y2 <- y1 + 1
+  par(mfrow = c(1,1), mar=c(5,2,5,2))
+  plot(0,0, type = "n", xlim = c(0, max_length), ylim = c(0, N+1), xlab = "", ylab = "", axes = FALSE)
+  rect(x1, y1, x2, y2, col = col, border = NA)
+  axis(1, cex.axis = 0.5, las = 2, line = -1)
+}
+
+
+get_segment_info <- function(TE_long_rel_plot, TE_class, features){
+  # features must be coreccly ordered
+  SE=c(rbind(paste0(features, "_S"), paste0(features, "_E")))
+  SEpairs = cbind(head(SE, -1), tail(SE, -1))
+  TE <- TE_long_rel_plot[TE_long_rel_plot$classification == TE_class,]
+  TE_byID <- split(TE, f = TE$TE_ID)
+  starts_ends = lapply(TE_byID, function(x) setNames(c(x$feature_start,x$feature_end),
+                                                     c(paste0(x$TE_label, "_S"),
+                                                       paste0(x$TE_label, "_E"))))
+  segment_width <- sapply(starts_ends, function(x){
+    out <- x[SEpairs[,2]] - x[SEpairs[,1]];
+    names(out) <- paste(SEpairs[,1], SEpairs[,2]);
+    out
+  })
+
+  segment_position <- sapply(starts_ends, function(x){
+    out <- (x[SEpairs[,2]] + x[SEpairs[,1]])/2;
+    names(out) <- paste(SEpairs[,1], SEpairs[,2]);
+    out
+  })
+  segment_mean_position <- rowMeans(segment_position, na.rm = TRUE)
+  return(list(segment_width = segment_width,
+              segment_position = segment_position,
+              segment_mean_position = segment_mean_position)
+  )
+}
+
+
+feature_colors <- c("GAG" = "#fc850e",
+                    "INT" = "#05fc09",
+                    "LTR3" = "#333333",
+                    "LTR5" = "#333333",
+                    "PROT" = "#f80bfb",
+                    "RH" = "#fc1413",
+                    "RT" = "#0808f7",
+                    "CHDCR" = "#7a001a",
+                    "CHD" = "#20b5f4",
+                    "aRH" = "#70403c")
+
+plot_pbs_statistic <- function (pbs_info_part){
+  pbs_info_e1 <- pbs_info_part
+  pbs_info_e1$codon[pbs_info_part$evalue > 0.1] <- "Not found"
+  pbs_info_e01 <- pbs_info_part
+  pbs_info_e01$codon[pbs_info_part$evalue > 0.01] <- "Not found"
+  all_codons <- unique(pbs_info_part$codon)
+  codones <- data.frame( All = pbs_info_part$codon,
+                        "evalue<0.1" = pbs_info_e1$codon,
+                        "evalue<0.01" = pbs_info_e01$codon,
+                        stringsAsFactors = FALSE,
+                        check.names = FALSE)
+
+  #codon_counts <- sapply(codones, function(x) table(factor(x, levels = all_codons)))
+  codon_counts <- do.call(cbind,lapply(codones, function(x) table(factor(x, levels = all_codons))))
+  # sort rows by total count
+  codon_counts <- codon_counts[order(-rowSums(codon_counts)),,drop=FALSE]
+  barplot(t(codon_counts), beside = TRUE, las=1, horiz = TRUE,
+          legend.text = c("no evalue filtering", "evalue<0.1", "evalue<0.01"),
+          main = "PBS detection frequency",
+  )
+}
+
+
+
+plot_te <- function(starts, ends, startsP, endsP,  colors, segments_info, title, pbs_info){
+  # plot TE features
+  # inputs are starts, ends, colors
+  # starts and ends are vectors of same length
+  # colors is a vector of colors
+  # output is a plot
+  boxplot_stats <- apply(segments_info$segment_width, 1, boxplot.stats)
+  N = dim(segments_info$segment_position)[2]
+  max_val <- max(apply(segments_info$segment_width, 1, quantile, probs=1, na.rm=TRUE), na.rm=TRUE)
+
+  segment_name <-  names(segments_info$segment_mean_position)
+  col <-  colors[sapply(strsplit(segment_name, " "),
+                        function(x) paste(unique(sub("_.+", "", x)),
+                                          collapse = "_"))]
+  col_domains_only <- col
+  col[is.na(col)] <-  "#AAAAAA"
+  W=100 * max(ends/7000)
+  W2=10 * max(ends/7000)
+
+  layout(matrix(c(0,0,3,1,2,3,4,4,4,0,0,0,5,5,5,6,6,6), ncol=3, byrow = TRUE), heights = c(0.5, 1.2, 0.8 ,0.5, 2, 1 ))
+  ND = nrow(segments_info$segment_position)
+  par(mar = c(5,5,3,2))
+  # plot histogram of TE lengths
+  # hist(segments_info$segment_position[ND,] - segments_info$segment_position[1,], main='Full element', breaks=200, border=NA, col="#AAAAAA", xlab = "length [nt]")
+  # make breaks manually
+  SW <- colSums(segments_info$segment_width)
+  brks <- seq(min(SW, na.rm = TRUE)-1000, max(SW, na.rm = TRUE) + 1000, length.out = 70)
+  hist(SW, main='Full element lengths', breaks=brks, border=NA, col="#AAAAAA", xlab = "length [nt]")
+
+  # tile for page
+  mtext(side = 3, text = paste0(title, " (N = ", N, ")"), line = 5, cex=1.5, adj = 0)
+
+  LW <-  segments_info$segment_width[1,]
+  brks <- seq(min(LW, na.rm = TRUE)-1000, max(LW, na.rm = TRUE) + 1000, length.out = 70)
+  hist(LW, main='LTR lengths', breaks=brks, border=NA, col="#AAAAAA", xlab = "length [nt]")
+  plot_pbs_statistic(pbs_info)
+  ext <- 1.1
+  # plot number of missing segments
+  missing <- apply(segments_info$segment_width, 1, function(x) sum(is.na(x)))
+  # plot it only for domains and ltr use rectangles
+  par(mar = c(0,6,4,0.5))
+  M = max(missing)
+  plot(segments_info$segment_mean_position, missing, type = "n", xlab = "",
+       ylab = "", lwd=5, col=col_domains_only, axes = FALSE,
+       ylim = c(0, M *1.5), xlim = c(0, max(ends)* ext))
+
+  #horizontal ylabel
+  mtext(2, text= "frequency\nof missing\ndomains", las=1, cex=0.8, line = -2)
+  abline(h = c(0,N), col='lightgrey')
+
+  rect(segments_info$segment_mean_position - W, 0,
+       segments_info$segment_mean_position + W, missing, col=col_domains_only, border=NA)
+
+  # add number of missing segments as text
+  # show only for domains!
+  include <- which(!is.na(col_domains_only)); include <- include[c(-1, -length(include))]
+
+
+  text(segments_info$segment_mean_position[include], missing[include], labels = missing[include], pos = 3, cex = 0.8)
+
+
+  x <- segments_info$segment_mean_position
+  y <- rep(0.5, length(x))
+
+  par(mar = c(0,5,0,0.5))
+  plot(x,y, xlim = c(0, max(ends)* ext), ylim=c(0,max_val * 1.2), xlab = "", ylab = "region width [nt]",
+       axes = FALSE, type = "n")
+  mtext(3, , text="Feature size variation", line=-2, adj=0)
+  box()
+  axis(side=2, las=1)
+
+  for (i in 1:length(x)){
+    # set color, grey if interstitial region, otherwise domain/ltr color
+    centre = segments_info$segment_mean_position[i]
+    # make boxplot from boxplot stats at the centre of the segment
+    bs = boxplot_stats[[i]]$stats
+    # horizontal median line
+    segments(centre + W + W2, bs[3], centre - W - W2, bs[3], lwd=1, col=col[i])
+    # vertical lines at quartiles
+    # boxes for quartiles
+    rect(centre - W, bs[2], centre + W, bs[4], border = NA, col = col[i])
+    # vertical lines at min and max
+    segments(centre, bs[1], centre, bs[5], lwd=3, col=col[i])
+    # add whiskers
+    segments(centre - W/2, bs[1], centre + W/2, bs[1], lwd=1, col=col[i])
+    segments(centre - W/2, bs[5], centre + W/2, bs[5], lwd=1, col=col[i])
+
+    # plot outliers is any
+    if (!is.null(boxplot_stats[[i]]$out)){
+      points(rep(centre, length(boxplot_stats[[i]]$out)), boxplot_stats[[i]]$out, pch=18, cex=0.5, col=paste0(col[i], "66"))
+    }
+
+  }
+  element_scheme_coords <- list()
+
+  par(mar=c(5,5,0,0))
+  plot(0, 0, type = "n", xlim = c(0, max(ends)*ext), ylim = c(0, 10), xlab = "", ylab = "", axes = FALSE)
+  mtext(side = 3, text="Structure of average element", line=-3, adj=0)
+  element_scheme_coords$xlim <- c(0, max(ends))
+  element_scheme_coords$ylim <- c(0, 10)
+
+  rect(0, 5, max(ends), 7, col = "#AAAAAA", border = NA)
+  for (i in names(starts)){
+    element_scheme_coords[[i]] <- c(starts[i], ends[i])
+    rect(starts[i], 5, ends[i], 7, col = colors[i], border = "#000000")
+    text((starts[i] + ends[i])/2, 3, labels = i, cex = 0.8, col = "#000000")
+  }
+  # PBS
+    # rect(0, 0, max(endsP), 2, col = "#AAAAAA", border = NA)
+  #if (!is.null(startsP)){
+  #  print(1)
+    # for (i in names(startsP)){
+    #   rect(startsP[i], 0, endsP[i], 2, col = colors[i], border = "#000000")
+    # }
+  # }
+
+  axis(1, cex.axis = 1)
+  mtext("nt", side = 1, line = 2, cex = 1)
+  return(element_scheme_coords)
+}
+
+
+# FOR TESTING
+if (FALSE){
+  opt = list()
+  opt$gff3 <- "/mnt/raid/454_data/dante/execution_time_benchmark/dante_run/rice_v7_dante_ltr.gff3"
+  opt$reference_sequence <- "/mnt/raid/users/petr/workspace/dante_ltr/test_data/sample_genome.fasta"
+  opt$output <- "/mnt/raid/users/petr/workspace/dante_ltr/tmp/test_summary"
+  opt$gff3 <- "/mnt/raid/454_data/dante/execution_time_benchmark/dante_run/B73_dante_ltr_epyc.gff3"
+  opt$gff3 <- "/mnt/raid/454_data/dante/V_faba_test/dante_ltr_30cac496.gff3"
+}
+
+g <-  import(opt$gff3, format = "gff3")
+TE_ID <- unlist(ifelse(is.na(g$ID), g$Parent, g$ID))
+ID2Name <- g$Name[!is.na(g$ID)]; names(ID2Name) <- g$ID[!is.na(g$ID)]
+
+# start and end of whole transposable element:
+TE_start <- start(g)[!is.na(g$ID)]
+TE_end <- end(g)[!is.na(g$ID)]
+TE_strand <- as.vector(strand(g)[!is.na(g$ID)])
+names(TE_start) <- g$ID[!is.na(g$ID)]
+names(TE_end) <- g$ID[!is.na(g$ID)]
+names(TE_strand) <- g$ID[!is.na(g$ID)]
+
+is_partial <- grepl("partial", TE_ID)
+
+# convert to table with format:
+# TE_ID, Name, Feature_type(RT,RH,LTR5,..), start, end, strand, is_partial
+TE_long <- data.frame(TE_ID = TE_ID,
+                      classification = ID2Name[TE_ID],
+                      Name = g$Name,
+                      feature_type = as.character(g$type),
+                      feature_start = start(g),
+                      feature_end = end(g),
+                      strand = as.character(strand(g)),
+                      is_partial = is_partial,
+                      te_start = TE_start[TE_ID],
+                      te_end = TE_end[TE_ID],
+                      te_strand = TE_strand[TE_ID],
+                      stringsAsFactors = FALSE
+)
+
+# use te_strand, te_start and te_end to convert to relative coordinates of TE starting from 1
+TE_long_rel <- TE_long
+# consider strandness
+TE_long_rel$feature_start <- ifelse(TE_long$te_strand == "+",
+                                    TE_long$feature_start - TE_long$te_start + 1,
+                                    TE_long$te_end - TE_long$feature_end + 1)
+TE_long_rel$feature_end <- ifelse(TE_long$te_strand == "+",
+                                    TE_long$feature_end - TE_long$te_start + 1,
+                                    TE_long$te_end - TE_long$feature_start + 1)
+
+TE_label <- TE_long_rel$Name
+TE_label[is.na(TE_long_rel$Name)] <- TE_long_rel$feature_type[is.na(TE_long_rel$Name)]
+TE_label[TE_long_rel$feature_type == 'long_terminal_repeat' & TE_long_rel$feature_start==1] <- "LTR5"
+TE_label[TE_long_rel$feature_type == 'long_terminal_repeat' & TE_long_rel$feature_start>1] <- "LTR3"
+
+TE_long_rel$TE_label <- TE_label
+
+TE_long_rel_plot = TE_long_rel[
+  !TE_long_rel$feature_type %in% c('transposable_element',
+                                   'target_site_duplication',
+                                   'primer_binding_site') & !TE_long_rel$is_partial,
+]
+
+TE_long_rel_plot$center <- (TE_long_rel_plot$feature_start + TE_long_rel_plot$feature_end)/2
+TE_long_rel_plot$width <- TE_long_rel_plot$feature_end - TE_long_rel_plot$feature_start
+
+
+# convert to wide format, where each rows are TE_ID, colnames are TE_label and values are center.
+
+TE_groups <- split(TE_long_rel_plot, f = paste(TE_long_rel_plot$classification ,TE_long_rel_plot$TE_label))
+
+TE_groups_mean_start <- sapply(TE_groups, function(x) mean(x$feature_start))
+TE_groups_mean_end <- sapply(TE_groups, function(x) mean(x$feature_end))
+TE_lineage <- sapply(strsplit(names(TE_groups)," "), function(x)x[[1]])
+TE_feature <- sapply(strsplit(names(TE_groups)," "), function(x)x[[2]])
+# split to lineages:
+TE_groups_mean_start_lineage <- sapply(split(TE_groups_mean_start, f = TE_lineage), function(x) {n= gsub(".+ ","", names(x)); names(x) = n; sort(x)})
+TE_groups_mean_end_lineage <- sapply(split(TE_groups_mean_end, f = TE_lineage), function(x) {n= gsub(".+ ","", names(x)); names(x) = n; sort(x)})
+
+# extract pbs info for intact elements
+pbs_only <- g[g$type == 'primer_binding_site']
+
+save.image("tmp/test.RData")
+pbs_info <- data.frame(TE_ID= unique(TE_long_rel_plot$TE_ID),
+                       tRNA = pbs_only$trna_id[match(unique(TE_long_rel_plot$TE_ID), unlist(pbs_only$Parent))],
+                       evalue = as.numeric(pbs_only$evalue[match(unique(TE_long_rel_plot$TE_ID), unlist(pbs_only$Parent))]),
+                       lineage_full_name = ID2Name[unique(TE_long_rel_plot$TE_ID)],
+                       stringsAsFactors = FALSE)
+pbs_info$lineage <- gsub(".+[|]", "", pbs_info$lineage_full_name)
+pbs_info$codon <- gsub("-.+", "", gsub(".+__","",pbs_info$tRNA))
+pbs_info$codon[is.na(pbs_info$codon)] <- "Not found"
+# hemi start with lower case nucleotides
+pbs_info$hemi <- grepl("^[actg]+", pbs_info$tRNA)
+
+TE_ID_with_TSD <- unlist(g[g$type=="target_site_duplication"]$Parent)
+TE_ID_with_PBS <- unlist(g[g$type=="primer_binding_site"]$Parent)
+TE_ID_rank_DL <- unlist(g[g$Rank=="DL"]$ID)
+TE_ID_rank_D <- unlist(g[g$Rank=="D"]$ID)
+
+tsd_present = TE_long_rel_plot$TE_ID %in% TE_ID_with_TSD
+# same stats but only for Lienages with identified PBS
+TE_long_rel_plot_with_pbs <- TE_long_rel_plot[tsd_present & TE_long_rel_plot$TE_ID %in% pbs_info$TE_ID[pbs_info$evalue<0.5 & pbs_info$codon!="Not found" ],]
+TE_groups_with_pbs <- split(TE_long_rel_plot_with_pbs, f = paste(TE_long_rel_plot_with_pbs$classification ,TE_long_rel_plot_with_pbs$TE_label))
+TE_groups_mean_start_with_pbs <- sapply(TE_groups_with_pbs, function(x) mean(x$feature_start))
+TE_groups_mean_end_with_pbs <- sapply(TE_groups_with_pbs, function(x) mean(x$feature_end))
+TE_lineage_with_pbs <- sapply(strsplit(names(TE_groups_with_pbs)," "), function(x)x[[1]])
+TE_feature_with_pbs <- sapply(strsplit(names(TE_groups_with_pbs)," "), function(x)x[[2]])
+# split to lineages:
+TE_groups_mean_start_lineage_with_pbs <- sapply(split(TE_groups_mean_start_with_pbs, f = TE_lineage_with_pbs),
+                                                function(x) {n= gsub(".+ ","", names(x)); names(x) = n; sort(x)})
+TE_groups_mean_end_lineage_with_pbs <- sapply(split(TE_groups_mean_end_with_pbs, f = TE_lineage_with_pbs), function(x) {n= gsub(".+ ","", names(x)); names(x) = n; sort(x)})
+
+
+L <- sort(unique(TE_lineage))
+
+Lineage_counts <- list(
+  no_LTR=table(factor(ID2Name[TE_ID_rank_D], levels = L)),
+  LTR=table(factor(ID2Name[TE_ID_rank_DL], levels = L)),
+  PBS=table(factor(ID2Name[TE_ID_with_PBS], levels = L)),
+  TSD=table(factor(ID2Name[TE_ID_with_TSD], levels = L)),
+  PBS_TSD=table(factor(ID2Name[intersect(TE_ID_with_PBS, TE_ID_with_TSD)], levels = L)))
+Lineage_counts <- do.call(rbind, Lineage_counts)
+colnames(Lineage_counts) <- gsub("Class_I|LTR|", "", colnames(Lineage_counts), fixed = TRUE)
+
+te_coords <- list()
+
+pdf_out <- paste(opt$output, ".pdf", sep = "")
+pdf(pdf_out, width = 8.27, height = 11.69, pointsize = 10)
+par(mfrow = c(1,1), mar=c(5,20,2,2))
+barplot(Lineage_counts, beside = TRUE,
+        legend.text = c("no_LTR", "LTR", "PBS", "TSD", "PBS & TSD"),
+        args.legend = list(x = "bottomright", bty = "n", cex = 0.8),
+        horiz = TRUE,
+        col = c("grey", "black", "blue", "red", "violet"), las = 2,
+        xlab = "Number of elements")
+
+for (i in 1:length(TE_groups_mean_end_lineage)){
+
+  n <- names(TE_groups_mean_end_lineage)[[i]]
+  segments_info <-  get_segment_info(TE_long_rel_plot, names(TE_groups_mean_end_lineage)[[i]], features = names(TE_groups_mean_start_lineage[[i]]))
+  if (n %in% TE_long_rel_plot_with_pbs$classification){
+    segments_info_pbs <-  get_segment_info(TE_long_rel_plot_with_pbs, names(TE_groups_mean_end_lineage)[[i]], features = names(TE_groups_mean_start_lineage[[i]]))
+  }else{
+    segments_info_pbs <- NULL
+  }
+  pbs_info_part <- pbs_info[which(pbs_info$lineage_full_name == n),]
+  te_coords[[n]] <- plot_te(TE_groups_mean_start_lineage[[n]],
+                            TE_groups_mean_end_lineage[[n]],
+                            TE_groups_mean_start_lineage_with_pbs[[n]],
+                            TE_groups_mean_end_lineage_with_pbs[[n]],
+                            feature_colors[TE_feature],
+                            segments_info,
+                            title = gsub("Class_I|LTR|", "", n, fixed = TRUE),
+                            pbs_info_part)
+  if (ncol(segments_info$segment_width) > 1){
+    plot_multiple_elements(segments_info, feature_colors)
+    mtext(n)
+  }
+
+}
+# plot all te from te coords
+N <- length(te_coords)
+xlim <- range(sapply(te_coords, function(x) x$xlim))
+par(mfrow = c(1,1), mar = c(2,2,2,2))
+offset <- 3000
+plot(0,0, type = "n", xlim = c(-offset, xlim[2]), ylim = c(0, N+1), xlab = "", ylab = "", axes = FALSE)
+ticks <- pretty(xlim, 10)
+axis(1, at=ticks, cex.axis = 0.5, las = 2, line = -1)
+abline(v = ticks, lty = 3)
+for (i in 1:N){
+  n <- names(te_coords)[[i]]
+  rect(te_coords[[n]]$xlim[1], i+0.25, te_coords[[n]]$xlim[2], i+.6, col = "#AAAAAA", border = NA)
+  for (j in names(te_coords[[n]])[-c(1,2)]){
+    rect(te_coords[[n]][[j]][1], i+0.25, te_coords[[n]][[j]][2], i+0.6, col = feature_colors[j], border = "#000000")
+    #text((te_coords[[n]][[j]][1] + te_coords[[n]][[j]][2])/2, i-0.1, labels = j, cex = 0.3, col = "#000000")
+  }
+  text(-offset/2, i+0.4125, labels = gsub(".+[|]", "",n) , cex=1)
+}
+dev.off()
+
+save.image(rdata_out)
+
