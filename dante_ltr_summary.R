@@ -312,7 +312,6 @@ TE_groups_mean_end_lineage <- sapply(split(TE_groups_mean_end, f = TE_lineage), 
 # extract pbs info for intact elements
 pbs_only <- g[g$type == 'primer_binding_site']
 
-save.image("tmp/test.RData")
 pbs_info <- data.frame(TE_ID= unique(TE_long_rel_plot$TE_ID),
                        tRNA = pbs_only$trna_id[match(unique(TE_long_rel_plot$TE_ID), unlist(pbs_only$Parent))],
                        evalue = as.numeric(pbs_only$evalue[match(unique(TE_long_rel_plot$TE_ID), unlist(pbs_only$Parent))]),
@@ -410,5 +409,4 @@ for (i in 1:N){
 }
 dev.off()
 
-save.image(rdata_out)
 
