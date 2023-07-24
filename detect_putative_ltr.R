@@ -385,6 +385,11 @@ if (length(good_TE)>0){   # handle empty list
 }
 if (is.null(gff3_out)){
   cat('No TEs found.\n')
+  # write empty gff3 file
+  cat("##gff-version 3\n", file = paste0(outfile,".gff3"))
+  # make empty statistics file with touch
+  file.create(paste0(outfile, "_statistics.csv"))
+
 }else{
 # modify ID and Parent - add seqname - this will ensure it is unique is done on chunk level
   gff3_out$ID[!is.na(gff3_out$ID)] <- paste0(gff3_out$ID[!is.na(gff3_out$ID)], "_", seqnames(gff3_out)[!is.na(gff3_out$ID)])
