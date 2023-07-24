@@ -8,6 +8,7 @@ directly
 
 import argparse
 import os
+import shutil
 import sys
 import tempfile
 from itertools import cycle
@@ -488,6 +489,21 @@ def verify_seqnames(gff3, fasta):
     else:
         return False
 
+def add_version_to_gff3(gff3_file, version_info):
+    """
+    Add version to gff3 file
+    :param gff3_file:
+    :param version_info:
+    :return:
+    """
+    tmp_filename = os.path.join(gff3_file + '.tmp')
+    with open(gff3_file, 'r') as src_file, open(tmp_filename, 'w') as tmp_file:
+        line = src_file.readline()
+        tmp_file.write(line)
+        tmp_file.write("##DANTE_LTR version " + version_info + '\n')
+        shutil.copyfileobj(src_file, tmp_file)
+        # Replace the original file with the new file
+    os.replace(tmp_file.name, gff3_file)
 
 def main():
     """
@@ -632,6 +648,8 @@ def main():
              str(args.max_missing_domains), '-L', str(args.min_relative_length)]
             )
 
+    # add version of the output gff3 file - must go to the beginning of the file
+    add_version_to_gff3(args.output + '.gff3', __version__)
 
 if __name__ == '__main__':
     # check version of python must be 3.6 or greater
