@@ -45,22 +45,23 @@ suppressPackageStartupMessages({
 # CONFIGURATION
 OFFSET <- 15000
 # load configuration files and functions:
-lineage_file <- paste0(script_dir, "/databases/lineage_domain_order.csv")
-FDM_file <- paste0(script_dir, "/databases/feature_distances_model.RDS")
-trna_db <- paste0(script_dir, "/databases/tRNAscan-SE_ALL_spliced-yes_2022-12-14_plus-old-tRNAs_UC_unique-3ends.fasta")
-trna_db_hemi <- paste0(script_dir, "/databases/tRNAscan-SE_ALL_spliced-yes_2022-12-14_plus-old-tRNAs_UC_numbered_unique-half-tRNA-20nt.fasta")
-ltr_utils_r <- paste0(script_dir, "/R/ltr_utils.R")
+lineage_file <- paste0(script_dir, "/../databases/lineage_domain_order.csv")
+FDM_file <- paste0(script_dir, "/../databases/feature_distances_model.RDS")
+trna_db <- paste0(script_dir, "/../databases/tRNAscan-SE_ALL_spliced-yes_2022-12-14_plus-old-tRNAs_UC_unique-3ends.fasta")
+trna_db_hemi <- paste0(script_dir, "/../databases/tRNAscan-SE_ALL_spliced-yes_2022-12-14_plus-old-tRNAs_UC_numbered_unique-half-tRNA-20nt.fasta")
+ltr_utils_r <- paste0(script_dir, "/../utils/ltr_utils.R")
 if (file.exists(lineage_file) & file.exists(trna_db)) {
   lineage_info <- read.table(lineage_file, sep = "\t", header = TRUE, as.is = TRUE)
   FDM <- readRDS(FDM_file)
   source(ltr_utils_r)
 }else {
+  # TODO - this probably never happens, remove it after testing
   # this destination work is installed using conda
   lineage_file <- paste0(script_dir, "/../share/dante_ltr/databases/lineage_domain_order.csv")
   FDM_file <- paste0(script_dir, "/../share/dante_ltr/databases/feature_distances_model.RDS")
   trna_db <- paste0(script_dir, "/../share/dante_ltr/databases/tRNAscan-SE_ALL_spliced-yes_2022-12-14_plus-old-tRNAs_UC_unique-3ends.fasta")
   trna_db_half <- paste0(script_dir, "/../share/dante_ltr/databases/tRNAscan-SE_ALL_spliced-yes_2022-12-14_plus-old-tRNAs_UC_numbered_unique-half-tRNA-20nt.fasta")
-  ltr_utils_r <- paste0(script_dir, "/../share/dante_ltr/R/ltr_utils.R")
+  ltr_utils_r <- paste0(script_dir, "/../share/dante_ltr/utils/ltr_utils.R")
   if (file.exists(lineage_file) & file.exists((trna_db))) {
     lineage_info <- read.table(lineage_file, sep = "\t", header = TRUE, as.is = TRUE)
     source(ltr_utils_r)
@@ -82,7 +83,7 @@ if (FALSE) {
   s <- readDNAStringSet("/mnt/raid/454_data/cuscuta/Ceuropea_assembly_v4/0_final_asm_hifiasm+longstitch/asm.bp.p.ctg_scaffolds.short_names.fa")
   lineage_info <- read.table("/mnt/raid/users/petr/workspace/ltr_finder_test/lineage_domain_order.csv", sep = "\t", header = TRUE, as.is = TRUE)
 
-  g <- rtracklayer::import("/mnt/raid/users/petr/workspace/dante_ltr/test_data/sample_DANTE_unfiltered.gff3")
+  g <- rtracklayer::import("/test_data/sample_DANTE_unfiltered.gff3")
   g <- rtracklayer::import("/mnt/raid/users/petr/workspace/ltr_finder_test/test_data/DANTE_filtered_part.gff3")
   s <- readDNAStringSet("/mnt/raid/users/petr/workspace/ltr_finder_test/test_data/Rbp_part.fa")
 
@@ -102,8 +103,8 @@ if (FALSE) {
   g <- rtracklayer::import("/mnt/raid/users/petr/workspace/dante_ltr/test_data/tmp/DANTE_unfiltered/1.gff3")
   s <- readDNAStringSet("/mnt/raid/users/petr/workspace/dante_ltr/test_data/tmp/fasta_parts/1.fasta")
 
-  g <- rtracklayer::import("/mnt/raid/users/petr/workspace/dante_ltr/test_data/ikeros_test_dante.gff3")
-  s <- readDNAStringSet("/mnt/raid/users/petr/workspace/dante_ltr/test_data/ikeros_test.fasta")
+  g <- rtracklayer::import("/test_data/ikeros_test_dante.gff3")
+  s <- readDNAStringSet("/test_data/ikeros_test.fasta")
 
   g <- rtracklayer::import("/mnt/raid/454_data/dante/Intact_LTR_dataset/assembly_o_sativa/Oryza_sativa_msu7_dante.gff3")
   s <- readDNAStringSet("/mnt/raid/454_data/dante/Intact_LTR_dataset/assembly_o_sativa/Oryza_sativa_msu7.fasta")
@@ -114,15 +115,15 @@ if (FALSE) {
   s <- readDNAStringSet("/mnt/raid/454_data/dante/Intact_LTR_dataset/assembly_o_sativa/crm_test.fasta")
 
 
-  source("R/ltr_utils.R")
+  source("ltr_utils.R")
   ## feature distance model
-  FDM <- readRDS("./databases/feature_distances_model.RDS")
-  g <- rtracklayer::import("./test_data/sample_DANTE.gff3")
-  s <- readDNAStringSet("./test_data/sample_genome.fasta")
+  FDM <- readRDS("../databases/feature_distances_model.RDS")
+  g <- rtracklayer::import("../test_data/sample_DANTE.gff3")
+  s <- readDNAStringSet("../test_data/sample_genome.fasta")
   outfile <- "/mnt/raid/users/petr/workspace/ltr_finder_test/te_with_domains_2.gff3"
-  lineage_info <- read.table("databases/lineage_domain_order.csv", sep = "\t", header =
+  lineage_info <- read.table("../databases/lineage_domain_order.csv", sep = "\t", header =
     TRUE, as.is = TRUE)
-  trna_db <- "./databases/tRNAscan-SE_ALL_spliced-yes_2022-12-14_plus-old-tRNAs_UC_unique-3ends.fasta"
+  trna_db <- "../databases/tRNAscan-SE_ALL_spliced-yes_2022-12-14_plus-old-tRNAs_UC_unique-3ends.fasta"
   trna_db_hemi <- "./databases/tRNAscan-SE_ALL_spliced-yes_2022-12-14_plus-old-tRNAs_UC_unique-3ends_hemi.fasta"
   opt <- list(min_relative_length=0.6, cpu = 8, max_missing_domains = 0, debug = FALSE)
 
@@ -219,7 +220,7 @@ repeat{
                          strand = sapply(gcl_alt, function(x) x$strand[1]),
                          Ndomains = sapply(gcl_alt, function(x) nrow(x)),
                          type = "transposable_element",
-                         source = "dante_ltr",
+                         source = "../dante_ltr",
                          Rank="D",
                          IRanges(start = sapply(gcl_alt, function(x) min(x$start)),
                                  end = sapply(gcl_alt, function(x) max(x$end)))
@@ -289,7 +290,7 @@ repeat{
   max_left_offset <- ifelse(te_strand == "+", lineage_offset5prime[te_lineage], lineage_offset3prime[te_lineage])
   max_right_offset <- ifelse(te_strand == "-", lineage_offset5prime[te_lineage], lineage_offset3prime[te_lineage])
   grL <- get_ranges_left(gcl_clean_with_domains, max_left_offset)
-  save.image(file = "debug.RData")
+  save.image(file = "../debug.RData")
   grR <- get_ranges_right(gcl_clean_with_domains, offset=max_right_offset, SL = seqlengths(s))
   s_left <- getSeq(s, grL)
   s_right <- getSeq(s, grR)
@@ -351,7 +352,7 @@ if (length(good_TE)>0){   # handle empty list
 
   # define new source
   src <- as.character(gff3_out$source)
-  src[is.na(src)] <- "dante_ltr"
+  src[is.na(src)] <- "../dante_ltr"
   gff3_out$source <- src
   gff3_out$Rank <- get_te_rank(gff3_out)
   # add partial TEs but first remove all ovelaping

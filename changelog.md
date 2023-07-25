@@ -1,3 +1,14 @@
+## 0.2.2.4 (2023-05-05)
+
+*  docs updated 
+*  bug fix in danter_ltr summary 
+
+## 0.2.2.3 (2023-05-03)
+
+*  version printing added  
+*  readme updated 
+*  summary script added
+
 ## 0.2.2.2 (2023-03-24)
 
 *  bugfix - error when no TE detected 

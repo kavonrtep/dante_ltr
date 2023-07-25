@@ -1005,8 +1005,6 @@ get_te_statistics_old <- function(gr, RT) {
 }
 
 getSeqNamed <- function(s, gr, name = NULL) {
-  saveRDS(gr, "gr.rds")
-  saveRDS(s, "s.rds")
   spart <- getSeq(s, gr)
   if (is.null(name)){
     id1 <- paste0(seqnames(gr), '_', start(gr), "_", end(gr))

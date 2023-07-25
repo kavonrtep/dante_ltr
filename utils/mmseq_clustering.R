@@ -71,8 +71,8 @@ rm(s_parts)
 tempdir <- tempdir()
 message("Running mmseqs2 clustering")
 cmd <- paste("mmseqs easy-cluster", fasta_parts, paste(opt$output_dir, "mmseqs", sep="/"),
-             tempdir, "--threads", opt$threads, "-v 1" , sep=" ")
-system(cmd)
+             tempdir, "--threads", opt$threads, "-v 1 2>&1" , sep=" ")
+out <- system(cmd, intern=TRUE)
 
 cls <- read.table(paste0(opt$output_dir,"/mmseqs_cluster.tsv"), as.is=TRUE, comment.char = "")
 

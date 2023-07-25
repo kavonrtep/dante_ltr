@@ -20,14 +20,14 @@ def main():
                          'annotations and coverage below specified threshold.'),
             )
     parser.add_argument('-g', '--gff3', required=True, help='gff3 file')
-    parser.add_argument('-f', '--fasta', required=True, help='fasta file')
+    parser.add_argument('-s', '--reference_sequence', required=True, help='fasta file')
     parser.add_argument('-o', '--output_dir', required=True,
                         help='output directory')
     parser.add_argument('-m',
                         '--min_coverage', required=False, default=3, type=int,
                         help='Minimum coverage of cluster to be included in repeat library')
-    parser.add_argument('-t', '--threads', required=False, default=1, type=int,
-                        help='Number of threads')
+    parser.add_argument('-c', '--cpu', required=False, default=1, type=int,
+                        help='Number of cpus to use')
     args = parser.parse_args()
 
     script_dir = os.path.dirname(os.path.realpath(__file__))
@@ -36,14 +36,14 @@ def main():
         os.makedirs(args.output_dir)
 
     # extract sequences based on gff3 file
-    cmd = (F"{script_dir}/utils/extract_fasta.R -f {args.fasta}"
+    cmd = (F"{script_dir}/utils/extract_fasta.R -f {args.reference_sequence}"
            F" -g {args.gff3} -o {args.output_dir}")
     subprocess.check_call(cmd, shell=True)
 
     # run mmseqs2 clustering
     cmd = (F"{script_dir}/utils/mmseq_clustering.R -f {args.output_dir}/TE_all.fasta"
            F" -o {args.output_dir}/mmseqs2 -m {args.min_coverage}"
-           F" -t {args.threads}")
+           F" -t {args.cpu}")
 
     subprocess.check_call(cmd, shell=True)
 
