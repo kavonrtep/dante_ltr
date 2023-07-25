@@ -115,8 +115,11 @@ def get_arguments():
     args
     """
     parser = argparse.ArgumentParser(
-        description="""detect_putative_ltr_wrapper.py is a wrapper for 
-    detect_putative_ltr.R""", formatter_class=argparse.RawTextHelpFormatter
+        description="""
+        Tool for identifying complete LTR retrotransposons based on 
+        analysis of protein domains identified with the DANTE tool
+        """,
+            formatter_class=argparse.RawTextHelpFormatter
         )
     parser.add_argument(
         '-g', '--gff3', default=None, required=True,
@@ -148,9 +151,11 @@ def get_arguments():
         )
     parser.add_argument(
         '-S', '--max_chunk_size', default=100000000, required=False, type=int,
-        help=('If size of reference sequence is greater than this value, reference is '
-             'analyzed in chunks of this size. default is %(default)s '
-             'Setting this value too small  will slow down the analysis')
+        help="""
+        If size of reference sequence is greater than this value, reference is '
+        'analyzed in chunks of this size. default is %(default)s '
+        'Setting this value too small  will slow down the analysis
+        """
         )
     parser.add_argument(
         '-v', '--version', action='version', version='%(prog)s ' + __version__
@@ -512,7 +517,6 @@ def main():
     args = get_arguments()
     # locate directory of current script
     tool_path = os.path.dirname(os.path.realpath(__file__))
-    print('tool_path', tool_path)
     # verify that at least some seqnames in gff3 match seqnames in reference fasta file.
     # If not, exit
     if not verify_seqnames(args.gff3, args.reference_sequence):

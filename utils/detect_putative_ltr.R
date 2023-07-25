@@ -54,22 +54,10 @@ if (file.exists(lineage_file) & file.exists(trna_db)) {
   lineage_info <- read.table(lineage_file, sep = "\t", header = TRUE, as.is = TRUE)
   FDM <- readRDS(FDM_file)
   source(ltr_utils_r)
-}else {
-  # TODO - this probably never happens, remove it after testing
-  # this destination work is installed using conda
-  lineage_file <- paste0(script_dir, "/../share/dante_ltr/databases/lineage_domain_order.csv")
-  FDM_file <- paste0(script_dir, "/../share/dante_ltr/databases/feature_distances_model.RDS")
-  trna_db <- paste0(script_dir, "/../share/dante_ltr/databases/tRNAscan-SE_ALL_spliced-yes_2022-12-14_plus-old-tRNAs_UC_unique-3ends.fasta")
-  trna_db_half <- paste0(script_dir, "/../share/dante_ltr/databases/tRNAscan-SE_ALL_spliced-yes_2022-12-14_plus-old-tRNAs_UC_numbered_unique-half-tRNA-20nt.fasta")
-  ltr_utils_r <- paste0(script_dir, "/../share/dante_ltr/utils/ltr_utils.R")
-  if (file.exists(lineage_file) & file.exists((trna_db))) {
-    lineage_info <- read.table(lineage_file, sep = "\t", header = TRUE, as.is = TRUE)
-    source(ltr_utils_r)
-    FDM <- readRDS(FDM_file)
-  }else(
+}else{
     stop("configuration files not found")
-  )
 }
+
 
 if (opt$debug) {
   # create additional directory with extra information
@@ -342,7 +330,7 @@ if (length(good_TE)>0){   # handle empty list
 
   gff3_list2_pbs_negative <- gff3_list[!sapply(gff3_list2, function(x) "primer_binding_site" %in% x$type)]
 
-  cat("Identification of PBS - half-molecule tRNA")
+  cat("Identification of PBS - half-molecule tRNA ...")
   gff3_list3 <- mclapply(gff3_list2_pbs_negative, FUN = add_pbs_hemi, s = s,
                          trna_db = trna_db_hemi,
                          mc.set.seed = TRUE, mc.cores = opt$cpu, mc.preschedule = FALSE)
