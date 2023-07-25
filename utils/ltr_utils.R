@@ -650,7 +650,12 @@ evaluate_ltr <- function(GR, GRL, GRR, blast_line, Lseq, Rseq) {
 
   TSD_L_seq <- DNAStringSet(substring(Lseq, blast_line$qstart - 2:9, blast_line$qstart - 2))
   TSD_R_seq <- DNAStringSet(substring(Rseq, blast_line$send + 1, blast_line$send + 1:8))
-
+  # granges and sequences must have the same width - otherwise the granges are out of range
+  keep <- width(TSD_L) == width(TSD_L_seq) & width(TSD_R) == width(TSD_R_seq)
+  TSD_L <- TSD_L[keep]
+  TSD_R <- TSD_R[keep]
+  TSD_L_seq <- TSD_L_seq[keep]
+  TSD_R_seq <- TSD_R_seq[keep]
   matching_tsd <- TSD_R_seq == TSD_L_seq
   matching_tsd[1:3] <- FALSE # remove short tsd
   p <- which(matching_tsd)
