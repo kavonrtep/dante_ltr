@@ -1,0 +1,53 @@
+#!/usr/bin/env python
+"""
+Create repeat library from dante_ltr output
+require mmseqs2!
+"""
+import argparse
+import os
+import subprocess
+
+
+
+def main():
+
+    # get arguments
+    parser = argparse.ArgumentParser(
+            description=('Creation of repeat library from dante_ltr output. '
+                         'Extract sequences based on gff3 inpute and reference fasta '
+                         'file. Run mmseqs2 clustering to cluster similar sequences to '
+                         'reduce library size. Exclude clusters which have conflicting '
+                         'annotations and coverage below specified threshold.'),
+            )
+    parser.add_argument('-g', '--gff3', required=True, help='gff3 file')
+    parser.add_argument('-f', '--fasta', required=True, help='fasta file')
+    parser.add_argument('-o', '--output_dir', required=True,
+                        help='output directory')
+    parser.add_argument('-m',
+                        '--min_coverage', required=False, default=3, type=int,
+                        help='Minimum coverage of cluster to be included in repeat library')
+    parser.add_argument('-t', '--threads', required=False, default=1, type=int,
+                        help='Number of threads')
+    args = parser.parse_args()
+
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    # create output directory if it does not exist
+    if not os.path.exists(args.output_dir):
+        os.makedirs(args.output_dir)
+
+    # extract sequences based on gff3 file
+    cmd = (F"{script_dir}/utils/extract_fasta.R -f {args.fasta}"
+           F" -g {args.gff3} -o {args.output_dir}")
+    subprocess.check_call(cmd, shell=True)
+
+    # run mmseqs2 clustering
+    cmd = (F"{script_dir}/utils/mmseq_clustering.R -f {args.output_dir}/TE_all.fasta"
+           F" -o {args.output_dir}/mmseqs2 -m {args.min_coverage}"
+           F" -t {args.threads}")
+
+    subprocess.check_call(cmd, shell=True)
+
+
+
+if __name__ == "__main__":
+    main()

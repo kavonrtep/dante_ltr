@@ -17,10 +17,11 @@ if (is.null(opt$fasta) | is.null(opt$gff3) | is.null(opt$output)){
   q(status=0)
 }
 
-
-library(Biostrings)
-library(rtracklayer)
-library(BSgenome)
+suppressPackageStartupMessages({
+    library(Biostrings)
+    library(rtracklayer)
+    library(BSgenome)
+})
 
 
 getSeqNamed <- function(s, gr, name = NULL) {
@@ -52,8 +53,8 @@ gparts <- list(
   TE_DLT = g[g$type == "transposable_element" & g$Rank == "DLT"]
 )
 
-
+# remove empty elements
+gparts <- gparts[sapply(gparts, length) > 0]
 s_te <- lapply(gparts, function(x) sp = getSeqNamed(s, x))
-
 dir.create(opt$output, showWarnings = FALSE)
-lapply(names(s_te), function(x)writeXStringSet(s_te[[x]], filepath = paste0(opt$output,"/",x,".fasta")))
+x <- lapply(names(s_te), function(x)writeXStringSet(s_te[[x]], filepath = paste0(opt$output,"/",x,".fasta")))
