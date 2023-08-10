@@ -1,3 +1,19 @@
+## 0.2.3.2 (2023-07-25)
+
+*  bugfix in TSD identification 
+
+
+## 0.2.3.1 (2023-07-25)
+
+*  help updated 
+
+## 0.2.3.0 (2023-07-25)
+
+*  bug fix  #4 
+*  new script added - extract elements as fasta from gff 
+*  version writen to gff output #5 
+*  dante_ltr_to_library added 
+
 ## 0.2.2.4 (2023-05-05)
 
 *  docs updated 

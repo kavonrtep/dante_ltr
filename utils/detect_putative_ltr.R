@@ -208,7 +208,7 @@ repeat{
                          strand = sapply(gcl_alt, function(x) x$strand[1]),
                          Ndomains = sapply(gcl_alt, function(x) nrow(x)),
                          type = "transposable_element",
-                         source = "../dante_ltr",
+                         source = "dante_ltr",
                          Rank="D",
                          IRanges(start = sapply(gcl_alt, function(x) min(x$start)),
                                  end = sapply(gcl_alt, function(x) max(x$end)))
@@ -278,7 +278,9 @@ repeat{
   max_left_offset <- ifelse(te_strand == "+", lineage_offset5prime[te_lineage], lineage_offset3prime[te_lineage])
   max_right_offset <- ifelse(te_strand == "-", lineage_offset5prime[te_lineage], lineage_offset3prime[te_lineage])
   grL <- get_ranges_left(gcl_clean_with_domains, max_left_offset)
-  save.image(file = "../debug.RData")
+  if (opt$debug){
+    save.image(file = "debug1.RData")
+  }
   grR <- get_ranges_right(gcl_clean_with_domains, offset=max_right_offset, SL = seqlengths(s))
   s_left <- getSeq(s, grL)
   s_right <- getSeq(s, grR)
@@ -340,7 +342,7 @@ if (length(good_TE)>0){   # handle empty list
 
   # define new source
   src <- as.character(gff3_out$source)
-  src[is.na(src)] <- "../dante_ltr"
+  src[is.na(src)] <- "dante_ltr"
   gff3_out$source <- src
   gff3_out$Rank <- get_te_rank(gff3_out)
   # add partial TEs but first remove all ovelaping
