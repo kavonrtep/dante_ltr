@@ -1,7 +1,10 @@
+## 0.2.3.3 (2023-08-10)
+
+*  fix in gff3 output - source attribut changed from ../dante_ltr to dante_ltr 
+
 ## 0.2.3.2 (2023-07-25)
 
 *  bugfix in TSD identification 
-
 
 ## 0.2.3.1 (2023-07-25)
 
