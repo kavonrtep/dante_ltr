@@ -539,7 +539,7 @@ def main():
     total_size = sum(fasta_seq_size.values())
     number_of_sequences = len(fasta_seq_size)
     if total_size > args.max_chunk_size and number_of_sequences > 1:
-        print('running analysis on chunks of ~ {} Mb'.format(args.max_chunk_size))
+        print('running analysis on chunks of ~ {} bp'.format(args.max_chunk_size))
         # sort dictionary by values
         seq_id_size_sorted = [i[0] for i in sorted(
             fasta_seq_size.items(), key=lambda x: int(x[1]), reverse=True
@@ -586,6 +586,7 @@ def main():
         os.remove(gff3_file_recalculated)
         # run retrotransposon detection on each temporary file
         output_files = make_temp_files(number_of_temp_files)
+        print('number of chunks:": ' + str(number_of_temp_files))
         for i in range(number_of_temp_files):
             print('Running retrotransposon detection on file ' + str(i))
             subprocess.check_call(

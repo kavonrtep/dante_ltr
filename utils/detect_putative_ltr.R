@@ -64,6 +64,7 @@ if (opt$debug) {
   debug_dir <- paste0(opt$output, "_debug")
   dir.create(debug_dir, showWarnings = FALSE)
 }
+outfile <- opt$output
 
 # for testing
 if (FALSE) {
@@ -121,6 +122,18 @@ if (FALSE) {
 
 # load data:
 cat("reading gff...")
+
+# in some cases gff3 could be empty, so we need to check it:
+if (file.size(opt$gff3) == 0){
+  # create empty outputs and exit:
+  cat('No TE domains on input.\n')
+  # write empty gff3 file
+  cat("##gff-version 3\n", file = paste0(outfile,".gff3"))
+  # make empty statistics file with touch
+  file.create(paste0(outfile, "_statistics.csv"))# save empty gff3 and exit:
+  quit(save = "no", status = 0, runLast = FALSE)
+}
+
 g <- rtracklayer::import(opt$gff3, format = 'gff3')  # DANTE gff3
 # check seqlevels:
 if (all(URLencode(seqlevels(g), reserved = TRUE) == seqlevels(g))){
@@ -133,7 +146,7 @@ cat("done\n")
 cat("reading fasta...")
 s <- readDNAStringSet(opt$reference_sequence)  # genome assembly
 cat("done\n")
-outfile <- opt$output
+
 # clean sequence names:
 names(s) <- gsub(" .+", "", names(s))
 
