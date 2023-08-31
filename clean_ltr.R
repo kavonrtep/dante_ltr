@@ -39,7 +39,7 @@ suppressPackageStartupMessages({ library(rtracklayer)
 # CONFIGURATION
 # load configuration files and functions:
 lineage_file <- paste0(script_dir, "/databases/lineage_domain_order.csv")
-ltr_utils_r <- paste0(script_dir, "/R/ltr_utils.R")
+ltr_utils_r <- paste0(script_dir, "/utils/ltr_utils.R")
 if (file.exists(lineage_file)) {
   lineage_info <- read.table(lineage_file, sep = "\t",
                              header = TRUE,
@@ -49,7 +49,7 @@ if (file.exists(lineage_file)) {
   lineage_file <- paste0(script_dir, "/.
   ./share/dante_ltr/databases/lineage_domain_order.csv")
   ltr_utils_r <- paste0(script_dir, "/.
-  ./share/dante_ltr/R/ltr_utils.R")
+  ./share/dante_ltr/utils/ltr_utils.R")
   if (file.exists(lineage_file)) {
     lineage_info <- read.table(lineage_file, sep = "\t",
                                header = TRUE,
