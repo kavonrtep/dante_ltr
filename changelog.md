@@ -1,3 +1,13 @@
+## 0.2.3.5 (2023-08-31)
+
+*  bug fix in path to ltr_utils.R 
+
+
+## 0.2.3.4 (2023-08-16)
+
+*  bugfix - no domain contigs handling 
+
+
 ## 0.2.3.3 (2023-08-10)
 
 *  fix in gff3 output - source attribut changed from ../dante_ltr to dante_ltr 

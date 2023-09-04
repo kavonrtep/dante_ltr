@@ -25,7 +25,8 @@ def main():
                         help='output directory')
     parser.add_argument('-m',
                         '--min_coverage', required=False, default=3, type=int,
-                        help='Minimum coverage of cluster to be included in repeat library')
+                        help='Minimum coverage of cluster to be included in repeat '
+                             'library (default: 3)')
     parser.add_argument('-c', '--cpu', required=False, default=1, type=int,
                         help='Number of cpus to use')
     args = parser.parse_args()
