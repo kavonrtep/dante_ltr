@@ -23,17 +23,13 @@ suppressPackageStartupMessages(
 plot_multiple_elements <- function (segments_info, feature_colors){
   N <- ncol(segments_info$segment_width)
   NS <- nrow(segments_info$segment_width)
-  max_length <- max(colSums(segments_info$segment_width), na.rm = TRUE)
+  max_length <- max(colSums(segments_info$segment_width, na.rm = TRUE), na.rm = TRUE)
   segment_name <-  names(segments_info$segment_mean_position)
   col <-  feature_colors[sapply(strsplit(segment_name, " "),
                         function(x) paste(unique(sub("_.+", "", x)),
                                           collapse = "_"))]
   col[is.na(col)] <-  "#AAAAAA"
-  #ord <- hclust(dist(t(segments_info$segment_position), method='max'), method = 'ward.D2')$order
-  #ord <- hclust(dist(t(segments_info$segment_position), method='euc'), method = 'ward.D2')$order
   ord <- hclust(dist(t(segments_info$segment_position), method='man'), method = 'average')$order
-
-
   x1 <- c(segments_info$segment_position[,ord] - (segments_info$segment_width/2)[,ord])
   x2 <- c(segments_info$segment_position[,ord] + (segments_info$segment_width/2)[,ord])
   y1 <- c(sapply(1:N, rep, times = NS))
@@ -47,12 +43,12 @@ plot_multiple_elements <- function (segments_info, feature_colors){
 
 get_segment_info <- function(TE_long_rel_plot, TE_class, features){
   # features must be coreccly ordered
-  SE=c(rbind(paste0(features, "_S"), paste0(features, "_E")))
-  SEpairs = cbind(head(SE, -1), tail(SE, -1))
+  SE <- c(rbind(paste0(features, "_S"), paste0(features, "_E")))
+  SEpairs <- cbind(head(SE, -1), tail(SE, -1))
   TE <- TE_long_rel_plot[TE_long_rel_plot$classification == TE_class,]
   TE_byID <- split(TE, f = TE$TE_ID)
-  starts_ends = lapply(TE_byID, function(x) setNames(c(x$feature_start,x$feature_end),
-                                                     c(paste0(x$TE_label, "_S"),
+  starts_ends <- lapply(TE_byID, function(x) setNames(c(x$feature_start, x$feature_end),
+                                                      c(paste0(x$TE_label, "_S"),
                                                        paste0(x$TE_label, "_E"))))
   segment_width <- sapply(starts_ends, function(x){
     out <- x[SEpairs[,2]] - x[SEpairs[,1]];
@@ -115,7 +111,7 @@ plot_te <- function(starts, ends, startsP, endsP,  colors, segments_info, title,
   # colors is a vector of colors
   # output is a plot
   boxplot_stats <- apply(segments_info$segment_width, 1, boxplot.stats)
-  N = dim(segments_info$segment_position)[2]
+  N <- dim(segments_info$segment_position)[2]
   max_val <- max(apply(segments_info$segment_width, 1, quantile, probs=1, na.rm=TRUE), na.rm=TRUE)
 
   segment_name <-  names(segments_info$segment_mean_position)
@@ -124,18 +120,24 @@ plot_te <- function(starts, ends, startsP, endsP,  colors, segments_info, title,
                                           collapse = "_"))]
   col_domains_only <- col
   col[is.na(col)] <-  "#AAAAAA"
-  W=100 * max(ends/7000)
-  W2=10 * max(ends/7000)
+  W <- 100 * max(ends/7000)
+  W2 <- 10 * max(ends/7000)
 
   layout(matrix(c(0,0,3,1,2,3,4,4,4,0,0,0,5,5,5,6,6,6), ncol=3, byrow = TRUE), heights = c(0.5, 1.2, 0.8 ,0.5, 2, 1 ))
-  ND = nrow(segments_info$segment_position)
+  ND <- nrow(segments_info$segment_position)
   par(mar = c(5,5,3,2))
   # plot histogram of TE lengths
   # hist(segments_info$segment_position[ND,] - segments_info$segment_position[1,], main='Full element', breaks=200, border=NA, col="#AAAAAA", xlab = "length [nt]")
   # make breaks manually
   SW <- colSums(segments_info$segment_width)
-  brks <- seq(min(SW, na.rm = TRUE)-1000, max(SW, na.rm = TRUE) + 1000, length.out = 70)
-  hist(SW, main='Full element lengths', breaks=brks, border=NA, col="#AAAAAA", xlab = "length [nt]")
+  if (all(is.na(SW))){
+    # no element is complete, make empty plot
+    plot(0,0, type = "n" , axes = FALSE, xlab = "", ylab = "", main = "No full elements found")
+  }else{
+    brks <- seq(min(SW, na.rm = TRUE)-1000, max(SW, na.rm = TRUE) + 1000, length.out = 70)
+    hist(SW, main='Full element lengths', breaks=brks, border=NA, col="#AAAAAA", xlab = "length [nt]")
+  }
+
 
   # tile for page
   mtext(side = 3, text = paste0(title, " (N = ", N, ")"), line = 5, cex=1.5, adj = 0)
@@ -149,7 +151,7 @@ plot_te <- function(starts, ends, startsP, endsP,  colors, segments_info, title,
   missing <- apply(segments_info$segment_width, 1, function(x) sum(is.na(x)))
   # plot it only for domains and ltr use rectangles
   par(mar = c(0,6,4,0.5))
-  M = max(missing)
+  M <- max(missing)
   plot(segments_info$segment_mean_position, missing, type = "n", xlab = "",
        ylab = "", lwd=5, col=col_domains_only, axes = FALSE,
        ylim = c(0, M *1.5), xlim = c(0, max(ends)* ext))
@@ -181,9 +183,9 @@ plot_te <- function(starts, ends, startsP, endsP,  colors, segments_info, title,
 
   for (i in 1:length(x)){
     # set color, grey if interstitial region, otherwise domain/ltr color
-    centre = segments_info$segment_mean_position[i]
+    centre <- segments_info$segment_mean_position[i]
     # make boxplot from boxplot stats at the centre of the segment
-    bs = boxplot_stats[[i]]$stats
+    bs <- boxplot_stats[[i]]$stats
     # horizontal median line
     segments(centre + W + W2, bs[3], centre - W - W2, bs[3], lwd=1, col=col[i])
     # vertical lines at quartiles
@@ -232,7 +234,7 @@ plot_te <- function(starts, ends, startsP, endsP,  colors, segments_info, title,
 
 # FOR TESTING
 if (FALSE){
-  opt = list()
+  opt <- list()
   opt$gff3 <- "/mnt/raid/454_data/dante/execution_time_benchmark/dante_run/rice_v7_dante_ltr.gff3"
   opt$reference_sequence <- "/mnt/raid/users/petr/workspace/dante_ltr/test_data/sample_genome.fasta"
   opt$output <- "/mnt/raid/users/petr/workspace/dante_ltr/tmp/test_summary"
@@ -287,7 +289,7 @@ TE_label[TE_long_rel$feature_type == 'long_terminal_repeat' & TE_long_rel$featur
 
 TE_long_rel$TE_label <- TE_label
 
-TE_long_rel_plot = TE_long_rel[
+TE_long_rel_plot <- TE_long_rel[
   !TE_long_rel$feature_type %in% c('transposable_element',
                                    'target_site_duplication',
                                    'primer_binding_site') & !TE_long_rel$is_partial,
@@ -306,8 +308,8 @@ TE_groups_mean_end <- sapply(TE_groups, function(x) mean(x$feature_end))
 TE_lineage <- sapply(strsplit(names(TE_groups)," "), function(x)x[[1]])
 TE_feature <- sapply(strsplit(names(TE_groups)," "), function(x)x[[2]])
 # split to lineages:
-TE_groups_mean_start_lineage <- sapply(split(TE_groups_mean_start, f = TE_lineage), function(x) {n= gsub(".+ ","", names(x)); names(x) = n; sort(x)})
-TE_groups_mean_end_lineage <- sapply(split(TE_groups_mean_end, f = TE_lineage), function(x) {n= gsub(".+ ","", names(x)); names(x) = n; sort(x)})
+TE_groups_mean_start_lineage <- sapply(split(TE_groups_mean_start, f = TE_lineage), function(x) {n <- gsub(".+ ", "", names(x)); names(x) <- n; sort(x)})
+TE_groups_mean_end_lineage <- sapply(split(TE_groups_mean_end, f = TE_lineage), function(x) {n <- gsub(".+ ", "", names(x)); names(x) <- n; sort(x)})
 
 # extract pbs info for intact elements
 pbs_only <- g[g$type == 'primer_binding_site']
@@ -328,7 +330,7 @@ TE_ID_with_PBS <- unlist(g[g$type=="primer_binding_site"]$Parent)
 TE_ID_rank_DL <- unlist(g[g$Rank=="DL"]$ID)
 TE_ID_rank_D <- unlist(g[g$Rank=="D"]$ID)
 
-tsd_present = TE_long_rel_plot$TE_ID %in% TE_ID_with_TSD
+tsd_present <- TE_long_rel_plot$TE_ID %in% TE_ID_with_TSD
 # same stats but only for Lienages with identified PBS
 TE_long_rel_plot_with_pbs <- TE_long_rel_plot[tsd_present & TE_long_rel_plot$TE_ID %in% pbs_info$TE_ID[pbs_info$evalue<0.5 & pbs_info$codon!="Not found" ],]
 TE_groups_with_pbs <- split(TE_long_rel_plot_with_pbs, f = paste(TE_long_rel_plot_with_pbs$classification ,TE_long_rel_plot_with_pbs$TE_label))
@@ -338,8 +340,8 @@ TE_lineage_with_pbs <- sapply(strsplit(names(TE_groups_with_pbs)," "), function(
 TE_feature_with_pbs <- sapply(strsplit(names(TE_groups_with_pbs)," "), function(x)x[[2]])
 # split to lineages:
 TE_groups_mean_start_lineage_with_pbs <- sapply(split(TE_groups_mean_start_with_pbs, f = TE_lineage_with_pbs),
-                                                function(x) {n= gsub(".+ ","", names(x)); names(x) = n; sort(x)})
-TE_groups_mean_end_lineage_with_pbs <- sapply(split(TE_groups_mean_end_with_pbs, f = TE_lineage_with_pbs), function(x) {n= gsub(".+ ","", names(x)); names(x) = n; sort(x)})
+                                                function(x) {n <- gsub(".+ ", "", names(x)); names(x) <- n; sort(x)})
+TE_groups_mean_end_lineage_with_pbs <- sapply(split(TE_groups_mean_end_with_pbs, f = TE_lineage_with_pbs), function(x) {n <- gsub(".+ ", "", names(x)); names(x) <- n; sort(x)})
 
 
 L <- sort(unique(TE_lineage))
