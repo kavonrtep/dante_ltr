@@ -21,6 +21,15 @@ suppressPackageStartupMessages(
 
 
 plot_multiple_elements <- function (segments_info, feature_colors){
+  if (ncol(segments_info$segment_position) > 10000){
+    print("Too many elements, ploting sample of 10000 elements")
+    selected <- sample(1:ncol(segments_info$segment_position), 10000)
+    segments_info$segment_position <- segments_info$segment_position[,selected]
+    segments_info$segment_width <- segments_info$segment_width[,selected]
+  }
+
+
+
   N <- ncol(segments_info$segment_width)
   NS <- nrow(segments_info$segment_width)
   max_length <- max(colSums(segments_info$segment_width, na.rm = TRUE), na.rm = TRUE)
@@ -29,6 +38,8 @@ plot_multiple_elements <- function (segments_info, feature_colors){
                         function(x) paste(unique(sub("_.+", "", x)),
                                           collapse = "_"))]
   col[is.na(col)] <-  "#AAAAAA"
+  # if segment info is too large hclust give error (cannot process more than 65536 elements)
+
   ord <- hclust(dist(t(segments_info$segment_position), method='man'), method = 'average')$order
   x1 <- c(segments_info$segment_position[,ord] - (segments_info$segment_width/2)[,ord])
   x2 <- c(segments_info$segment_position[,ord] + (segments_info$segment_width/2)[,ord])
