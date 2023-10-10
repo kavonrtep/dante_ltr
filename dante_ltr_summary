@@ -423,3 +423,27 @@ for (i in 1:N){
 dev.off()
 
 
+Lineage <- names(te_coords)
+LTR_mean_length <- round(sapply(te_coords, function(x) mean(x$LTR5[2])))
+TE_mean_length <- round(sapply(te_coords, function(x) mean(x$LTR3[2])))
+
+summary_df <- data.frame(Lineage = Lineage,
+                         LTR_mean_length = LTR_mean_length,
+                         TE_mean_length = TE_mean_length,
+                         stringsAsFactors = FALSE)
+
+Number_of_elements <- t(Lineage_counts[,gsub("Class_I|LTR|", "",Lineage, fixed = TRUE)])
+summary_df <- cbind(summary_df, Number_of_elements)
+colnames(summary_df) <- c(
+  'Lineage',
+  'LTR_mean_length',
+  "Element_mean_length",
+  "Number_of_partial_elements (No LTR found)",
+  "Number_of_elements_with_LTR",
+  "Number_of_elements_with_LTR,PBS",
+  "Number_of_elements_with_LTR,TSD",
+  "Number_of_elements_with_LTR,PBS,TSD"
+)
+
+
+write.table(summary_df, paste(opt$output, ".summary.csv", sep = ""), sep = "\t", quote = FALSE, row.names = FALSE)
