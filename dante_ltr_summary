@@ -446,4 +446,4 @@ colnames(summary_df) <- c(
 )
 
 
-write.table(summary_df, paste(opt$output, ".summary.csv", sep = ""), sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(summary_df, paste(opt$output, ".csv", sep = ""), sep = "\t", quote = FALSE, row.names = FALSE)
