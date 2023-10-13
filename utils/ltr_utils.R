@@ -11,6 +11,18 @@ add_coordinates_of_closest_neighbor <- function(gff) {
   return(gff_updated)
 }
 
+gff_cleanup_overlaps <- function(g){
+  # sort by width of feature
+  g <- g[order(width(g), decreasing = TRUE)]
+  ovl <- findOverlaps(g, g, ignore.strand = FALSE)
+  ovl <- ovl[from(ovl) != to(ovl)]
+  if (length(ovl) > 0){
+    # remove overlaping features, keep longer
+    to_remove <- sapply(seq_along(ovl), function(x) max(from(ovl[x]), to(ovl[x])))
+    g <- g[-unique(to_remove)]
+  }
+  return(g)
+}
 
 trim_gr <- function (grA, grMask){
   # this function trims genomicragnes in grA by genomicranges in grMask

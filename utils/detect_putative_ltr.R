@@ -144,6 +144,10 @@ if (all(URLencode(seqlevels(g), reserved = TRUE) == seqlevels(g))){
 g <- CHD_CHDCR_correction(g)
 cat("done\n")
 cat("reading fasta...")
+
+# some ranges could be overlaping - keep longer one
+g <- gff_cleanup_overlaps(g)
+
 s <- readDNAStringSet(opt$reference_sequence)  # genome assembly
 cat("done\n")
 
@@ -287,7 +291,9 @@ repeat{
 
   te_strand <- sapply(gcl_clean_with_domains, function(x)x$strand[1])
   te_lineage <- sapply(gcl_clean_with_domains, function(x)x$Final_Classification[1])
-
+  if (opt$debug){
+    save.image(file = "debug1.RData")
+  }
   max_left_offset <- ifelse(te_strand == "+", lineage_offset5prime[te_lineage], lineage_offset3prime[te_lineage])
   max_right_offset <- ifelse(te_strand == "-", lineage_offset5prime[te_lineage], lineage_offset3prime[te_lineage])
   grL <- get_ranges_left(gcl_clean_with_domains, max_left_offset)
