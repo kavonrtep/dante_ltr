@@ -595,7 +595,6 @@ def main():
                  temp_files_gff[i], '-o', output_files[i], '-c', str(args.cpu), '-M',
                  str(args.max_missing_domains), '-L', str(args.min_relative_length)]
                 )
-
         #remove all temporary input files
         for temp_file in temp_files_fasta + temp_files_gff:
             os.remove(temp_file)

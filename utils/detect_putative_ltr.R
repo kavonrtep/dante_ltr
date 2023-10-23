@@ -136,6 +136,8 @@ if (file.size(opt$gff3) == 0){
 
 g <- rtracklayer::import(opt$gff3, format = 'gff3')  # DANTE gff3
 # check seqlevels:
+ori_seqlevels <- seqlevels(g)
+
 if (all(URLencode(seqlevels(g), reserved = TRUE) == seqlevels(g))){
   decode <- FALSE
 }else{
@@ -409,7 +411,11 @@ if (is.null(gff3_out)){
   # TODO - check for overlapping TEs
   # it is possible that there are overlapping TEs, these must be reduced to D rank
 
-  if (decode){
+  if (opt$debug) {
+    save.image("tmp2.RData")
+  }
+  seqlevels_changed <- !all(seqlevels(gff3_out) %in% ori_seqlevels)
+  if (decode & seqlevels_changed){
     export_gff3_without_url_encoding(gff3_out, con = paste0(outfile, ".gff3"))
   }else{
     export(gff3_out, con = paste0(outfile, ".gff3"), format = 'gff3')

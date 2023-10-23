@@ -4,7 +4,9 @@ option_list <- list(
   make_option(c("-g", "--gff3"), action = "store", type = "character",
               help = "gff3  with LTR Transposable elements", default = NULL),
   make_option(c("-o", "--output"), action = "store", type = "character",
-              help = "output file prefix", default = NULL)
+              help = "output file prefix", default = NULL),
+  make_option(c("-a", "--save_all"), type = "logical", action="store_true", default = FALSE,
+              help = "save all to .RData file")
 )
 description <- paste(strwrap(""))
 epilogue <- ""
@@ -447,3 +449,6 @@ colnames(summary_df) <- c(
 
 
 write.table(summary_df, paste(opt$output, ".csv", sep = ""), sep = "\t", quote = FALSE, row.names = FALSE)
+if (opt$save_all){
+  save.image(paste(opt$output, ".RData", sep = ""))
+}

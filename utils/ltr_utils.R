@@ -1151,10 +1151,12 @@ get_dom_pos <- function(g){
 export_gff3_without_url_encoding <- function(g, con) {
   cat('exporting without url encoding\n')
   gf <- export(g, format = "gff3")
+  header_l <- grepl("^#", gf)
   # decode only firts column (string before tab)
-  gf1 <- URLdecode(gsub("\t.+", "", gf))
-  gf2 <- gsub("^.+\t", "", gf)
-  gout <- paste(gf1, gf2, sep = "\t")
+  gf1 <- URLdecode(gsub("\t.+", "", gf[!header_l]))
+  gf2 <- sapply(strsplit(gf[!header_l], "\t"), function(x)paste(x[-1], collapse = "\t"))
+  # trim trailing tabs
+  gout <- c(gf[header_l], paste(gf1, gf2, sep = "\t"))
   cat(gout, file = con, sep = "\n")
   }
 
