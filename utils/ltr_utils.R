@@ -232,7 +232,9 @@ check_ranges <- function(gx, s, offset = 200) {
 get_ranges <- function(gx, offset = OFFSET) {
   S <- sapply(gx, function(x)min(x$start))
   E <- sapply(gx, function(x)max(x$end))
-  gr <- GRanges(seqnames = sapply(gx, function(x)x$seqnames[1]), IRanges(start = S - offset, end = E + offset))
+  strd <- sapply(gx, function(x)x$strand[1])
+  gr <- GRanges(seqnames = sapply(gx, function(x)x$seqnames[1]), strand = strd,
+                IRanges(start = S - offset, end = E + offset))
 }
 
 get_ranges_left <- function(gx, offset = OFFSET, offset2 = 300) {
@@ -668,6 +670,11 @@ evaluate_ltr <- function(GR, GRL, GRR, blast_line, Lseq, Rseq) {
   TSD_R <- TSD_R[keep]
   TSD_L_seq <- TSD_L_seq[keep]
   TSD_R_seq <- TSD_R_seq[keep]
+  if (as.character(strand(GR)) == "-"){
+    TSD_L_seq <- reverseComplement(TSD_L_seq)
+    TSD_R_seq <- reverseComplement(TSD_R_seq)
+  }
+
   matching_tsd <- TSD_R_seq == TSD_L_seq
   matching_tsd[1:3] <- FALSE # remove short tsd
   p <- which(matching_tsd)

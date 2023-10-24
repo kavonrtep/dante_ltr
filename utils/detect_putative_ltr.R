@@ -66,57 +66,6 @@ if (opt$debug) {
 }
 outfile <- opt$output
 
-# for testing
-if (FALSE) {
-  g <- rtracklayer::import("/mnt/raid/454_data/cuscuta/Ceuropea_assembly_v4/0_final_asm_hifiasm+longstitch/repeat_annotation/DANTE_on_CEUR_filtered_short_names.gff3")
-  s <- readDNAStringSet("/mnt/raid/454_data/cuscuta/Ceuropea_assembly_v4/0_final_asm_hifiasm+longstitch/asm.bp.p.ctg_scaffolds.short_names.fa")
-  lineage_info <- read.table("/mnt/raid/users/petr/workspace/ltr_finder_test/lineage_domain_order.csv", sep = "\t", header = TRUE, as.is = TRUE)
-
-  g <- rtracklayer::import("/test_data/sample_DANTE_unfiltered.gff3")
-  g <- rtracklayer::import("/mnt/raid/users/petr/workspace/ltr_finder_test/test_data/DANTE_filtered_part.gff3")
-  s <- readDNAStringSet("/mnt/raid/users/petr/workspace/ltr_finder_test/test_data/Rbp_part.fa")
-
-  # oriza
-  g <- rtracklayer::import("/mnt/raid/users/petr/workspace/dante_ltr/test_data/big_test_data/DANTE_full_oryza.gff3")
-  s <- readDNAStringSet("/mnt/raid/users/petr/workspace/dante_ltr/test_data/big_test_data/o_sativa_msu7.0.fasta")
-
-  g <- rtracklayer::import("/mnt/raid/users/petr/workspace/dante_ltr/test_data
-  /DANTE_Vfaba_chr5.gff3")
-  s <- readDNAStringSet("/mnt/ceph/454_data/Vicia_faba_assembly/assembly/ver_210910
-  /fasta_parts/211010_Vfaba_chr5.fasta")
-
-  g <- rtracklayer::import("/mnt/raid/users/petr/workspace/dante_ltr/test_data/big_test_data//Cocoa_theobroma_DANTE_filtered.gff3")
-  s <- readDNAStringSet("/mnt/raid/users/petr/workspace/dante_ltr/test_data/big_test_data/Cocoa_theobroma_chr1.fasta.gz")
-  # test on bigger data:
-
-  g <- rtracklayer::import("/mnt/raid/users/petr/workspace/dante_ltr/test_data/tmp/DANTE_unfiltered/1.gff3")
-  s <- readDNAStringSet("/mnt/raid/users/petr/workspace/dante_ltr/test_data/tmp/fasta_parts/1.fasta")
-
-  g <- rtracklayer::import("/test_data/ikeros_test_dante.gff3")
-  s <- readDNAStringSet("/test_data/ikeros_test.fasta")
-
-  g <- rtracklayer::import("/mnt/raid/454_data/dante/Intact_LTR_dataset/assembly_o_sativa/Oryza_sativa_msu7_dante.gff3")
-  s <- readDNAStringSet("/mnt/raid/454_data/dante/Intact_LTR_dataset/assembly_o_sativa/Oryza_sativa_msu7.fasta")
-
-
-  # test - TE insertion in satellite:
-  g <- rtracklayer::import("/mnt/raid/454_data/dante/Intact_LTR_dataset/assembly_o_sativa/crm_test_dante.gff3")
-  s <- readDNAStringSet("/mnt/raid/454_data/dante/Intact_LTR_dataset/assembly_o_sativa/crm_test.fasta")
-
-
-  source("ltr_utils.R")
-  ## feature distance model
-  FDM <- readRDS("../databases/feature_distances_model.RDS")
-  g <- rtracklayer::import("../test_data/sample_DANTE.gff3")
-  s <- readDNAStringSet("../test_data/sample_genome.fasta")
-  outfile <- "/mnt/raid/users/petr/workspace/ltr_finder_test/te_with_domains_2.gff3"
-  lineage_info <- read.table("../databases/lineage_domain_order.csv", sep = "\t", header =
-    TRUE, as.is = TRUE)
-  trna_db <- "../databases/tRNAscan-SE_ALL_spliced-yes_2022-12-14_plus-old-tRNAs_UC_unique-3ends.fasta"
-  trna_db_hemi <- "./databases/tRNAscan-SE_ALL_spliced-yes_2022-12-14_plus-old-tRNAs_UC_unique-3ends_hemi.fasta"
-  opt <- list(min_relative_length=0.6, cpu = 8, max_missing_domains = 0, debug = FALSE)
-
-}
 
 # MAIN #############################################################
 
@@ -284,7 +233,6 @@ repeat{
 
 
   gr <- get_ranges(gcl_clean_with_domains)
-
   cat('Number of analyzed regions:\n')
   cat('Total number of domain clusters             : ', length(gcl), '\n')
   cat('Number of clean clusters                    : ', length(gcl_clean), '\n')
