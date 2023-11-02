@@ -21,7 +21,10 @@ option_list <- list(
               help = "Minimum relative length of protein domain to be considered for retrostransposon detection [default %default]",
               metavar = "number"),
   make_option(c("-d", "--debug"), action = "store_true", default = FALSE,
-              help = "Debug mode [default %default]")
+              help = "Debug mode [default %default]"),
+  make_option(c("-t", "--te_constrains"), type = "character", default = NULL,
+              help = "TE constrains file [default %default]")
+
 
 )
 
@@ -42,10 +45,14 @@ suppressPackageStartupMessages({
 })
 
 
-# CONFIGURATION
-OFFSET <- 15000
+
 # load configuration files and functions:
-lineage_file <- paste0(script_dir, "/../databases/lineage_domain_order.csv")
+OFFSET <- 15000
+if (is.null(opt$te_constrains)){
+  lineage_file <- paste0(script_dir, "/../databases/lineage_domain_order.csv")
+}else{
+  lineage_file <- opt$te_constrains
+}
 FDM_file <- paste0(script_dir, "/../databases/feature_distances_model.RDS")
 trna_db <- paste0(script_dir, "/../databases/tRNAscan-SE_ALL_spliced-yes_2022-12-14_plus-old-tRNAs_UC_unique-3ends.fasta")
 trna_db_hemi <- paste0(script_dir, "/../databases/tRNAscan-SE_ALL_spliced-yes_2022-12-14_plus-old-tRNAs_UC_numbered_unique-half-tRNA-20nt.fasta")

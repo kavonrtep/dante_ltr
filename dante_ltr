@@ -160,6 +160,14 @@ def get_arguments():
     parser.add_argument(
         '-v', '--version', action='version', version='%(prog)s ' + __version__
         )
+    parser.add_argument('--te_constrains', default=None, required=False,
+                         type=str,
+                         help='csv table specifying TE constraints for LTR search, '
+                              'template for this table'
+                              ' can be found in '
+                              'https://github.com/kavonrtep/dante_ltr/blob/main/databases/lineage_domain_order.csv'
+                        )
+
 
     args = parser.parse_args()
     return args
@@ -589,12 +597,15 @@ def main():
         print('number of chunks:": ' + str(number_of_temp_files))
         for i in range(number_of_temp_files):
             print('Running retrotransposon detection on file ' + str(i))
-            subprocess.check_call(
-                [f'{tool_path}/utils/detect_putative_ltr.R', '-s', temp_files_fasta[i],
+            cmd = [f'{tool_path}/utils/detect_putative_ltr.R', '-s', temp_files_fasta[i],
                  '-g',
                  temp_files_gff[i], '-o', output_files[i], '-c', str(args.cpu), '-M',
                  str(args.max_missing_domains), '-L', str(args.min_relative_length)]
-                )
+
+            if args.te_constrains:
+                cmd += ['--te_constrains', args.te_constrains]
+            subprocess.check_call(cmd)
+
         #remove all temporary input files
         for temp_file in temp_files_fasta + temp_files_gff:
             os.remove(temp_file)
@@ -648,15 +659,28 @@ def main():
     else:
         print('running analysis on whole input')
         # no need to split sequences into chunks
-        subprocess.check_call(
-            [f'{tool_path}/utils/detect_putative_ltr.R', '-s', args.reference_sequence,
+        cmd = [f'{tool_path}/utils/detect_putative_ltr.R', '-s', args.reference_sequence,
              '-g',
              args.gff3, '-o', args.output, '-c', str(args.cpu), '-M',
              str(args.max_missing_domains), '-L', str(args.min_relative_length)]
-            )
+        if args.te_constrains:
+            cmd += ['--te_constrains', args.te_constrains]
+        subprocess.check_call(
+            cmd)
 
     # add version of the output gff3 file - must go to the beginning of the file
     add_version_to_gff3(args.output + '.gff3', __version__)
+
+    # Add graphical summary
+    cmd = [f'{tool_path}/dante_ltr_summary', '-g', args.output + '.gff3', '-o',
+           args.output + '_summary']
+    try:
+        subprocess.check_call(cmd)
+    # command can fail, it still need more testing
+    except subprocess.CalledProcessError:
+        pass
+
+
 
 if __name__ == '__main__':
     # check version of python must be 3.6 or greater
