@@ -1064,6 +1064,42 @@ get_te_sequences <- function (gr, s) {
 }
 
 
+add_info_about_flanking_sequences <- function(g, s, N=10){
+  #for each feature of "transposable_element" type, add flanking sequences
+  idx <- which(g$type == "transposable_element")
+  gr_left <- GRanges(seqnames(g)[idx],
+                     IRanges(start = start(g)[idx] - N, end = start(g)[idx] - 1),
+                     strand = strand(g)[idx])
+
+  gr_right <- GRanges(seqnames(g)[idx],
+                      IRanges(start = end(g)[idx] + 1, end = end(g)[idx] + N),
+                      strand = strand(g)[idx])
+
+  # gr_left or gr_right can be out of range
+  # it is necessary to trim such ranges
+  # if GRanges object contains out-of-bound range, it raises warning - this is OK
+  suppressWarnings({
+    seqlengths(gr_left) <- seqlengths(s)[seqlevels(gr_left)]
+    seqlengths(gr_right) <- seqlengths(s)[seqlevels(gr_right)]
+  })
+
+  # trim ranges
+  gr_left <- trim(gr_left)
+  gr_right <- trim(gr_right)
+
+  s_left <- as.character(getSeq(s, gr_left))
+  s_right <- as.character(getSeq(s, gr_right))
+  s_5end <- ifelse(strand(g)[idx] == "+", s_left, s_right)
+  s_3end <- ifelse(strand(g)[idx] == "+", s_right, s_left)
+  flanking_5end <- rep(NA, length(g))
+  flanking_3end <- rep(NA, length(g))
+  flanking_5end[idx] <- s_5end
+  flanking_3end[idx] <- s_3end
+  g$flanking_5end <- flanking_5end
+  g$flanking_3end <- flanking_3end
+  return(g)
+}
+
 cd_hit_est <- function(seqs, min_identity = 0.9, word_size = 10, ncpu = 2){
   # runs cd-hi-est and return table with cluster membership, and size and if reads was repesentative
   # input sequences must be in the same orientation!!!

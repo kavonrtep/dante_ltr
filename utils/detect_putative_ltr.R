@@ -363,9 +363,10 @@ if (is.null(gff3_out)){
   gff3_out$Parent[!is.na(gff3_out$Parent)] <- paste0(gff3_out$Parent[!is.na(gff3_out$Parent)], "_", seqnames(gff3_out)[!is.na(gff3_out$Parent)])
   gff3_out <- convert_gr_Lists_to_Vectors(gff3_out)
   gff3_out <- revert_CHDCR_correction(gff3_out)
+  # add flanking sequences attributes to gff3
+  gff3_out <- add_info_about_flanking_sequences(gff3_out, s, 10)
   # TODO - check for overlapping TEs
   # it is possible that there are overlapping TEs, these must be reduced to D rank
-
   if (opt$debug) {
     save.image("tmp2.RData")
   }

@@ -136,10 +136,10 @@ options:
 ```
 
 
-#### Example of complete workflow:
+### Example of complete workflow:
 
 
-Installation both DANTE anmd DANTE_LTR using conda into single environment:
+Installation of both DANTE and DANTE_LTR using conda into single environment:
 ```shell
 conda create dante_ltr -c bioconda -c conda-forge -c petrnovak dante_ltr dante
 conda activate dante_ltr
@@ -172,7 +172,7 @@ Output files:
 - `DANTE_LTR_annotation_summary.pdf` - graphical summary of the results
 
 
-#### GFF3 DNATE_LTR output specification
+### GFF3 DANTE_LTR output specification
 Types of features in GFF3:
 - **target_site_duplication**: This feature represents the direct repeats of host DNA 
 produced at the insertion site of a transposable element.
