@@ -1,3 +1,26 @@
+## 0.3.4.0 (2023-11-22)
+
+*  bug fix in TSD reporting. For TE on minus strand, TSD sequence was reported as 
+   sequence on plus strand - this is fixed 
+*  possibility to adjust te_detection constrains added, TE constrains updated
+   documentation updated 
+*  reporting flanking sequences around TE documentation updated 
+
+
+## 0.2.3.8 (2023-10-23)
+
+*  bugfix in urldecoding, summary script updated 
+
+## 0.2.3.7 (2023-10-13)
+
+*  dante_ltr_summary export csv table with basic stats 
+*  bugfix - overlapping domain from DANTE handling added 
+
+## 0.2.3.6 (2023-09-25)
+
+*  docs updated 
+*  bugfix in dante_ltr_summary (error when no element in the lineage was complete) 
+*  
 ## 0.2.3.5 (2023-08-31)
 
 *  bug fix in path to ltr_utils.R 
