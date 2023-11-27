@@ -163,9 +163,14 @@ def get_arguments():
     parser.add_argument('--te_constrains', default=None, required=False,
                          type=str,
                          help='csv table specifying TE constraints for LTR search, '
-                              'template for this table'
-                              ' can be found in '
+                              'template for this table \n'
+                              'can be found in '
                               'https://github.com/kavonrtep/dante_ltr/blob/main/databases/lineage_domain_order.csv'
+                        )
+    # no_ambiguous_domains option:
+    parser.add_argument('--no_ambiguous_domains', default=False, required=False,
+                         action='store_true',
+                         help='Remove ambiguous domains from analysis'
                         )
 
 
@@ -604,6 +609,8 @@ def main():
 
             if args.te_constrains:
                 cmd += ['--te_constrains', args.te_constrains]
+            if args.no_ambiguous_domains:
+                cmd += ['--no_ambiguous_domains']
             subprocess.check_call(cmd)
 
         #remove all temporary input files
@@ -665,6 +672,8 @@ def main():
              str(args.max_missing_domains), '-L', str(args.min_relative_length)]
         if args.te_constrains:
             cmd += ['--te_constrains', args.te_constrains]
+        if args.no_ambiguous_domains:
+            cmd += ['--no_ambiguous_domains']
         subprocess.check_call(
             cmd)
 

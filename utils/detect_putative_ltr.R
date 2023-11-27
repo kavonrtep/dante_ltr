@@ -23,10 +23,13 @@ option_list <- list(
   make_option(c("-d", "--debug"), action = "store_true", default = FALSE,
               help = "Debug mode [default %default]"),
   make_option(c("-t", "--te_constrains"), type = "character", default = NULL,
-              help = "TE constrains file [default %default]")
-
-
+              help = "TE constrains file [default %default]"),
+  make_option(c('-n', '--no_ambiguous_domains'), action = 'store_true', default = FALSE,
+              help = 'Remove ambiguous domains from analysis [default %default]')
 )
+
+
+
 
 description <- paste(strwrap(""))
 
@@ -91,6 +94,18 @@ if (file.size(opt$gff3) == 0){
 }
 
 g <- rtracklayer::import(opt$gff3, format = 'gff3')  # DANTE gff3
+if (opt$no_ambiguous_domains){
+  ambiguous_names <- c(
+    "Class_I|LTR|Ty1/copia",
+    "Class_I|LTR|Ty3/gypsy",
+    "Class_I|LTR|Ty3/gypsy|chromovirus",
+    "Class_I|LTR|Ty3/gypsy|non-chromovirus",
+    "Class_I|LTR|Ty3/gypsy|non-chromovirus|OTA",
+    "Class_I|LTR|Ty3/gypsy|non-chromovirus|OTA|Tat"
+  )
+  g <- g[!g$Final_Classification %in% ambiguous_names]
+}
+
 # check seqlevels:
 ori_seqlevels <- seqlevels(g)
 
@@ -102,6 +117,7 @@ if (all(URLencode(seqlevels(g), reserved = TRUE) == seqlevels(g))){
 g <- CHD_CHDCR_correction(g)
 cat("done\n")
 cat("reading fasta...")
+
 
 # some ranges could be overlaping - keep longer one
 g <- gff_cleanup_overlaps(g)
@@ -122,12 +138,12 @@ lineage_domain_span <- lineage_info$domain_span
 lineage_ltr_mean_length <- lineage_info$ltr_length
 lineage_offset5prime <- lineage_info$offset5prime
 lineage_offset3prime <- lineage_info$offset3prime
-ln <- gsub("ss/I", "ss_I", gsub("_", "/", gsub("/", "|", lineage_info$Lineage)))
-names(lineage_offset3prime) <-  ln
-names(lineage_offset5prime) <-  ln
-names(lineage_domain) <- ln
-names(lineage_domain_span) <- ln
-names(lineage_ltr_mean_length) <- ln
+lineage_name <- gsub("ss/I", "ss_I", gsub("_", "/", gsub("/", "|", lineage_info$Lineage)))
+names(lineage_offset3prime) <-  lineage_name
+names(lineage_offset5prime) <-  lineage_name
+names(lineage_domain) <- lineage_name
+names(lineage_domain_span) <- lineage_name
+names(lineage_ltr_mean_length) <- lineage_name
 lineage_domains_sequence <- unlist(mapply(function(d,l) {
   paste(strsplit(d, " ")[[1]], ":", l, sep = "")
 }, d = lineage_domain, l = names(lineage_domain)))
