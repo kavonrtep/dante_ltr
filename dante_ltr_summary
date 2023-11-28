@@ -21,6 +21,97 @@ suppressPackageStartupMessages(
 })
 
 
+createHTMLHeader <- function(title = "DANTE LTR Summary", outputFile) {
+  cat("<!DOCTYPE html>\n",
+      "<html>\n",
+      "<head>\n",
+      "<title>", title, "</title>\n",
+      "<style>\n",
+      "body { font-family: Arial, sans-serif; display: flex; }\n",
+      "#sidebar { width: 300px; background-color: #f2f2f2; padding: 10px; position: fixed; height: 100%; overflow: auto; }\n",
+      "#main { margin-left: 330px; flex-grow: 1; }\n",
+      "img { max-width: 100%; height: auto; }\n",
+      "table { border-collapse: collapse; margin: auto; }\n",  # Adjusted table width
+      "th, td { border: 1px solid #ddd; padding: 8px; text-align: left; vertical-align: middle; }\n",
+      "td:nth-child(n) { text-align: right; }\n",  # Right aligns all cells, replace n with the column number for numeric data
+      "tr:nth-child(even) { background-color: #f2f2f2; }\n",
+      "th { padding-top: 12px; padding-bottom: 12px; background-color: #4CAF50; color: white; }\n",
+      "</style>\n",
+      "</head>\n",
+      "<body id=\"top\">\n", file = outputFile, sep = "")
+}
+
+
+# Function to create the sidebar with links
+createSidebar <- function(fileNames, outputFile) {
+  cat("<div id='sidebar'>\n", file = outputFile, append = TRUE)
+  cat("<p><a href='#top'>DANTE_LTR Summary</a></p>\n", file = outputFile, append = TRUE)
+  for (name in names(fileNames)) {
+    name_mod <- gsub(" summary$", " ", name)
+    cat("<p><a href='#", gsub(" ", "_", name), "'>", name_mod, "</a></p>\n",
+        file = outputFile, append = TRUE, sep = "")
+  }
+  cat("</div>\n", file = outputFile, append = TRUE)
+}
+
+# Function to create the main content area with all images
+createMainContent <- function(fileNames, outputFile, folder, summary_df) {
+  cat("<div id='main'>\n",
+      "<h1>DANTE LTR Summary</h1>\n", file = outputFile, append = TRUE)
+  cat(dataFrameToHTMLTable(summary_df), file = outputFile, append = TRUE)
+  for (name in names(fileNames)) {
+    cat("<h2 id='", gsub(" ", "_", name), "'>", name, "</h2>\n",
+        "<img src='", folder, "/", basename(fileNames[name]), "' alt='", name, "'>\n",
+        file = outputFile, append = TRUE, sep = "")
+  }
+
+  cat("</div>\n", file = outputFile, append = TRUE)
+}
+
+# Function to close the HTML document
+closeHTML <- function(outputFile) {
+  cat("</body>\n",
+      "</html>", file = outputFile, append = TRUE, sep = "")
+}
+
+# Main function to generate the HTML file
+generateHTML <- function(output_file_names, main_filename, folder, summary_df) {
+  createHTMLHeader("DANTE LTR Summary", main_filename)
+  sel <-  c(1,seq(2, length(output_file_names) - 1, by = 2), length(output_file_names))
+  output_file_names2 <- output_file_names[sel]
+  createSidebar(output_file_names2, main_filename)
+  createMainContent(output_file_names, main_filename, folder, summary_df)
+  closeHTML(main_filename)
+}
+
+dataFrameToHTMLTable <- function(df) {
+  # Start the HTML table
+  htmlTable <- "<table border='1'>\n"
+
+  # Add the header row
+  htmlTable <- paste0(htmlTable, "<tr>")
+  for (columnName in names(df)) {
+    htmlTable <- paste0(htmlTable, "<th>", columnName, "</th>")
+  }
+  htmlTable <- paste0(htmlTable, "</tr>\n")
+
+  # Add the data rows
+  for (row in 1:nrow(df)) {
+    htmlTable <- paste0(htmlTable, "<tr>")
+    for (value in df[row, ]) {
+      htmlTable <- paste0(htmlTable, "<td>", value, "</td>")
+    }
+    htmlTable <- paste0(htmlTable, "</tr>\n")
+  }
+
+  # Close the HTML table
+  htmlTable <- paste0(htmlTable, "</table>")
+
+  return(htmlTable)
+}
+
+
+
 
 plot_multiple_elements <- function (segments_info, feature_colors){
   if (ncol(segments_info$segment_position) > 10000){
@@ -29,8 +120,6 @@ plot_multiple_elements <- function (segments_info, feature_colors){
     segments_info$segment_position <- segments_info$segment_position[,selected]
     segments_info$segment_width <- segments_info$segment_width[,selected]
   }
-
-
 
   N <- ncol(segments_info$segment_width)
   NS <- nrow(segments_info$segment_width)
@@ -47,7 +136,7 @@ plot_multiple_elements <- function (segments_info, feature_colors){
   x2 <- c(segments_info$segment_position[,ord] + (segments_info$segment_width/2)[,ord])
   y1 <- c(sapply(1:N, rep, times = NS))
   y2 <- y1 + 1
-  par(mfrow = c(1,1), mar=c(5,2,5,2))
+  par(mfrow = c(1,1), mar=c(5,0.5,0.5,0.5))
   plot(0,0, type = "n", xlim = c(0, max_length), ylim = c(0, N+1), xlab = "", ylab = "", axes = FALSE)
   rect(x1, y1, x2, y2, col = col, border = NA)
   axis(1, cex.axis = 0.5, las = 2, line = -1)
@@ -117,7 +206,7 @@ plot_pbs_statistic <- function (pbs_info_part){
 
 
 
-plot_te <- function(starts, ends, startsP, endsP,  colors, segments_info, title, pbs_info){
+plot_te <- function(starts, ends, startsP, endsP,  colors, segments_info, title, pbs_info, ltr_identity){
   # plot TE features
   # inputs are starts, ends, colors
   # starts and ends are vectors of same length
@@ -135,8 +224,9 @@ plot_te <- function(starts, ends, startsP, endsP,  colors, segments_info, title,
   col[is.na(col)] <-  "#AAAAAA"
   W <- 100 * max(ends/7000)
   W2 <- 10 * max(ends/7000)
-
-  layout(matrix(c(0,0,3,1,2,3,4,4,4,0,0,0,5,5,5,6,6,6), ncol=3, byrow = TRUE), heights = c(0.5, 1.2, 0.8 ,0.5, 2, 1 ))
+  #layout(matrix(c(0,0,3,1,2,3,4,4,4,0,0,0,5,5,5,6,6,6), ncol=3, byrow = TRUE), heights = c(0.5, 1.2, 0.8 ,0.5, 2, 1 ))
+  layout(matrix(c(0,0,0,4,1,2,3,4, 5,5,5,5,0,0,0,0,6,6,6,6,7,7,7,7), ncol=4, byrow = TRUE)
+, heights = c(0.5, 1.2, 0.7 ,0.2, 1.5, 1 ))
   ND <- nrow(segments_info$segment_position)
   par(mar = c(5,5,3,2))
   # plot histogram of TE lengths
@@ -157,7 +247,8 @@ plot_te <- function(starts, ends, startsP, endsP,  colors, segments_info, title,
 
   LW <-  segments_info$segment_width[1,]
   brks <- seq(min(LW, na.rm = TRUE)-1000, max(LW, na.rm = TRUE) + 1000, length.out = 70)
-  hist(LW, main='LTR lengths', breaks=brks, border=NA, col="#AAAAAA", xlab = "length [nt]")
+  hist(LW, main='LTR lengths', breaks=brks, border=NA, col="#AAAAAA", xlab = "length [nt]", xlim = c(0, max(brks)))
+  hist(ltr_identity, main='LTR identity', breaks=c(0:101), border=NA, col="#AAAAAA", xlab = "identity [%]", xlim = c(50,100))
   plot_pbs_statistic(pbs_info)
   ext <- 1.1
   # plot number of missing segments
@@ -190,11 +281,11 @@ plot_te <- function(starts, ends, startsP, endsP,  colors, segments_info, title,
   par(mar = c(0,5,0,0.5))
   plot(x,y, xlim = c(0, max(ends)* ext), ylim=c(0,max_val * 1.2), xlab = "", ylab = "region width [nt]",
        axes = FALSE, type = "n")
-  mtext(3, , text="Feature size variation", line=-2, adj=0)
-  box()
+  mtext(3, , text="  Feature size variation", line=-2, adj=0)
+  # box()
   axis(side=2, las=1)
 
-  for (i in 1:length(x)){
+  for (i in seq_along(x)){
     # set color, grey if interstitial region, otherwise domain/ltr color
     centre <- segments_info$segment_mean_position[i]
     # make boxplot from boxplot stats at the centre of the segment
@@ -220,7 +311,7 @@ plot_te <- function(starts, ends, startsP, endsP,  colors, segments_info, title,
 
   par(mar=c(5,5,0,0))
   plot(0, 0, type = "n", xlim = c(0, max(ends)*ext), ylim = c(0, 10), xlab = "", ylab = "", axes = FALSE)
-  mtext(side = 3, text="Structure of average element", line=-3, adj=0)
+  mtext(side = 3, text="   Structure of average element", line=-2.9, adj=0)
   element_scheme_coords$xlim <- c(0, max(ends))
   element_scheme_coords$ylim <- c(0, 10)
 
@@ -256,9 +347,16 @@ if (FALSE){
 }
 
 g <-  import(opt$gff3, format = "gff3")
-TE_ID <- unlist(ifelse(is.na(g$ID), g$Parent, g$ID))
-ID2Name <- g$Name[!is.na(g$ID)]; names(ID2Name) <- g$ID[!is.na(g$ID)]
+g_te <- g[g$type == "transposable_element" & g$Rank != 'D',]
+LTR_Identity <- sapply(split(g_te$LTR_Identity, g_te$Name), as.numeric)
 
+
+x <- gc(verbose = FALSE)
+
+
+TE_ID <- unlist(ifelse(is.na(g$ID), g$Parent, g$ID))
+
+ID2Name <- g$Name[!is.na(g$ID)]; names(ID2Name) <- g$ID[!is.na(g$ID)]
 # start and end of whole transposable element:
 TE_start <- start(g)[!is.na(g$ID)]
 TE_end <- end(g)[!is.na(g$ID)]
@@ -371,7 +469,13 @@ colnames(Lineage_counts) <- gsub("Class_I|LTR|", "", colnames(Lineage_counts), f
 te_coords <- list()
 
 pdf_out <- paste(opt$output, ".pdf", sep = "")
-pdf(pdf_out, width = 8.27, height = 11.69, pointsize = 10)
+dir_out <- paste(opt$output, "_plots", sep = "")
+dir.create(dir_out, showWarnings = FALSE)
+output_file_names <- c(
+  "Number of elements" =  paste0(dir_out, "/", 'number_of_elements.png'
+))
+
+png(file = output_file_names["Number of elements"], width = 1000, height = 1000)
 par(mfrow = c(1,1), mar=c(5,20,2,2))
 barplot(Lineage_counts, beside = TRUE,
         legend.text = c("no_LTR", "LTR", "PBS", "TSD", "PBS & TSD"),
@@ -379,10 +483,21 @@ barplot(Lineage_counts, beside = TRUE,
         horiz = TRUE,
         col = c("grey", "black", "blue", "red", "violet"), las = 2,
         xlab = "Number of elements")
+dev.off()
 
-for (i in 1:length(TE_groups_mean_end_lineage)){
+for (i in seq_along(TE_groups_mean_end_lineage)){
 
   n <- names(TE_groups_mean_end_lineage)[[i]]
+  # sanityze file name - remove special characters
+  n2 <- gsub("[^[:alnum:]]", "_", n)
+
+  png1 <- paste0(dir_out, "/", n2, "_summary.png")
+  png2 <- paste0(dir_out, "/", n2, "_structure.png")
+  title1 <- paste0(n, " summary")
+
+  title2 <- paste0(gsub(".+[|]", "", n), ": individual elements structure")
+  output_file_names[title1] <- png1
+  output_file_names[title2] <- png2
   segments_info <-  get_segment_info(TE_long_rel_plot, names(TE_groups_mean_end_lineage)[[i]], features = names(TE_groups_mean_start_lineage[[i]]))
   if (n %in% TE_long_rel_plot_with_pbs$classification){
     segments_info_pbs <-  get_segment_info(TE_long_rel_plot_with_pbs, names(TE_groups_mean_end_lineage)[[i]], features = names(TE_groups_mean_start_lineage[[i]]))
@@ -390,6 +505,8 @@ for (i in 1:length(TE_groups_mean_end_lineage)){
     segments_info_pbs <- NULL
   }
   pbs_info_part <- pbs_info[which(pbs_info$lineage_full_name == n),]
+  png(file = png1, width = 1500, height = 1200, pointsize = 20)
+
   te_coords[[n]] <- plot_te(TE_groups_mean_start_lineage[[n]],
                             TE_groups_mean_end_lineage[[n]],
                             TE_groups_mean_start_lineage_with_pbs[[n]],
@@ -397,21 +514,31 @@ for (i in 1:length(TE_groups_mean_end_lineage)){
                             feature_colors[TE_feature],
                             segments_info,
                             title = gsub("Class_I|LTR|", "", n, fixed = TRUE),
-                            pbs_info_part)
+                            pbs_info_part,
+                            LTR_Identity[[n]]
+  )
+  dev.off()
+
   if (ncol(segments_info$segment_width) > 1){
+    png(file = png2, width = 1000, height = 1000, pointsize = 20)
     plot_multiple_elements(segments_info, feature_colors)
-    mtext(n)
+    dev.off()
   }
 
 }
 # plot all te from te coords
 N <- length(te_coords)
 xlim <- range(sapply(te_coords, function(x) x$xlim))
-par(mfrow = c(1,1), mar = c(2,2,2,2))
+output_file_names['LTR identity and TE structure summary'] <- paste0(dir_out, "/", "all_elements.png")
+
+png(file = output_file_names['LTR identity and TE structure summary'], width = 1500, height = 1200)
+layout(matrix(2:1, ncol=2), widths = c(1,5))
+par(mar = c(3,0,2,0))
 offset <- 3000
 plot(0,0, type = "n", xlim = c(-offset, xlim[2]), ylim = c(0, N+1), xlab = "", ylab = "", axes = FALSE)
 ticks <- pretty(xlim, 10)
-axis(1, at=ticks, cex.axis = 0.5, las = 2, line = -1)
+axis(1, at=ticks, cex.axis = 1, las = 2, line = -2)
+mtext("position [bp]", 1, line = 1, cex = 1)
 abline(v = ticks, lty = 3)
 for (i in 1:N){
   n <- names(te_coords)[[i]]
@@ -422,6 +549,25 @@ for (i in 1:N){
   }
   text(-offset/2, i+0.4125, labels = gsub(".+[|]", "",n) , cex=1)
 }
+# add legend
+legend("right", legend = names(feature_colors), fill = feature_colors, cex = 1.5)
+
+
+# create histograms manually from rectangles
+par(mar = c(3,2,2,0))
+plot(0,0, type = "n", xlim = c(60, 100), ylim = c(0, N+1), xlab = "", ylab = "", axes = FALSE)
+axis(1, line=-2)
+mtext("LTR identity[%]", 1, line = 1, cex = 1)
+mtext("Frequency", 2, line = -.1, cex = 1.5)
+for (i in 1:N){
+  hist_data <- hist(LTR_Identity[[i]], breaks = c(0:101), plot = FALSE)
+  xleft <- hist_data$breaks[-length(hist_data$breaks)]
+  xright <- hist_data$breaks[-1]
+  ybottom <- i+0.25
+  ytop <- 0.5*hist_data$counts/max(hist_data$counts) + ybottom
+  rect(xleft, ybottom, xright, ytop, col = "#555555", border = NA)
+}
+abline(v = seq(50, 100, 10), lty = 3)
 dev.off()
 
 
@@ -452,3 +598,25 @@ write.table(summary_df, paste(opt$output, ".csv", sep = ""), sep = "\t", quote =
 if (opt$save_all){
   save.image(paste(opt$output, ".RData", sep = ""))
 }
+
+
+# adjust colnames for HTML
+colnames(summary_df) <- c(
+    'Lineage',
+    'LTR mean length <br> [bp]',
+    "Element mean length <br> [bp]",
+    "Number of partial elements <br> (No LTR found)",
+    "Number of elements <br>with LTR",
+    "Number of elements <br>with LTR,PBS",
+    "Number of elements <br>with LTR,TSD",
+    "Number of elements <br>with LTR,PBS,TSD"
+)
+
+
+generateHTML(output_file_names,
+             paste(opt$output, ".html", sep = ""),
+             folder=basename(paste(opt$output, "_plots", sep = "")),
+             summary_df = summary_df
+)
+
+
