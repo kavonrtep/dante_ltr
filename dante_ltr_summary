@@ -13,8 +13,13 @@ epilogue <- ""
 parser <- OptionParser(option_list = option_list, epilogue = epilogue, description =
   description, usage = "usage: %prog COMMAND [OPTIONS]")
 
-
 opt <- parse_args(parser, args = commandArgs(TRUE))
+
+# check is mandatory -g and -o options are provided
+if (is.null(opt$gff3) || is.null(opt$output)){
+  print_help(parser)
+  stop("Mandatory options -g and -o are required")
+}
 
 suppressPackageStartupMessages(
 {library(rtracklayer)
@@ -31,7 +36,7 @@ createHTMLHeader <- function(title = "DANTE LTR Summary", outputFile) {
       "#sidebar { width: 300px; background-color: #f2f2f2; padding: 10px; position: fixed; height: 100%; overflow: auto; }\n",
       "#main { margin-left: 330px; flex-grow: 1; }\n",
       "img { max-width: 100%; height: auto; }\n",
-      "table { border-collapse: collapse; margin: auto; }\n",  # Adjusted table width
+      "table { border-collapse: collapse; margin: left; align: left}\n",  # Adjusted table width
       "th, td { border: 1px solid #ddd; padding: 8px; text-align: left; vertical-align: middle; }\n",
       "td:nth-child(n) { text-align: right; }\n",  # Right aligns all cells, replace n with the column number for numeric data
       "tr:nth-child(even) { background-color: #f2f2f2; }\n",
@@ -77,7 +82,7 @@ closeHTML <- function(outputFile) {
 # Main function to generate the HTML file
 generateHTML <- function(output_file_names, main_filename, folder, summary_df) {
   createHTMLHeader("DANTE LTR Summary", main_filename)
-  sel <-  c(1,seq(2, length(output_file_names) - 1, by = 2), length(output_file_names))
+  sel <-  c(1,2,seq(3, length(output_file_names) - 1, by = 2))
   output_file_names2 <- output_file_names[sel]
   createSidebar(output_file_names2, main_filename)
   createMainContent(output_file_names, main_filename, folder, summary_df)
@@ -125,6 +130,8 @@ plot_multiple_elements <- function (segments_info, feature_colors){
   NS <- nrow(segments_info$segment_width)
   max_length <- max(colSums(segments_info$segment_width, na.rm = TRUE), na.rm = TRUE)
   segment_name <-  names(segments_info$segment_mean_position)
+  feature_names <- unique(sapply(strsplit(segment_name, " "), function(x) sub("_.+", "", x))[1,])
+
   col <-  feature_colors[sapply(strsplit(segment_name, " "),
                         function(x) paste(unique(sub("_.+", "", x)),
                                           collapse = "_"))]
@@ -136,10 +143,20 @@ plot_multiple_elements <- function (segments_info, feature_colors){
   x2 <- c(segments_info$segment_position[,ord] + (segments_info$segment_width/2)[,ord])
   y1 <- c(sapply(1:N, rep, times = NS))
   y2 <- y1 + 1
-  par(mfrow = c(1,1), mar=c(5,0.5,0.5,0.5))
-  plot(0,0, type = "n", xlim = c(0, max_length), ylim = c(0, N+1), xlab = "", ylab = "", axes = FALSE)
-  rect(x1, y1, x2, y2, col = col, border = NA)
-  axis(1, cex.axis = 0.5, las = 2, line = -1)
+  par(mfrow = c(1,1), mar=c(5,0.5,0.5,1))
+  plot(0,0, type = "n", xlim = c(0, max_length*1.3), ylim = c(0, N+1), xlab = "", ylab = "", axes = FALSE)
+  rect(rev(x1), rev(y1), rev(x2), rev(y2), col = rev(col), border = NA)
+  axis(1, cex.axis = 1, las = 1, line = -1)
+  mtext("Position [bp]", side = 1, line = 1.5, cex = 1)
+  feature_names_formatted <- feature_names[feature_names !='LTR3']
+  feature_colors_formatted <- feature_colors[feature_names_formatted]
+  feature_names_formatted <- gsub("LTR5", "LTR", feature_names_formatted)
+
+  feature_names_formatted['Missing domain'] <- 'Missing domain'
+  feature_colors_formatted['Missing domain'] <- '#FFFFFF'
+  # legen with no box around
+  legend("topright", legend = feature_names_formatted,
+         fill = feature_colors_formatted, cex = 1, bty = "n")
 }
 
 
@@ -170,6 +187,17 @@ get_segment_info <- function(TE_long_rel_plot, TE_class, features){
   )
 }
 
+segment_width2_start_end <- function(segments_info){
+  sw <- segments_info$segment_width
+  sw_median <- apply(sw,1, median, na.rm = TRUE)
+  positions_SE <- cumsum(c("X LTR5_S" = 1, sw_median))
+  SL <- grepl("S$", names(positions_SE))
+  EL <- grepl("E$", names(positions_SE))
+  label <- gsub("_.+$","",gsub(".+ ", "", names(positions_SE)))
+  starts <- positions_SE[SL]; names(starts) <- label[SL]
+  ends <- positions_SE[EL]; names(ends) <- label[EL]
+  return(list(starts = starts, ends = ends))
+}
 
 feature_colors <- c("GAG" = "#fc850e",
                     "INT" = "#05fc09",
@@ -198,20 +226,44 @@ plot_pbs_statistic <- function (pbs_info_part){
   codon_counts <- do.call(cbind,lapply(codones, function(x) table(factor(x, levels = all_codons))))
   # sort rows by total count
   codon_counts <- codon_counts[order(-rowSums(codon_counts)),,drop=FALSE]
-  barplot(t(codon_counts), beside = TRUE, las=1, horiz = TRUE,
-          legend.text = c("no evalue filtering", "evalue<0.1", "evalue<0.01"),
-          main = "PBS detection frequency",
-  )
+  codon_counts2 <- cbind(codon_counts[,3], codon_counts[,1] - codon_counts[,3])
+  # plot only most frequent codons
+  Nmax <-  min(3, nrow(codon_counts2))
+  if (Nmax == 0) {
+    # there is nothing to plot, make empty plot
+    plot(0,0, type = "n", axes = FALSE, xlab = "", ylab = "", main = "No PBS found")
+  }else{
+    codon_counts2 <- codon_counts2[1:Nmax,,drop=FALSE]
+    ylims <- c(0, max(rowSums(codon_counts2)) * 1.6)
+    labs <- rownames(codon_counts)[1:Nmax]
+    vals <- codon_counts[1:Nmax,1]
+    names(vals) <- labs
+    barplot(vals, beside = FALSE, las=1, horiz = FALSE,
+            main = "The most frequent PBS ", ylim = ylims, ylab = "Count",
+            xlim = c(0,5)
+    )
+  }
 }
 
 
-
-plot_te <- function(starts, ends, startsP, endsP,  colors, segments_info, title, pbs_info, ltr_identity){
+plot_te <- function(colors, segments_info, title, pbs_info, ltr_identity){
   # plot TE features
   # inputs are starts, ends, colors
   # starts and ends are vectors of same length
   # colors is a vector of colors
   # output is a plot
+
+  # test different calculation of starts and ends of segments
+  starts_ends <- segment_width2_start_end(segments_info)
+
+  starts <- starts_ends$starts
+  ends <- starts_ends$ends
+  # interlace starts and ends
+  se_interlaced <- c(rbind(starts, ends))
+  se1 <- se_interlaced[1:(length(se_interlaced)-1)]
+  se2 <- se_interlaced[2:length(se_interlaced)]
+  segment_mean_position2 <- (se1 + se2)/2
+
   boxplot_stats <- apply(segments_info$segment_width, 1, boxplot.stats)
   N <- dim(segments_info$segment_position)[2]
   max_val <- max(apply(segments_info$segment_width, 1, quantile, probs=1, na.rm=TRUE), na.rm=TRUE)
@@ -225,10 +277,10 @@ plot_te <- function(starts, ends, startsP, endsP,  colors, segments_info, title,
   W <- 100 * max(ends/7000)
   W2 <- 10 * max(ends/7000)
   #layout(matrix(c(0,0,3,1,2,3,4,4,4,0,0,0,5,5,5,6,6,6), ncol=3, byrow = TRUE), heights = c(0.5, 1.2, 0.8 ,0.5, 2, 1 ))
-  layout(matrix(c(0,0,0,4,1,2,3,4, 5,5,5,5,0,0,0,0,6,6,6,6,7,7,7,7), ncol=4, byrow = TRUE)
+  layout(matrix(c(0,0,0,0,1,2,3,4, 5,5,5,5,0,0,0,0,6,6,6,6,7,7,7,7), ncol=4, byrow = TRUE)
 , heights = c(0.5, 1.2, 0.7 ,0.2, 1.5, 1 ))
   ND <- nrow(segments_info$segment_position)
-  par(mar = c(5,5,3,2))
+  par(mar = c(5,5,3,2), cex=0.8, las=1)
   # plot histogram of TE lengths
   # hist(segments_info$segment_position[ND,] - segments_info$segment_position[1,], main='Full element', breaks=200, border=NA, col="#AAAAAA", xlab = "length [nt]")
   # make breaks manually
@@ -238,7 +290,7 @@ plot_te <- function(starts, ends, startsP, endsP,  colors, segments_info, title,
     plot(0,0, type = "n" , axes = FALSE, xlab = "", ylab = "", main = "No full elements found")
   }else{
     brks <- seq(min(SW, na.rm = TRUE)-1000, max(SW, na.rm = TRUE) + 1000, length.out = 70)
-    hist(SW, main='Full element lengths', breaks=brks, border=NA, col="#AAAAAA", xlab = "length [nt]")
+    hist(SW, main='Element length', breaks=brks, border=NA, col="#AAAAAA", xlab = "[nt]")
   }
 
 
@@ -247,8 +299,8 @@ plot_te <- function(starts, ends, startsP, endsP,  colors, segments_info, title,
 
   LW <-  segments_info$segment_width[1,]
   brks <- seq(min(LW, na.rm = TRUE)-1000, max(LW, na.rm = TRUE) + 1000, length.out = 70)
-  hist(LW, main='LTR lengths', breaks=brks, border=NA, col="#AAAAAA", xlab = "length [nt]", xlim = c(0, max(brks)))
-  hist(ltr_identity, main='LTR identity', breaks=c(0:101), border=NA, col="#AAAAAA", xlab = "identity [%]", xlim = c(50,100))
+  hist(LW, main='LTR length ', breaks=brks, border=NA, col="#AAAAAA", xlab = "[nt]", xlim = c(0, max(brks)))
+  hist(ltr_identity, main='LTR identity', breaks=c(0:101), border=NA, col="#AAAAAA", xlab = "[%]", xlim = c(50,100))
   plot_pbs_statistic(pbs_info)
   ext <- 1.1
   # plot number of missing segments
@@ -261,33 +313,34 @@ plot_te <- function(starts, ends, startsP, endsP,  colors, segments_info, title,
        ylim = c(0, M *1.5), xlim = c(0, max(ends)* ext))
 
   #horizontal ylabel
-  mtext(2, text= "frequency\nof missing\ndomains", las=1, cex=0.8, line = -2)
+  mtext(3, text= "Number of missing domains", las=1, cex=1, line = 0, adj = 0.5)
   abline(h = c(0,N), col='lightgrey')
 
-  rect(segments_info$segment_mean_position - W, 0,
-       segments_info$segment_mean_position + W, missing, col=col_domains_only, border=NA)
+  rect(segment_mean_position2 - W, 0,
+       segment_mean_position2 + W, missing, col=col_domains_only, border=NA)
 
   # add number of missing segments as text
   # show only for domains!
   include <- which(!is.na(col_domains_only)); include <- include[c(-1, -length(include))]
 
 
-  text(segments_info$segment_mean_position[include], missing[include], labels = missing[include], pos = 3, cex = 0.8)
+  text(segment_mean_position2[include], missing[include], labels = missing[include], pos = 3, cex = 0.8)
 
 
   x <- segments_info$segment_mean_position
   y <- rep(0.5, length(x))
 
   par(mar = c(0,5,0,0.5))
-  plot(x,y, xlim = c(0, max(ends)* ext), ylim=c(0,max_val * 1.2), xlab = "", ylab = "region width [nt]",
+  plot(x,y, xlim = c(0, max(ends)* ext), ylim=c(0,max_val * 1.2), xlab = "", ylab = "Region width [nt]\n",
        axes = FALSE, type = "n")
-  mtext(3, , text="  Feature size variation", line=-2, adj=0)
+  mtext(3, , text="   Feature size variation", line=-2, adj=0.5)
   # box()
   axis(side=2, las=1)
 
   for (i in seq_along(x)){
     # set color, grey if interstitial region, otherwise domain/ltr color
-    centre <- segments_info$segment_mean_position[i]
+
+    centre <- segment_mean_position2[i]
     # make boxplot from boxplot stats at the centre of the segment
     bs <- boxplot_stats[[i]]$stats
     # horizontal median line
@@ -311,27 +364,30 @@ plot_te <- function(starts, ends, startsP, endsP,  colors, segments_info, title,
 
   par(mar=c(5,5,0,0))
   plot(0, 0, type = "n", xlim = c(0, max(ends)*ext), ylim = c(0, 10), xlab = "", ylab = "", axes = FALSE)
-  mtext(side = 3, text="   Structure of average element", line=-2.9, adj=0)
+  mtext(side = 3, text="   Structure of average element", line=-2, adj=0.5)
   element_scheme_coords$xlim <- c(0, max(ends))
   element_scheme_coords$ylim <- c(0, 10)
 
   rect(0, 5, max(ends), 7, col = "#AAAAAA", border = NA)
-  for (i in names(starts)){
+  for (i in rev(names(starts))){
     element_scheme_coords[[i]] <- c(starts[i], ends[i])
-    rect(starts[i], 5, ends[i], 7, col = colors[i], border = "#000000")
-    text((starts[i] + ends[i])/2, 3, labels = i, cex = 0.8, col = "#000000")
+    lab <- i
+    wf <- 0
+    if (i=="LTR3"){
+      lab <- "3'LTR"
+      wf <- 0.2
+    }
+    if (i=="LTR5"){
+      lab <- "5'LTR"
+      wf <- 0.2
+    }
+    rect(starts[i], 5 - wf, ends[i], 7 + wf, col = colors[i], border = "#00000000")
+    text((starts[i] + ends[i])/2, 3, labels = lab, cex = 1, col = "#000000")
   }
-  # PBS
-    # rect(0, 0, max(endsP), 2, col = "#AAAAAA", border = NA)
-  #if (!is.null(startsP)){
-  #  print(1)
-    # for (i in names(startsP)){
-    #   rect(startsP[i], 0, endsP[i], 2, col = colors[i], border = "#000000")
-    # }
-  # }
 
-  axis(1, cex.axis = 1)
-  mtext("nt", side = 1, line = 2, cex = 1)
+
+  axis(1, cex.axis = 1, las = 1)
+  mtext("Position [nt]", side = 1, line = 2.3, cex = 1)
   return(element_scheme_coords)
 }
 
@@ -457,6 +513,17 @@ TE_groups_mean_end_lineage_with_pbs <- sapply(split(TE_groups_mean_end_with_pbs,
 
 L <- sort(unique(TE_lineage))
 
+g_te <- g[g$type == "transposable_element"]
+Lineage_counts2 <- as.matrix(table(g_te$Name,g_te$Rank))
+# remove absent elements
+Lineage_counts2 <- Lineage_counts2[rowSums(Lineage_counts2[,c("DL","DLT","DLP", "DLTP")]) > 0,]
+Number_of_elements2 <- data.frame(
+  "N_elements" = rowSums(Lineage_counts2[,c("DL","DLT","DLP", "DLTP")]),
+  "N_elements_PBS_TSD" = Lineage_counts2[, "DLTP"],
+  "N_elements_PBS" = Lineage_counts2[, "DLP"],
+  "N_elements_TSD" = Lineage_counts2[, "DLT"]
+)
+
 Lineage_counts <- list(
   no_LTR=table(factor(ID2Name[TE_ID_rank_D], levels = L)),
   LTR=table(factor(ID2Name[TE_ID_rank_DL], levels = L)),
@@ -474,15 +541,28 @@ dir.create(dir_out, showWarnings = FALSE)
 output_file_names <- c(
   "Number of elements" =  paste0(dir_out, "/", 'number_of_elements.png'
 ))
+output_file_names['TE structure summary and LTR identity'] <- paste0(dir_out, "/", "all_elements.png")
 
-png(file = output_file_names["Number of elements"], width = 1000, height = 1000)
-par(mfrow = c(1,1), mar=c(5,20,2,2))
-barplot(Lineage_counts, beside = TRUE,
-        legend.text = c("no_LTR", "LTR", "PBS", "TSD", "PBS & TSD"),
-        args.legend = list(x = "bottomright", bty = "n", cex = 0.8),
+
+count_for_barplot <- Number_of_elements2
+count_for_barplot$N_elements_rest <- with(Number_of_elements2, N_elements - N_elements_PBS - N_elements_TSD - N_elements_PBS_TSD)
+count_for_barplot$N_elements <- NULL
+# rows in reverse order
+count_for_barplot <- count_for_barplot[nrow(count_for_barplot):1,]
+# shorten names
+rownames(count_for_barplot) <- gsub("Class_I|LTR|", "", rownames(count_for_barplot), fixed = TRUE)
+
+png(file = output_file_names["Number of elements"], width = 1200, height = 600)
+par(mfrow = c(1,1), mar=c(5,20,2,2), cex=1.2, cex.axis = 1, cex.lab = 1.2, cex.main = 1.2, cex.sub = 0.8)
+xlims <- c(0, max(rowSums(count_for_barplot))*1.2)
+barplot(t(count_for_barplot), beside = FALSE,
+        legend.text = c("PBS & TSD", "PBS only", "TSD only", "Without PBS & TSD"),
+        args.legend = list(x = "topright", bty = "n", cex = 1.5),
         horiz = TRUE,
-        col = c("grey", "black", "blue", "red", "violet"), las = 2,
-        xlab = "Number of elements")
+        col = c("#000000", "#888888", "#BBBBBB", "#EEEEEE"),
+        xlab = "Number of elements", las = 1,
+        xlim = xlims
+        )
 dev.off()
 
 for (i in seq_along(TE_groups_mean_end_lineage)){
@@ -495,7 +575,7 @@ for (i in seq_along(TE_groups_mean_end_lineage)){
   png2 <- paste0(dir_out, "/", n2, "_structure.png")
   title1 <- paste0(n, " summary")
 
-  title2 <- paste0(gsub(".+[|]", "", n), ": individual elements structure")
+  title2 <- paste0(gsub(".+[|]", "", n), " : Structure of individual elements")
   output_file_names[title1] <- png1
   output_file_names[title2] <- png2
   segments_info <-  get_segment_info(TE_long_rel_plot, names(TE_groups_mean_end_lineage)[[i]], features = names(TE_groups_mean_start_lineage[[i]]))
@@ -504,14 +584,9 @@ for (i in seq_along(TE_groups_mean_end_lineage)){
   }else{
     segments_info_pbs <- NULL
   }
-  pbs_info_part <- pbs_info[which(pbs_info$lineage_full_name == n),]
+  pbs_info_part <- pbs_info[which(pbs_info$lineage_full_name == n & pbs_info$codon !='Not found'),,drop=FALSE]
   png(file = png1, width = 1500, height = 1200, pointsize = 20)
-
-  te_coords[[n]] <- plot_te(TE_groups_mean_start_lineage[[n]],
-                            TE_groups_mean_end_lineage[[n]],
-                            TE_groups_mean_start_lineage_with_pbs[[n]],
-                            TE_groups_mean_end_lineage_with_pbs[[n]],
-                            feature_colors[TE_feature],
+  te_coords[[n]] <- plot_te(feature_colors[TE_feature],
                             segments_info,
                             title = gsub("Class_I|LTR|", "", n, fixed = TRUE),
                             pbs_info_part,
@@ -524,50 +599,61 @@ for (i in seq_along(TE_groups_mean_end_lineage)){
     plot_multiple_elements(segments_info, feature_colors)
     dev.off()
   }
-
 }
 # plot all te from te coords
 N <- length(te_coords)
 xlim <- range(sapply(te_coords, function(x) x$xlim))
-output_file_names['LTR identity and TE structure summary'] <- paste0(dir_out, "/", "all_elements.png")
 
-png(file = output_file_names['LTR identity and TE structure summary'], width = 1500, height = 1200)
-layout(matrix(2:1, ncol=2), widths = c(1,5))
-par(mar = c(3,0,2,0))
+
+png(file = output_file_names['TE structure summary and LTR identity'], width = 1500, height = 1300)
+layout(matrix(c(1,3,2), ncol=3), widths = c(5,1,1))
+par(mar = c(4,0,2,0), cex=1.2)
 offset <- 3000
-plot(0,0, type = "n", xlim = c(-offset, xlim[2]), ylim = c(0, N+1), xlab = "", ylab = "", axes = FALSE)
+plot(0,0, type = "n", xlim = c(-offset, xlim[2]), ylim = c(1, N+1), xlab = "", ylab = "", axes = FALSE)
 ticks <- pretty(xlim, 10)
-axis(1, at=ticks, cex.axis = 1, las = 2, line = -2)
-mtext("position [bp]", 1, line = 1, cex = 1)
+axis(1, at=ticks, cex.axis = 1, line = 0)
+mtext("Position [nt]", 1, line = 2.5, cex = 1.5)
 abline(v = ticks, lty = 3)
 for (i in 1:N){
-  n <- names(te_coords)[[i]]
+  n <- names(te_coords)[[N + 1 -i]]
   rect(te_coords[[n]]$xlim[1], i+0.25, te_coords[[n]]$xlim[2], i+.6, col = "#AAAAAA", border = NA)
-  for (j in names(te_coords[[n]])[-c(1,2)]){
-    rect(te_coords[[n]][[j]][1], i+0.25, te_coords[[n]][[j]][2], i+0.6, col = feature_colors[j], border = "#000000")
+  for (j in (names(te_coords[[n]])[-c(1,2)])){
+    if (j %in% c("LTR3", "LTR5")){
+      rect(te_coords[[n]][[j]][1], i+0.20, te_coords[[n]][[j]][2], i+0.65, col = feature_colors[j], border = "#000000")
+    }else{
+      rect(te_coords[[n]][[j]][1], i+0.25, te_coords[[n]][[j]][2], i+0.6, col = feature_colors[j], border = "#000000")
+    }
+
     #text((te_coords[[n]][[j]][1] + te_coords[[n]][[j]][2])/2, i-0.1, labels = j, cex = 0.3, col = "#000000")
   }
-  text(-offset/2, i+0.4125, labels = gsub(".+[|]", "",n) , cex=1)
+  text(-offset/2, i+0.4125, labels = gsub(".+[|]", "",n) , cex=1.5)
 }
 # add legend
-legend("right", legend = names(feature_colors), fill = feature_colors, cex = 1.5)
+# legend(x = xlim[2], y = N+1, legend = names(feature_colors), fill = feature_colors, cex = 1.5, bty = "n")
 
 
 # create histograms manually from rectangles
-par(mar = c(3,2,2,0))
-plot(0,0, type = "n", xlim = c(60, 100), ylim = c(0, N+1), xlab = "", ylab = "", axes = FALSE)
-axis(1, line=-2)
-mtext("LTR identity[%]", 1, line = 1, cex = 1)
+par(mar = c(4,3,2,1))
+plot(0,0, type = "n", xlim = c(60, 100), ylim = c(1, N+1), xlab = "", ylab = "",
+     axes = FALSE, main="LTR identity")
+axis(1, line=0)
+mtext("[%]", 1, line = 2.5, cex = 1.5)
 mtext("Frequency", 2, line = -.1, cex = 1.5)
 for (i in 1:N){
+  j <- N + 1 - i
   hist_data <- hist(LTR_Identity[[i]], breaks = c(0:101), plot = FALSE)
   xleft <- hist_data$breaks[-length(hist_data$breaks)]
   xright <- hist_data$breaks[-1]
-  ybottom <- i+0.25
+  ybottom <- j+0.25
   ytop <- 0.5*hist_data$counts/max(hist_data$counts) + ybottom
   rect(xleft, ybottom, xright, ytop, col = "#555555", border = NA)
 }
 abline(v = seq(50, 100, 10), lty = 3)
+par(mar = c(4,0,2,0))
+plot(0,0, type = "n", xlim = c(0, 1), ylim = c(0, 1), xlab = "", ylab = "", axes = FALSE)
+feature_colors_adjusted <- feature_colors[!names(feature_colors) %in% c("LTR5")]
+names(feature_colors_adjusted) <- gsub("LTR3", "LTR", names(feature_colors_adjusted))
+legend("topleft", legend = names(feature_colors_adjusted), fill = feature_colors_adjusted, bty = "n", cex = 1.5)
 dev.off()
 
 
@@ -575,23 +661,15 @@ Lineage <- names(te_coords)
 LTR_mean_length <- round(sapply(te_coords, function(x) mean(x$LTR5[2])))
 TE_mean_length <- round(sapply(te_coords, function(x) mean(x$LTR3[2])))
 
-summary_df <- data.frame(Lineage = Lineage,
-                         LTR_mean_length = LTR_mean_length,
+summary_df <- data.frame(Lineage = gsub("Class_I|LTR|", "", Lineage, fixed = TRUE),
+                         Number_of_elements = Number_of_elements2[Lineage,]$N_elements,
                          TE_mean_length = TE_mean_length,
+                         LTR_mean_length = LTR_mean_length,
+                         Number_of_elements_with_PBS_and_TSD = Number_of_elements2[Lineage,]$N_elements_PBS_TSD,
+                         Number_of_elements_with_PBS = Number_of_elements2[Lineage,]$N_elements_PBS,
+                         Number_of_elements_with_TSD = Number_of_elements2[Lineage,]$N_elements_TSD,
+                         Number_of_domain_clusters = Lineage_counts2[Lineage, "D"],
                          stringsAsFactors = FALSE)
-
-Number_of_elements <- t(Lineage_counts[,gsub("Class_I|LTR|", "",Lineage, fixed = TRUE)])
-summary_df <- cbind(summary_df, Number_of_elements)
-colnames(summary_df) <- c(
-  'Lineage',
-  'LTR_mean_length',
-  "Element_mean_length",
-  "Number_of_partial_elements (No LTR found)",
-  "Number_of_elements_with_LTR",
-  "Number_of_elements_with_LTR,PBS",
-  "Number_of_elements_with_LTR,TSD",
-  "Number_of_elements_with_LTR,PBS,TSD"
-)
 
 
 write.table(summary_df, paste(opt$output, ".csv", sep = ""), sep = "\t", quote = FALSE, row.names = FALSE)
@@ -603,20 +681,20 @@ if (opt$save_all){
 # adjust colnames for HTML
 colnames(summary_df) <- c(
     'Lineage',
-    'LTR mean length <br> [bp]',
-    "Element mean length <br> [bp]",
-    "Number of partial elements <br> (No LTR found)",
-    "Number of elements <br>with LTR",
-    "Number of elements <br>with LTR,PBS",
-    "Number of elements <br>with LTR,TSD",
-    "Number of elements <br>with LTR,PBS,TSD"
+    "Number of elements",
+    'Element mean length <br> [bp]',
+    "LTR mean length <br> [bp]",
+    "Number of elements <br>with PBS & TSD",
+    "Number of elements <br>with PBS only",
+    "Number of elements <br>with TSD only",
+    "Number of domain clusters"
 )
 
-
+names(output_file_names) <- gsub("Class_I|LTR|", "", names(output_file_names), fixed = TRUE)
 generateHTML(output_file_names,
              paste(opt$output, ".html", sep = ""),
              folder=basename(paste(opt$output, "_plots", sep = "")),
-             summary_df = summary_df
+             summary_df = summary_df[,1:7]
 )
 
 

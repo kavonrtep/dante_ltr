@@ -14,6 +14,8 @@ In the next step, the 5' and 3' regions of the putative retrotransposon  are exa
 
 ![dante_ltr_workflow.png](dante_ltr_workflow.png)
 
+## Availability
+DANTE_LTR and DANTE are available on [Galaxy server](https://repeatexplorer-elixir.cerit-sc.cz/) or can be installed using conda package manager.
 
 ## Installation:
 [![Anaconda-Server Badge](
@@ -169,7 +171,7 @@ Output files:
 - `DANTE_LTR_annotation_DLP.fasta` - elements with **d**omains, **L**TR and **P**BS
 - `DANTE_LTR_annotation_DLT.fasta` - elements with **d**omains, **L**TR, **T**SD
 - `DANTE_LTR_annotation_statistics.csv` - number of elements in individual categories
-- `DANTE_LTR_annotation_summary.pdf` - graphical summary of the results
+- `DANTE_LTR_annotation_summary.html` - graphical summary of the results
 
 
 ### GFF3 DANTE_LTR output specification
