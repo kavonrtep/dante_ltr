@@ -1,3 +1,13 @@
+## 0.3.5.1 (2024-04-18)
+
+*  Improved HTML report 
+
+
+## 0.3.5.0 (2023-11-28)
+ 
+* Option to ignore ambiguous domains added 
+* Report is now in html format 
+
 ## 0.3.4.0 (2023-11-22)
 
 *  bug fix in TSD reporting. For TE on minus strand, TSD sequence was reported as 
