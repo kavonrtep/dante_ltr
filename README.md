@@ -1,4 +1,6 @@
 # DANTE_LTR
+
+
 [![Anaconda-Server Badge](https://anaconda.org/petrnovak/dante_ltr/badges/version.svg)](https://anaconda.org/petrnovak/dante_ltr)  [![DOI](https://zenodo.org/badge/439021837.svg)](https://zenodo.org/badge/latestdoi/439021837)
 
 Tool for identifying complete LTR retrotransposons based on analysis of protein domains identified with the [DANTE tool](https://github.com/kavonrtep/dante). Both DANTE and DANTE_LTR are available on [Galaxy server](ttps://repeatexplorer-elixir.cerit-sc.cz/).
@@ -84,37 +86,9 @@ mkdir -p tmp
 - 
 
 
+### Making library of LTR RTs for  RepeatMasker
 
-### Validation of LTR retrotransposons detected in previous step:
-
-```
-./clean_ltr.R --help
-Usage: ./clean_ltr.R COMMAND [OPTIONS]S
-
-
-Options:
-        -g GFF3, --gff3=GFF3
-                gff3  with LTR Transposable elements
-
-        -s REFERENCE_SEQUENCE, --reference_sequence=REFERENCE_SEQUENCE
-                reference sequence as fasta
-
-        -o OUTPUT, --output=OUTPUT
-                output file prefix
-
-        -c NUMBER, --cpu=NUMBER
-                Number of cpu to use [default 5]
-
-        -h, --help
-                Show this help message and exit
-```
-
-This script check for potentially chimeric elements and removes them from GFF3 file. 
-It can be time consuming for large genomes.
-
-### Making library of LTR RT from RepeatMasker
-
-If you want to annotate LTR RT elements using custom library, you can use 
+If you want to annotate LTR RT elements with custom library using similarity based approach, you can use 
 `dante_ltr_to_library` script wich will create non-redundant library which is 
 formatted for RepeatMasker:
 
@@ -138,40 +112,41 @@ options:
 ```
 
 
-### Example of complete workflow:
+### Example of complete workflow of annotation of LTR RTs using DANTE and DANTE_LTR
 
-
-Installation of both DANTE and DANTE_LTR using conda into single environment:
+#### Installation of both DANTE and DANTE_LTR using conda into single environment:
 ```shell
 conda create dante_ltr -c bioconda -c conda-forge -c petrnovak dante_ltr dante
 conda activate dante_ltr
 ```
-Download example data:
+#### Download example data:
+
 ```shell
 wget https://raw.githubusercontent.com/kavonrtep/dante_ltr/main/test_data/sample_genome.fasta
 ```
-Run DANTE on sample genome using 10 cpus:
+
+##### Run DANTE on sample genome using 10 cpus:
 ```shell
 dante -q sample_genome.fasta -o DANTE_output.gff3 -c 10
 ```
-Output will contain annotation of individual protein domains identified by DANTE. 
-Check DANTE documentation for more details (https://github.com/kavonrtep/dante)  
+Output will contain annotation of individual protein domains identified by DANTE stored in GFF3 file named `DANTE_output.gff3`. Check DANTE documentation for more details (https://github.com/kavonrtep/dante)  
 
-Identifie LTR RT elements from DANTE output using DANTE_LTR:
+#### Identify complete LTR retrotransposons  from DANTE ouput using DANTE_LTR
 ```shell
-dante_ltr -g DANTE_output.gff3 -s sample_genome.fasta -o DANTE_LTR_annotation
+dante_ltr -g DANTE_output.gff3 -s sample_genome.fasta -o DANTE_LTR_annotation -M 1
 ```
+Option `-M 1` will allow one missing domain in the complete LTR retrotransposon. 
 
-Output files:
-- `DANTE_output.gff3` - DANTE output
-- `DANTE_LTR_annotation.gff3` - annotation of all identified elements
-- `DANTE_LTR_annotation_D.fasta` - partial elements with protein **d**omains
-- `DANTE_LTR_annotation_DL.fasta` - elements with protein **d**omains and **L**TR
-- `DANTE_LTR_annotation_DLTP.fasta` - elements with **d**omains, **L**TR, **T**SD and **P**BS
-- `DANTE_LTR_annotation_DLP.fasta` - elements with **d**omains, **L**TR and **P**BS
-- `DANTE_LTR_annotation_DLT.fasta` - elements with **d**omains, **L**TR, **T**SD
+Output files will include: 
+- `DANTE_LTR_annotation.gff3` - Annotation of all identified elements
 - `DANTE_LTR_annotation_statistics.csv` - number of elements in individual categories
 - `DANTE_LTR_annotation_summary.html` - graphical summary of the results
+
+#### Create library of LTR RTs for similarity based annotation
+```shell
+dante_ltr_to_library -g DANTE_LTR_annotation.gff3 -s sample_genome.fasta -o LTR_RT_library.fasta
+```
+This step will create non-redundant library of LTR-RT sequences suitable for similarity based annotation using RepeatMasker.
 
 
 ### GFF3 DANTE_LTR output specification
