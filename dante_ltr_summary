@@ -116,8 +116,6 @@ dataFrameToHTMLTable <- function(df) {
 }
 
 
-
-
 plot_multiple_elements <- function (segments_info, feature_colors){
   if (ncol(segments_info$segment_position) > 10000){
     print("Too many elements, ploting sample of 10000 elements")
@@ -190,6 +188,9 @@ get_segment_info <- function(TE_long_rel_plot, TE_class, features){
 segment_width2_start_end <- function(segments_info){
   sw <- segments_info$segment_width
   sw_median <- apply(sw,1, median, na.rm = TRUE)
+  # TODO - test next line - deal with missing domains
+  sw_median[is.na(sw_median)] <- 0
+
   positions_SE <- cumsum(c("X LTR5_S" = 1, sw_median))
   SL <- grepl("S$", names(positions_SE))
   EL <- grepl("E$", names(positions_SE))
@@ -310,8 +311,7 @@ plot_te <- function(colors, segments_info, title, pbs_info, ltr_identity){
   M <- max(missing)
   plot(segments_info$segment_mean_position, missing, type = "n", xlab = "",
        ylab = "", lwd=5, col=col_domains_only, axes = FALSE,
-       ylim = c(0, M *1.5), xlim = c(0, max(ends)* ext))
-
+       ylim = c(0, M *1.5), xlim = c(0, max(ends, na.rm=TRUE)* ext))
   #horizontal ylabel
   mtext(3, text= "Number of missing domains", las=1, cex=1, line = 0, adj = 0.5)
   abline(h = c(0,N), col='lightgrey')
@@ -329,9 +329,8 @@ plot_te <- function(colors, segments_info, title, pbs_info, ltr_identity){
 
   x <- segments_info$segment_mean_position
   y <- rep(0.5, length(x))
-
   par(mar = c(0,5,0,0.5))
-  plot(x,y, xlim = c(0, max(ends)* ext), ylim=c(0,max_val * 1.2), xlab = "", ylab = "Region width [nt]\n",
+  plot(x,y, xlim = c(0, max(ends, na.rm=TRUE)* ext), ylim=c(0,max_val * 1.2), xlab = "", ylab = "Region width [nt]\n",
        axes = FALSE, type = "n")
   mtext(3, , text="   Feature size variation", line=-2, adj=0.5)
   # box()
@@ -363,9 +362,9 @@ plot_te <- function(colors, segments_info, title, pbs_info, ltr_identity){
   element_scheme_coords <- list()
 
   par(mar=c(5,5,0,0))
-  plot(0, 0, type = "n", xlim = c(0, max(ends)*ext), ylim = c(0, 10), xlab = "", ylab = "", axes = FALSE)
+  plot(0, 0, type = "n", xlim = c(0, max(ends, na.rm=TRUE)*ext), ylim = c(0, 10), xlab = "", ylab = "", axes = FALSE)
   mtext(side = 3, text="   Structure of average element", line=-2, adj=0.5)
-  element_scheme_coords$xlim <- c(0, max(ends))
+  element_scheme_coords$xlim <- c(0, max(ends, na.rm=TRUE))
   element_scheme_coords$ylim <- c(0, 10)
 
   rect(0, 5, max(ends), 7, col = "#AAAAAA", border = NA)
@@ -593,7 +592,6 @@ for (i in seq_along(TE_groups_mean_end_lineage)){
                             LTR_Identity[[n]]
   )
   dev.off()
-
   if (ncol(segments_info$segment_width) > 1){
     png(file = png2, width = 1000, height = 1000, pointsize = 20)
     plot_multiple_elements(segments_info, feature_colors)

@@ -5,6 +5,10 @@
 
 Tool for identifying complete LTR retrotransposons based on analysis of protein domains identified with the [DANTE tool](https://github.com/kavonrtep/dante). Both DANTE and DANTE_LTR are available on [Galaxy server](ttps://repeatexplorer-elixir.cerit-sc.cz/).
 
+## Preprint
+DANTE and DANTE_LTR: computational pipelines implementing lineage-centered annotation of LTR-retrotransposons in plant genomes, Petr Novak, Nina Hostakova, Pavel Neumann, Jiri Macas
+bioRxiv 2024.04.17.589915; doi: https://doi.org/10.1101/2024.04.17.589915
+
 ## Principle of DANTE _LTR
 Complete retrotransposons are identified as clusters of protein domains recognized by the DANTE tool. The domains in the clusters must be assigned to a single retrotransposon lineage by DANTE. In addition, the orientation and order of the protein domains, as well as the distances between them, must conform to the characteristics of elements from REXdb database [Neumann et al. (2019)](https://mobilednajournal.biomedcentral.com/articles/10.1186/s13100-018-0144-1). 
 In the next step, the 5' and 3' regions of the putative retrotransposon  are examined for the presence of 5' and 3' long terminal repeats. If 5'- and 3'-long terminal repeats are detected, detection of target site duplication (TSD) and primer binding site (PSB) is performed. The detected LTR retrotranspsons are classified into 5 categories:
@@ -38,7 +42,9 @@ One input is a reference sequence in fasta format. The second input is an annota
 ### Detection of complete LTR retrotransposons
 
 ```
-usage: dante_ltr [-h] -g GFF3 -s REFERENCE_SEQUENCE -o OUTPUT [-c CPU] [-M MAX_MISSING_DOMAINS] [-L MIN_RELATIVE_LENGTH] [-S MAX_CHUNK_SIZE] [-v] [--te_constrains TE_CONSTRAINS]
+usage: dante_ltr [-h] -g GFF3 -s REFERENCE_SEQUENCE -o OUTPUT [-c CPU]
+                 [-M MAX_MISSING_DOMAINS] [-L MIN_RELATIVE_LENGTH] [-S MAX_CHUNK_SIZE]
+                 [-v] [--te_constrains TE_CONSTRAINS] [--no_ambiguous_domains]
 
         Tool for identifying complete LTR retrotransposons based on 
         analysis of protein domains identified with the DANTE tool
@@ -63,7 +69,10 @@ options:
                                 
   -v, --version         show program's version number and exit
   --te_constrains TE_CONSTRAINS
-                        csv table specifying TE constraints for LTR search, template for this table can be found in https://github.com/kavonrtep/dante_ltr/blob/main/databases/lineage_domain_order.csv
+                        csv table specifying TE constraints for LTR search, template for this table 
+                        can be found in https://github.com/kavonrtep/dante_ltr/blob/main/databases/lineage_domain_order.csv
+  --no_ambiguous_domains
+                        Remove ambiguous domains from analysis
 ```
 
 #### Example:
@@ -82,7 +91,7 @@ mkdir -p tmp
 - `prefix_DLP.fasta` - elements with **d**omains, **L**TR and **P**BS
 - `prefix_DLT.fasta` - elements with **d**omains, **L**TR, **T**SD 
 - `prefix_statistics.csv` - number of elements in individual categories  
-- `prefix_summary.pdf` - graphical summary of the results
+- `prefix_summary.html` - graphical summary of the results
 - 
 
 
