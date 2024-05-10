@@ -1,15 +1,23 @@
 # DANTE_LTR
+  - [Preprint](#preprint)
+  - [Principle of DANTE_LTR](#principle-of-dante_ltr)
+  - [Availability](#availability)
+  - [Installation](#installation)
+  - [Quick start guide - How to use DANTE and DANTE_LTR on Galaxy server](#quick-start-guide---how-to-use-dante-and-dante_ltr-on-galaxy-server)
+  - [Quick start guide - How to use command line version of DANTE and DANTE_LTR](#quick-start-guide---how-to-use-command-line-version-of-dante-and-dante_ltr)
+  - [Tools description](#tools-description)
+  - [GFF3 DANTE_LTR output specification](#gff3-dante_ltr-output-specification)
 
 
 [![Anaconda-Server Badge](https://anaconda.org/petrnovak/dante_ltr/badges/version.svg)](https://anaconda.org/petrnovak/dante_ltr)  [![DOI](https://zenodo.org/badge/439021837.svg)](https://zenodo.org/badge/latestdoi/439021837)
 
-Tool for identifying complete LTR retrotransposons based on analysis of protein domains identified with the [DANTE tool](https://github.com/kavonrtep/dante). Both DANTE and DANTE_LTR are available on [Galaxy server](ttps://repeatexplorer-elixir.cerit-sc.cz/).
+Tool for identifying complete LTR retrotransposons based on analysis of protein domains identified with the [DANTE tool](https://github.com/kavonrtep/dante). Both DANTE and DANTE_LTR are available on [Galaxy server](https://repeatexplorer-elixir.cerit-sc.cz/).
 
 ## Preprint
 DANTE and DANTE_LTR: computational pipelines implementing lineage-centered annotation of LTR-retrotransposons in plant genomes, Petr Novak, Nina Hostakova, Pavel Neumann, Jiri Macas
 bioRxiv 2024.04.17.589915; doi: https://doi.org/10.1101/2024.04.17.589915
 
-## Principle of DANTE _LTR
+## Principle of DANTE_LTR
 Complete retrotransposons are identified as clusters of protein domains recognized by the DANTE tool. The domains in the clusters must be assigned to a single retrotransposon lineage by DANTE. In addition, the orientation and order of the protein domains, as well as the distances between them, must conform to the characteristics of elements from REXdb database [Neumann et al. (2019)](https://mobilednajournal.biomedcentral.com/articles/10.1186/s13100-018-0144-1). 
 In the next step, the 5' and 3' regions of the putative retrotransposon  are examined for the presence of 5' and 3' long terminal repeats. If 5'- and 3'-long terminal repeats are detected, detection of target site duplication (TSD) and primer binding site (PSB) is performed. The detected LTR retrotranspsons are classified into 5 categories:
 - Elements with protein domains, 5'LTR, 3'LTR, TSD and PBS - rank **DLTP**.
@@ -23,6 +31,7 @@ In the next step, the 5' and 3' regions of the putative retrotransposon  are exa
 ## Availability
 DANTE_LTR and DANTE are available on [Galaxy server](https://repeatexplorer-elixir.cerit-sc.cz/) or can be installed using conda package manager.
 
+
 ## Installation:
 [![Anaconda-Server Badge](
 https://anaconda.org/petrnovak/dante_ltr/badges/version.svg)](https://anaconda.org/petrnovak/dante_ltr)
@@ -33,11 +42,48 @@ conda create -n dante_ltr -c bioconda -c conda-forge -c petrnovak dante_ltr
 
 [![Open in Gitpod](https://gitpod.io/button/open-in-gitpod.svg)](https://gitpod.io/#https://github.com/kavonrtep/dante_ltr)
 
-## Input data
-One input is a reference sequence in fasta format. The second input is an annotation of the reference genome using the [DANTE tool](https://github.com/kavonrtep/dante). For better results, use the unfiltered full output of the DANTE pipeline.
+## Quick start guide - How to use DANTE and DANTE_LTR on Galaxy server
+Detailed tutorial on how to use DANTE and DANTE_LTR on Galaxy server is [here](https://github.com/kavonrtep/protocols/blob/main/genome_annotation_galaxy.md).
 
 
-## Usage
+## Quick start guide - How to use command line version of DANTE and DANTE_LTR
+
+#### Installation of both DANTE and DANTE_LTR using conda into single environment:
+```shell
+conda create dante_ltr -c bioconda -c conda-forge -c petrnovak dante_ltr dante
+conda activate dante_ltr
+```
+#### Download example data:
+
+```shell
+wget https://raw.githubusercontent.com/kavonrtep/dante_ltr/main/test_data/sample_genome.fasta
+```
+
+##### Run DANTE on sample genome using 10 cpus:
+```shell
+dante -q sample_genome.fasta -o DANTE_output.gff3 -c 10
+```
+Output will contain annotation of individual protein domains identified by DANTE stored in GFF3 file named `DANTE_output.gff3`. Check DANTE documentation for more details (https://github.com/kavonrtep/dante)  
+
+#### Identify complete LTR retrotransposons  from DANTE ouput using DANTE_LTR
+```shell
+dante_ltr -g DANTE_output.gff3 -s sample_genome.fasta -o DANTE_LTR_annotation -M 1
+```
+Option `-M 1` will allow one missing domain in the complete LTR retrotransposon. 
+
+Output files will include: 
+- `DANTE_LTR_annotation.gff3` - Annotation of all identified elements
+- `DANTE_LTR_annotation_statistics.csv` - number of elements in individual categories
+- `DANTE_LTR_annotation_summary.html` - graphical summary of the results
+
+#### Create library of LTR RTs for similarity based annotation
+```shell
+dante_ltr_to_library -g DANTE_LTR_annotation.gff3 -s sample_genome.fasta -o LTR_RT_library.fasta
+```
+This step will create non-redundant library of LTR-RT sequences suitable for similarity based annotation using RepeatMasker.
+
+
+## Tools description
 
 ### Detection of complete LTR retrotransposons
 
@@ -121,44 +167,7 @@ options:
 ```
 
 
-### Example of complete workflow of annotation of LTR RTs using DANTE and DANTE_LTR
-
-#### Installation of both DANTE and DANTE_LTR using conda into single environment:
-```shell
-conda create dante_ltr -c bioconda -c conda-forge -c petrnovak dante_ltr dante
-conda activate dante_ltr
-```
-#### Download example data:
-
-```shell
-wget https://raw.githubusercontent.com/kavonrtep/dante_ltr/main/test_data/sample_genome.fasta
-```
-
-##### Run DANTE on sample genome using 10 cpus:
-```shell
-dante -q sample_genome.fasta -o DANTE_output.gff3 -c 10
-```
-Output will contain annotation of individual protein domains identified by DANTE stored in GFF3 file named `DANTE_output.gff3`. Check DANTE documentation for more details (https://github.com/kavonrtep/dante)  
-
-#### Identify complete LTR retrotransposons  from DANTE ouput using DANTE_LTR
-```shell
-dante_ltr -g DANTE_output.gff3 -s sample_genome.fasta -o DANTE_LTR_annotation -M 1
-```
-Option `-M 1` will allow one missing domain in the complete LTR retrotransposon. 
-
-Output files will include: 
-- `DANTE_LTR_annotation.gff3` - Annotation of all identified elements
-- `DANTE_LTR_annotation_statistics.csv` - number of elements in individual categories
-- `DANTE_LTR_annotation_summary.html` - graphical summary of the results
-
-#### Create library of LTR RTs for similarity based annotation
-```shell
-dante_ltr_to_library -g DANTE_LTR_annotation.gff3 -s sample_genome.fasta -o LTR_RT_library.fasta
-```
-This step will create non-redundant library of LTR-RT sequences suitable for similarity based annotation using RepeatMasker.
-
-
-### GFF3 DANTE_LTR output specification
+## GFF3 DANTE_LTR output specification
 Types of features in GFF3:
 - **target_site_duplication**: This feature represents the direct repeats of host DNA 
 produced at the insertion site of a transposable element.
