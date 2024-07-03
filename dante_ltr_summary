@@ -437,13 +437,13 @@ TE_long <- data.frame(TE_ID = TE_ID,
                       te_strand = TE_strand[TE_ID],
                       stringsAsFactors = FALSE
 )
-
 # use te_strand, te_start and te_end to convert to relative coordinates of TE starting from 1
 TE_long_rel <- TE_long
 # consider strandness
 TE_long_rel$feature_start <- ifelse(TE_long$te_strand == "+",
                                     TE_long$feature_start - TE_long$te_start + 1,
                                     TE_long$te_end - TE_long$feature_end + 1)
+
 TE_long_rel$feature_end <- ifelse(TE_long$te_strand == "+",
                                     TE_long$feature_end - TE_long$te_start + 1,
                                     TE_long$te_end - TE_long$feature_start + 1)
@@ -460,6 +460,7 @@ TE_long_rel_plot <- TE_long_rel[
                                    'target_site_duplication',
                                    'primer_binding_site') & !TE_long_rel$is_partial,
 ]
+
 
 TE_long_rel_plot$center <- (TE_long_rel_plot$feature_start + TE_long_rel_plot$feature_end)/2
 TE_long_rel_plot$width <- TE_long_rel_plot$feature_end - TE_long_rel_plot$feature_start
@@ -480,6 +481,7 @@ TE_groups_mean_end_lineage <- sapply(split(TE_groups_mean_end, f = TE_lineage), 
 # extract pbs info for intact elements
 pbs_only <- g[g$type == 'primer_binding_site']
 
+
 pbs_info <- data.frame(TE_ID= unique(TE_long_rel_plot$TE_ID),
                        tRNA = pbs_only$trna_id[match(unique(TE_long_rel_plot$TE_ID), unlist(pbs_only$Parent))],
                        evalue = as.numeric(pbs_only$evalue[match(unique(TE_long_rel_plot$TE_ID), unlist(pbs_only$Parent))]),
@@ -495,7 +497,6 @@ TE_ID_with_TSD <- unlist(g[g$type=="target_site_duplication"]$Parent)
 TE_ID_with_PBS <- unlist(g[g$type=="primer_binding_site"]$Parent)
 TE_ID_rank_DL <- unlist(g[g$Rank=="DL"]$ID)
 TE_ID_rank_D <- unlist(g[g$Rank=="D"]$ID)
-
 tsd_present <- TE_long_rel_plot$TE_ID %in% TE_ID_with_TSD
 # same stats but only for Lienages with identified PBS
 TE_long_rel_plot_with_pbs <- TE_long_rel_plot[tsd_present & TE_long_rel_plot$TE_ID %in% pbs_info$TE_ID[pbs_info$evalue<0.5 & pbs_info$codon!="Not found" ],]
@@ -508,7 +509,6 @@ TE_feature_with_pbs <- sapply(strsplit(names(TE_groups_with_pbs)," "), function(
 TE_groups_mean_start_lineage_with_pbs <- sapply(split(TE_groups_mean_start_with_pbs, f = TE_lineage_with_pbs),
                                                 function(x) {n <- gsub(".+ ", "", names(x)); names(x) <- n; sort(x)})
 TE_groups_mean_end_lineage_with_pbs <- sapply(split(TE_groups_mean_end_with_pbs, f = TE_lineage_with_pbs), function(x) {n <- gsub(".+ ", "", names(x)); names(x) <- n; sort(x)})
-
 
 L <- sort(unique(TE_lineage))
 

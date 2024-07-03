@@ -332,6 +332,7 @@ if (length(good_TE)>0){   # handle empty list
 
   gff3_out <- do.call(c, append(gff3_list3, gff3_list2_pbs_positive))
 
+
   # define new source
   src <- as.character(gff3_out$source)
   src[is.na(src)] <- "dante_ltr"
@@ -342,7 +343,6 @@ if (length(good_TE)>0){   # handle empty list
     save.image(file = paste0("debug_dante_ltr.RData"))
   }
   # use complete TE as mask for partial TE
-
   TE_partial_parent_part <- trim_gr(TE_partial_with_more_than_one_domain, gff3_out)
   if (!is.null(TE_partial_parent_part)) {
     TE_partial_domain_part <-  g[g$Parent %in% TE_partial_parent_part$ID]
@@ -353,6 +353,7 @@ if (length(good_TE)>0){   # handle empty list
   }else{
     gff3_out <- sort(gff3_out, by = ~ seqnames * start)
   }
+
   # this is to convert Parent from characterList
   gff3_out$Parent <- as.character(gff3_out$Parent)
 }else{

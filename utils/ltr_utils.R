@@ -48,11 +48,11 @@ trim_gr <- function (grA, grMask){
         gr_out <- NULL
   }else{
     gr_out <- import(tmp_out, format = "gff3")
-  }
-  if (!all(seqlevels(gr_out) %in% seqlevels(grA))){
-    seqlevels(gr_out) <- URLdecode(seqlevels(gr_out))
     if (!all(seqlevels(gr_out) %in% seqlevels(grA))){
+      seqlevels(gr_out) <- URLdecode(seqlevels(gr_out))
+      if (!all(seqlevels(gr_out) %in% seqlevels(grA))){
         stop("seqlevels are not the same after URLdecode")
+      }
     }
 
   }

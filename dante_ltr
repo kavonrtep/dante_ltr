@@ -679,16 +679,16 @@ def main():
 
     # add version of the output gff3 file - must go to the beginning of the file
     add_version_to_gff3(args.output + '.gff3', __version__)
-
     # Add graphical summary
     cmd = [f'{tool_path}/dante_ltr_summary', '-g', args.output + '.gff3', '-o',
            args.output + '_summary']
     try:
-        subprocess.check_call(cmd)
-    # command can fail, it still need more testing
+        # run cmd and capture output and error
+        subprocess.check_call(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
     except subprocess.CalledProcessError:
+        print('Failed to run dante_ltr_summary')
         pass
-
+    exit(0)
 
 
 if __name__ == '__main__':
