@@ -50,7 +50,7 @@ Detailed tutorial on how to use DANTE and DANTE_LTR on Galaxy server is [here](h
 
 #### Installation of both DANTE and DANTE_LTR using conda into single environment:
 ```shell
-conda create dante_ltr -c bioconda -c conda-forge -c petrnovak dante_ltr dante
+conda create -n dante_ltr -c bioconda -c conda-forge -c petrnovak dante_ltr dante
 conda activate dante_ltr
 ```
 #### Download example data:
