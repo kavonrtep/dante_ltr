@@ -29,6 +29,11 @@ def main():
                              'library (default: 3)')
     parser.add_argument('-c', '--cpu', required=False, default=1, type=int,
                         help='Number of cpus to use')
+    parser.add_argument('-p', '--proportion_min', required=False, default=0.95,
+                        help="Proportion of sequences in cluster that need to have "
+                             "the same annotation to be included in repeat library "
+                             "(default: 0.95)")
+
     args = parser.parse_args()
 
     script_dir = os.path.dirname(os.path.realpath(__file__))
@@ -44,7 +49,7 @@ def main():
     # run mmseqs2 clustering
     cmd = (F"{script_dir}/utils/mmseq_clustering.R -f {args.output_dir}/TE_all.fasta"
            F" -o {args.output_dir}/mmseqs2 -m {args.min_coverage}"
-           F" -t {args.cpu}")
+           F" -p {args.proportion_min} -t {args.cpu}")
 
     subprocess.check_call(cmd, shell=True)
 
