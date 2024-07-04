@@ -7,6 +7,8 @@
   - [Quick start guide - How to use command line version of DANTE and DANTE_LTR](#quick-start-guide---how-to-use-command-line-version-of-dante-and-dante_ltr)
   - [Tools description](#tools-description)
   - [GFF3 DANTE_LTR output specification](#gff3-dante_ltr-output-specification)
+  - [Modifying LTR-RT search constrains](#modifying-ltr-rt-search-constrains)
+
 
 
 [![Anaconda-Server Badge](https://anaconda.org/petrnovak/dante_ltr/badges/version.svg)](https://anaconda.org/petrnovak/dante_ltr)  [![DOI](https://zenodo.org/badge/439021837.svg)](https://zenodo.org/badge/latestdoi/439021837)
@@ -206,3 +208,44 @@ Attributes of features in GFF3:
 - **Relat_Interruptions**: Indicates the relative number of interruptions in the 
   domain sequence.Interuption could be either stop codon or frameshift.
 - **Hit_to_DB_Length**: The length of the hit compared to the database sequence length.
+
+## Modifying LTR-RT search constrains
+
+It is possible to modify constraints for LTR search by providing a csv table with constraints for individual lineages.
+
+The table has the following format:
+
+|Lineage	|Domains order	|offset5prime	|offset3prime | 	domain_span	 |  ltr_length |
+|-----------|---------------|---------------|-------------|----------------|-------------|
+|Class_I/LTR/Ty1_copia/Ale	|GAG PROT INT RT RH|	2000|	2000|	5700|	123|
+|Class_I/LTR/Ty1_copia/Alesia	|GAG PROT INT RT RH|	2000|	3000|	5400|	273|
+|Class_I/LTR/Ty1_copia/Angela	|GAG PROT INT RT RH|	6000|	3000|	5500|	1074|
+|Class_I/LTR/Ty1_copia/Bianca	|GAG PROT INT RT RH|	3500|	3000|	6000|	132|
+|Class_I/LTR/Ty1_copia/Bryco	|GAG PROT INT RT RH|	3000|	3000|	5000|	287|
+|Class_I/LTR/Ty1_copia/Gymco-I	|GAG PROT INT RT RH|	3500|	2500|	5400|	151|
+|Class_I/LTR/Ty1_copia/Gymco-II	|GAG PROT INT RT RH|	2000|	6000|	4600|	156|
+|Class_I/LTR/Ty1_copia/Gymco-III	|GAG PROT INT RT RH|	2000|	2000|	5400|	247|
+|Class_I/LTR/Ty1_copia/Gymco-IV	|GAG PROT INT RT RH|	2000|	2000|	5400|	276|
+|Class_I/LTR/Ty1_copia/Ikeros	|GAG PROT INT RT RH|	6500|	3000|	6100|	359|
+|...    |...	|...	|...	|...	|...|
+
+- The `Domain order` column defines the order of individual protein domains required for positive detection of the elements.  
+
+- The number in the `offset5prime`  column is the size of the upstream region used to search for the 5' LTR, while the `offset3prime` is the size of the downstream region used to search for the 3' LTR (These values correspond to yellowish and greenish boxes in the figure above).
+- `domain_span` is the maximal distance between first and the last domain of the element.
+
+Modify these constraints if you think that the default constraints lead to under-detection of elements whose structure deviates from the default constraints. Setting `offset5prime`, `offset3prime` or `domain_span`  too high can however lead to the detection of aberrant or chimeric elements. 
+
+To use modified constrains use `dante_ltr` with option `--te_constrains` and provide the path to the modified csv table.
+
+The full table with default constraints can be found in  
+[databases/lineage_domain_order.csv](./databases/lineage_domain_order.csv).
+
+
+
+
+
+
+
+
+
