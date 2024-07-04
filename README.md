@@ -232,7 +232,7 @@ The table has the following format:
 - The `Domain order` column defines the order of individual protein domains required for positive detection of the elements.  
 
 - The number in the `offset5prime`  column is the size of the upstream region used to search for the 5' LTR, while the `offset3prime` is the size of the downstream region used to search for the 3' LTR (These values correspond to yellowish and greenish boxes in the figure above).
-- `domain_span` is the maximal distance between first and the last domain of the element.
+- The `domain_span` is the maximal distance between N' end of first domain and the C' end of the last domain of the element.
 
 Modify these constraints if you think that the default constraints lead to under-detection of elements whose structure deviates from the default constraints. Setting `offset5prime`, `offset3prime` or `domain_span`  too high can however lead to the detection of aberrant or chimeric elements. 
 
