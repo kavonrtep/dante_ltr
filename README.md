@@ -23,9 +23,9 @@ bioRxiv 2024.04.17.589915; doi: https://doi.org/10.1101/2024.04.17.589915
 Complete retrotransposons are identified as clusters of protein domains recognized by the DANTE tool. The domains in the clusters must be assigned to a single retrotransposon lineage by DANTE. In addition, the orientation and order of the protein domains, as well as the distances between them, must conform to the characteristics of elements from REXdb database [Neumann et al. (2019)](https://mobilednajournal.biomedcentral.com/articles/10.1186/s13100-018-0144-1). 
 In the next step, the 5' and 3' regions of the putative retrotransposon  are examined for the presence of 5' and 3' long terminal repeats. If 5'- and 3'-long terminal repeats are detected, detection of target site duplication (TSD) and primer binding site (PSB) is performed. The detected LTR retrotranspsons are classified into 5 categories:
 - Elements with protein domains, 5'LTR, 3'LTR, TSD and PBS - rank **DLTP**.
-- Elements with protein domains, 5'LTR, 3'LTR, and PBS (TSD was not found) Rank **DLP**
-- Elements with protein domains, 5' LTR, 3'LTR, TSD (PBS was not found) - rank **DTL**
-- Elements with protein domains, 5'LTR and 3'LTR (PBS and TDS were not found) - rank **DL**
+- Elements with protein domains, 5'LTR, 3'LTR, and PBS (TSD was not found) Rank **DLP**.
+- Elements with protein domains, 5' LTR, 3'LTR, TSD (PBS was not found) - rank **DLT**.
+- Elements with protein domains, 5'LTR and 3'LTR (PBS and TDS were not found) - rank **DL**.
 - Elements as clusters of protein domains with the same classification, no LTRs - rank **D**.
 
 ![dante_ltr_workflow.png](dante_ltr_workflow.png)
@@ -171,16 +171,13 @@ options:
 
 ## GFF3 DANTE_LTR output specification
 Types of features in GFF3:
-- **target_site_duplication**: This feature represents the direct repeats of host DNA 
-produced at the insertion site of a transposable element.
+- **target_site_duplication**: This feature represents sort direct repeats around the insertion site of a transposable element.
 - **transposable_element**: This is the main feature representing the full extent of a 
   transposable element within the genome.
-- **long_terminal_repeat** (LTR): These are the repetitive sequences found at both ends of 
-  retrotransposons (a type of transposable element).
-- **protein_domain**: This feature indicates a specific domain within a protein that is 
-  part of a transposable element. This corresponds to domains identified by DANTE.
-- **primer_binding_site**: This feature represents the site where a primer binds to 
-  initiate reverse transcription, typically found in retroviruses and retrotransposons.
+- **long_terminal_repeat** (LTR): These are the direct repeats at the element's termini. 
+- **protein_domain**: This feature indicates a specific polyprotein domain identified by DANTE.
+- **primer_binding_site**: This feature represents the site where a tRNA primer binds to 
+  initiate reverse transcription.
 
 Attributes of features in GFF3:
 - **Rank**: Rank of the elements (D, DL, DLT, DLP, DLTP) as described above
@@ -188,7 +185,7 @@ Attributes of features in GFF3:
   transposable element ID.
 - **Ndomains**: The number of protein domains found within a transposable element.
 - **ID**: A unique identifier for the feature.
-- **LTR_Identity**: The percentage identity of the LTR sequences.
+- **LTR_Identity**: The percentage of sequence identity between 5' and 3' LTR sequences.
 - **LTR5_length** and **LTR3_length**: The lengths of the 5' and 3' LTRs, respectively.
 - **TSD (Target Site Duplication)**: The sequence of the target site duplication.
 - **Final_Classification**: A hierarchical classification of the transposable element 
@@ -198,9 +195,9 @@ Attributes of features in GFF3:
 - **trna_id**: The identifier for the tRNA related to the primer binding site.
 - **PBS_evalue**: The E-value associated with the primer binding site.
 - **Best_Hit**: Information about the best match of the protein domain to a known database entry.
-- **Best_Hit_DB_Pos**: Position of the best hit within the database.
+- **Best_Hit_DB_Pos**: Position of the best hit within the database sequence.
 - **DB_Seq**: The database sequence that corresponds to the best hit.
-- **Region_Seq**: The sequence of the region in the query that corresponds to the best hit.
+- **Region_Seq**: The sequence of the region where the query sequence was aligned to the database sequence.
 - **Query_Seq**: The sequence of the query used to find the best hit.
 - **Identity**: The percentage identity of the best hit match.
 - **Similarity**: The similarity score of the best hit match.
@@ -235,6 +232,7 @@ The table has the following format:
 - The `domain_span` is the maximal distance between N' end of first domain and the C' end of the last domain of the element.
 
 Modify these constraints if you think that the default constraints lead to under-detection of elements whose structure deviates from the default constraints. Setting `offset5prime`, `offset3prime` or `domain_span`  too high can however lead to the detection of aberrant or chimeric elements. 
+- The `ltr_length` is the shortest LTR for given lineage in REXdb database. The use of this value is currently not implemented in DANTE_LTR. 
 
 To use modified constrains use `dante_ltr` with option `--te_constrains` and provide the path to the modified csv table.
 
