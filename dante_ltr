@@ -536,7 +536,7 @@ def main():
         # print error message to stderr
         sys.stderr.write(
             'ERROR: No seqnames in gff3 file match seqnames in reference fasta file. '
-            'Please check that gff3 file was created from reference fasta file.'
+            'Please check that gff3 file was created from reference fasta file.\n'
             )
         sys.exit(1)
 

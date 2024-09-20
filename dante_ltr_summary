@@ -513,7 +513,9 @@ TE_groups_mean_end_lineage_with_pbs <- sapply(split(TE_groups_mean_end_with_pbs,
 L <- sort(unique(TE_lineage))
 
 g_te <- g[g$type == "transposable_element"]
-Lineage_counts2 <- as.matrix(table(g_te$Name,g_te$Rank))
+all_ranks <- c("D", "DL","DLT","DLP", "DLTP")
+#Lineage_counts2 <- as.matrix(table(g_te$Name,g_te$Rank))
+Lineage_counts2 <- as.matrix(table(g_te$Name,factor(g_te$Rank, levels = all_ranks)))
 # remove absent elements
 Lineage_counts2 <- Lineage_counts2[rowSums(Lineage_counts2[,c("DL","DLT","DLP", "DLTP")]) > 0,]
 Number_of_elements2 <- data.frame(

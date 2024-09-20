@@ -252,7 +252,8 @@ repeat{
 
   cat("Number of complete TE found:")
   cat(length(gcl_clean2), "\n")
-  gcl_clean_with_domains <- gcl_clean2[check_ranges(gcl_clean2, s)]
+  # default offset is 200, this might be too much??
+  gcl_clean_with_domains <- gcl_clean2[check_ranges(gcl_clean2, s, offset = 100)]
 
 
   gr <- get_ranges(gcl_clean_with_domains)
