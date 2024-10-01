@@ -40,6 +40,8 @@ https://anaconda.org/petrnovak/dante_ltr/badges/version.svg)](https://anaconda.o
 ```shell
 conda create -n dante_ltr -c bioconda -c conda-forge -c petrnovak dante_ltr
 ```
+**Important version information** DANTE_LTR versions up to 0.3.5.3 are compatible with REXdb Viridiplante database version 3.0. Versions 4.0.1 are compatible with REXdb Viridiplante database version 3.0 and 4.0. REXdb Viridiplantae v 4.0 include additional LTR-RT lineages characterized non-angiosperm species. Updated REXdb and used classification system can be found https://github.com/repeatexplorer/rexdb.  
+ 
 
 [![Open in Gitpod](https://gitpod.io/button/open-in-gitpod.svg)](https://gitpod.io/#https://github.com/kavonrtep/dante_ltr)
 
@@ -51,7 +53,7 @@ Detailed tutorial on how to use DANTE and DANTE_LTR on Galaxy server is [here](h
 
 #### Installation of both DANTE and DANTE_LTR using conda into single environment:
 ```shell
-conda create -n dante_ltr -c bioconda -c conda-forge -c petrnovak dante_ltr dante
+conda create -n dante_ltr -c bioconda -c conda-forge -c petrnovak dante_ltr=0.4.0.1 dante=0.2.0
 conda activate dante_ltr
 ```
 #### Download example data:

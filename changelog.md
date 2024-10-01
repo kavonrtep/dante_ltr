@@ -1,3 +1,8 @@
+## 0.4.0.1 (2024-09-20)
+
+*  fix in installation instruction 
+*  updated to REXdb Viridiplantae 4.0 
+
 ## 0.3.5.1 (2024-04-18)
 
 *  Improved HTML report 

@@ -126,7 +126,7 @@ s <- readDNAStringSet(opt$reference_sequence)  # genome assembly
 cat("done\n")
 
 # clean sequence names:
-names(s) <- gsub(" .+", "", names(s))
+names(s) <- gsub("\\s.+", "", names(s))
 
 # verify that seqlevels in g match seqlevels in s:
 if (!all(seqlevels(g) %in% seqlevels(s))){
