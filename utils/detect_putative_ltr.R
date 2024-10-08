@@ -148,6 +148,7 @@ lineage_domains_sequence <- unlist(mapply(function(d,l) {
   paste(strsplit(d, " ")[[1]], ":", l, sep = "")
 }, d = lineage_domain, l = names(lineage_domain)))
 
+
 # this repeat block is run just once
 # it can breaks in eny point if zero TE is found
 repeat{
@@ -165,13 +166,13 @@ repeat{
   g$domain_order[is.na(g$domain_order)] <- 0
 
   cls_prefilter <- paste(get_domain_clusters_alt(g, FDM), get_domain_clusters(g))
+
   g$cls_prefilter <- cls_prefilter
   neighbors_count <- c(head(cls_prefilter, -1) == cls_prefilter[-1], 0)
   neighbors_count <- c(0, head(neighbors_count,-1)) + neighbors_count
   # neighbors_count is number of direct neighbors witch are in the same cluster
   # it is used to improve domain filtering. If there are 2 neigbors, filtering can
   # be less strict
-
   # filtering
   g$neighbors_count <- neighbors_count
   g <- dante_filtering(g, Relative_Length = opt$min_relative_length) # default

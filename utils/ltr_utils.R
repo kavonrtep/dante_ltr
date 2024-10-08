@@ -126,17 +126,18 @@ get_domain_clusters_alt <- function(gff, dist_models, threshold=0.99){
   domain_pairs$quantile <- 1
   same_element_cluster <- domain_pairs$S1 == domain_pairs$S2 & domain_pairs$C1 == domain_pairs$C2
   domain_pairs$same_element_cluster <- same_element_cluster
-
   q_plus_function <- apply(domain_pairs[same_element_cluster,],
                                          1,
                                          function(x) dist_models$plus[[x["C1"]]][[x["D_A"]]][[x["D_B"]]])
 
   D <- abs(domain_pairs[same_element_cluster,]$start1 - domain_pairs[same_element_cluster,]$start2)
 
-  q_plus_value <- mapply(function(x, D)if(is.null(x)){0}else{x(D)}, x= q_plus_function, D = D)
-
+  if (length(q_plus_function) == 0){
+    q_plus_value <- 0
+  }else{
+    q_plus_value <- mapply(function(x, D)if(is.null(x)){0}else{x(D)}, x= q_plus_function, D = D)
+  }
   domain_pairs$quantile[same_element_cluster] <- q_plus_value
-
   domain_pairs$split_position <- !same_element_cluster | domain_pairs$quantile > threshold
   # combine clusters based on distances and original cluster
   clusters <- paste(cumsum(c(TRUE, domain_pairs$split_position)), get_domain_clusters(gff))
@@ -966,7 +967,7 @@ dante_filtering <- function(dante_gff, min_similarity=0.4,
 }
 
 convert_gr_Lists_to_Vectors <- function(gr){
-  for (i in 1:ncol(elementMetadata(gr))) {
+  for (i in seq_len(ncol(elementMetadata(gr)))) {
     if (is.list(elementMetadata(gr)[,i])) {
       # check is all elements are length 1
       if (all(sapply(elementMetadata(gr)[,i], length) == 1)) {
@@ -989,7 +990,7 @@ get_te_statistics <- function(gr, RT){
   all_class <- names(sort(table(RT$Final_Classification), decreasing = TRUE))
   RT_domain <- as.integer(table(factor(RT$Final_Classification, levels = all_class)))
   rank_table <- list()
-  for (i in 1:length(Ranks)) {
+  for (i in seq_along(Ranks)) {
     gr_part <- gr[gr$type == "transposable_element" & gr$Rank == Ranks[i]]
     rank_table[[Ranks[i]]] <- as.integer(table(factor(gr_part$Final_Classification, levels = all_class)))
 
@@ -1053,7 +1054,7 @@ get_TE_id <- function (gr){
 get_te_sequences <- function (gr, s) {
   Ranks <- c("D", "DL", "DLT", "DLP", "DLTP")
   s_te <- list()
-    for (i in 1:length(Ranks)) {
+    for (i in seq_along(Ranks)) {
         gr_te <- gr[gr$type == "transposable_element" & gr$Rank == Ranks[i]]
         if (length(gr_te) > 0) {
 

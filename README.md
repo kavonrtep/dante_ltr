@@ -40,7 +40,7 @@ https://anaconda.org/petrnovak/dante_ltr/badges/version.svg)](https://anaconda.o
 ```shell
 conda create -n dante_ltr -c bioconda -c conda-forge -c petrnovak dante_ltr
 ```
-**Important version information** DANTE_LTR versions up to 0.3.5.3 are compatible with REXdb Viridiplante database version 3.0. Versions 4.0.1 are compatible with REXdb Viridiplante database version 3.0 and 4.0. REXdb Viridiplantae v 4.0 include additional LTR-RT lineages characterized non-angiosperm species. Updated REXdb and used classification system can be found https://github.com/repeatexplorer/rexdb.  
+**Important version information** DANTE_LTR versions up to 0.3.5.3 are compatible with REXdb Viridiplante database version 3.0. Versions >=4.0.1 are compatible with REXdb Viridiplante database version 3.0 and 4.0. REXdb Viridiplantae v 4.0 include additional LTR-RT lineages characterized non-angiosperm species. Updated REXdb and used classification system can be found https://github.com/repeatexplorer/rexdb.  
  
 
 [![Open in Gitpod](https://gitpod.io/button/open-in-gitpod.svg)](https://gitpod.io/#https://github.com/kavonrtep/dante_ltr)
