@@ -94,6 +94,14 @@ if (file.size(opt$gff3) == 0){
 }
 
 g <- rtracklayer::import(opt$gff3, format = 'gff3')  # DANTE gff3
+if (length(g) < 3){
+  message("Less than 3 domains found in input GFF3 file, exiting")
+  cat("##gff-version 3\n", file = paste0(outfile,".gff3"))
+  # make empty statistics file with touch
+  file.create(paste0(outfile, "_statistics.csv"))
+  quit(save = "no", status = 0, runLast = FALSE)
+}
+
 if (opt$no_ambiguous_domains){
   ambiguous_names <- c(
     "Class_I|LTR|Ty1/copia",
@@ -116,12 +124,17 @@ if (all(URLencode(seqlevels(g), reserved = TRUE) == seqlevels(g))){
 }
 g <- CHD_CHDCR_correction(g)
 cat("done\n")
-cat("reading fasta...")
-
 
 # some ranges could be overlaping - keep longer one
 g <- gff_cleanup_overlaps(g)
-
+if (length(g) < 3){
+  message("Less than 3 domains found in input GFF3 file, exiting")
+  cat("##gff-version 3\n", file = paste0(outfile,".gff3"))
+  # make empty statistics file with touch
+  file.create(paste0(outfile, "_statistics.csv"))
+  quit(save = "no", status = 0, runLast = FALSE)
+}
+cat("reading fasta...")
 s <- readDNAStringSet(opt$reference_sequence)  # genome assembly
 cat("done\n")
 
@@ -147,8 +160,6 @@ names(lineage_ltr_mean_length) <- lineage_name
 lineage_domains_sequence <- unlist(mapply(function(d,l) {
   paste(strsplit(d, " ")[[1]], ":", l, sep = "")
 }, d = lineage_domain, l = names(lineage_domain)))
-
-
 # this repeat block is run just once
 # it can breaks in eny point if zero TE is found
 repeat{
@@ -164,7 +175,6 @@ repeat{
   g$domain_order <- as.numeric(factor(paste(g$Name, g$Final_Classification, sep = ":"), levels = lineage_domains_sequence))
   # set NA to 0 in  g$domain_order ( some domains are not fromm ClassI elements
   g$domain_order[is.na(g$domain_order)] <- 0
-
   cls_prefilter <- paste(get_domain_clusters_alt(g, FDM), get_domain_clusters(g))
 
   g$cls_prefilter <- cls_prefilter
@@ -176,6 +186,13 @@ repeat{
   # filtering
   g$neighbors_count <- neighbors_count
   g <- dante_filtering(g, Relative_Length = opt$min_relative_length) # default
+  if (length(g) < 3){
+    message("Less than 3 domains found in input GFF3 file, exiting")
+    cat("##gff-version 3\n", file = paste0(outfile,".gff3"))
+    # make empty statistics file with touch
+    file.create(paste0(outfile, "_statistics.csv"))
+    quit(save = "no", status = 0, runLast = FALSE)
+  }
   seqlengths(g) <- seqlengths(s)[names(seqlengths(g))]
   g <- add_coordinates_of_closest_neighbor(g)
 
