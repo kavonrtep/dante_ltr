@@ -178,6 +178,8 @@ get_segment_info <- function(TE_long_rel_plot, TE_class, features){
     names(out) <- paste(SEpairs[,1], SEpairs[,2]);
     out
   })
+
+
   segment_mean_position <- rowMeans(segment_position, na.rm = TRUE)
   return(list(segment_width = segment_width,
               segment_position = segment_position,
@@ -475,9 +477,8 @@ TE_groups_mean_end <- sapply(TE_groups, function(x) mean(x$feature_end))
 TE_lineage <- sapply(strsplit(names(TE_groups)," "), function(x)x[[1]])
 TE_feature <- sapply(strsplit(names(TE_groups)," "), function(x)x[[2]])
 # split to lineages:
-TE_groups_mean_start_lineage <- sapply(split(TE_groups_mean_start, f = TE_lineage), function(x) {n <- gsub(".+ ", "", names(x)); names(x) <- n; sort(x)})
-TE_groups_mean_end_lineage <- sapply(split(TE_groups_mean_end, f = TE_lineage), function(x) {n <- gsub(".+ ", "", names(x)); names(x) <- n; sort(x)})
-
+TE_groups_mean_start_lineage <- lapply(split(TE_groups_mean_start, f = TE_lineage), function(x) {n <- gsub(".+ ", "", names(x)); names(x) <- n; sort(x)})
+TE_groups_mean_end_lineage <- lapply(split(TE_groups_mean_end, f = TE_lineage), function(x) {n <- gsub(".+ ", "", names(x)); names(x) <- n; sort(x)})
 # extract pbs info for intact elements
 pbs_only <- g[g$type == 'primer_binding_site']
 

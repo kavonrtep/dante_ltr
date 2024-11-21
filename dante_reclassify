@@ -1,0 +1,49 @@
+#!/usr/bin/env Rscript
+# this script takes GFF3 output from DANTE and modify FinalClassification attribute
+# to contain only either superfamily copia and gypsy or copia, gypsy/chromovirus and gypsy non-chromovirus
+# output is written GFF3 file
+library(optparse)
+
+# get input arguments
+option_list <- list(
+  make_option(c("-i", "--input"), type="character", default=NULL,
+              help="Input GFF3 file"),
+  make_option(c("-o", "--output"), type="character", default=NULL,
+              help="Output GFF3 file"),
+  make_option(
+    c("-t", "--type"), type="character", default="1",
+              help="Type of reclassification 1 for copia/gypsy or 2 for copia/gypsy_chromovirus/gypsy_non-chromovirus)")
+)
+
+opt_parser <- OptionParser(option_list=option_list)
+opt <- parse_args(opt_parser)
+# check if input and output are provided
+if (is.null(opt$input) | is.null(opt$output)){
+  stop("Both input and output are mandatory")
+}
+suppressPackageStartupMessages({
+  library(rtracklayer)
+})
+
+g <- import(opt$input, format="gff3")
+
+
+cls <- g$Final_Classification
+cls <- gsub("Class_I[|]LTR[|]Ty3/gypsy.+", "Class_I|LTR|Ty3/gypsy", cls)
+cls <- gsub("Class_I[|]LTR[|]Ty1/copia.+", "Class_I|LTR|Ty1/copia", cls)
+
+chromo <- sapply(g$Region_Hits_Classifications,function(x)if (length(x)==0){return(0)}else{length(grep("[|]chromovirus",x))})
+non_chromo <- sapply(g$Region_Hits_Classifications,function(x)if (length(x)==0){return(0)}else{length(grep("[|]non-chromovirus",x))})
+
+is_chromo <- chromo > 0 & chromo > non_chromo
+is_non_chromo <- non_chromo > 0 & non_chromo > chromo
+
+if (opt$type == "2"){
+  cls[is_chromo] <- "Class_I|LTR|Ty3/gypsy|chromovirus"
+  cls[is_non_chromo] <- "Class_I|LTR|Ty3/gypsy|non-chromovirus"
+}
+
+g$Final_Classification <- cls
+
+export(g, opt$output, format="gff3")
+
