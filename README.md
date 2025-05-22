@@ -172,7 +172,7 @@ options:
 
 ## GFF3 DANTE_LTR output specification
 Types of features in GFF3:
-- **target_site_duplication**: This feature represents sort direct repeats around the insertion site of a transposable element.
+- **target_site_duplication**: This feature represents direct repeats around the insertion site of a transposable element.
 - **transposable_element**: This is the main feature representing the full extent of a 
   transposable element within the genome.
 - **long_terminal_repeat** (LTR): These are the direct repeats at the element's termini. 
@@ -233,8 +233,7 @@ The table has the following format:
 - The `domain_span` is the maximal distance between N' end of first domain and the C' end of the last domain of the element.
 
 Modify these constraints if you think that the default constraints lead to under-detection of elements whose structure deviates from the default constraints. Setting `offset5prime`, `offset3prime` or `domain_span`  too high can however lead to the detection of aberrant or chimeric elements. 
-- The `ltr_length` is the shortest LTR for given lineage in REXdb database. The use of this value is currently not implemented in DANTE_LTR. 
-
+- The `ltr_length` is the shortest LTR for given lineage in REXdb database. LTR must be at least 80% of this value. 
 To use modified constrains use `dante_ltr` with option `--te_constrains` and provide the path to the modified csv table.
 
 The full table with default constraints can be found in  

@@ -696,5 +696,11 @@ if __name__ == '__main__':
     if sys.version_info < (3, 6):
         print('Python version must be 3.6 or greater')
         sys.exit(1)
-
+    print("--------------------------------------------------------")
+    print("")
+    print("         ---|>>>>>---- DANTE_LTR ---->>>>>|---")
+    print("")
+    print("   Domain Based identification of LTR retrotransposons")
+    print("")
+    print("--------------------------------------------------------")
     main()
