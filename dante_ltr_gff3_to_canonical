@@ -1,0 +1,301 @@
+#!/usr/bin/env python
+"""Convert dante_ltr GFF3 output to canonical GFF3 format.
+
+This script transforms the native dante_ltr GFF3 output into a format that
+passes standard GFF3 validation (e.g., GenomeTools gt gff3). Changes include:
+  - Rename uppercase custom attributes to lowercase (GFF3 spec reserves uppercase
+    for predefined attributes like ID, Name, Parent)
+  - Add unique ID attributes to child features that lack them
+    (long_terminal_repeat, target_site_duplication, primer_binding_site,
+    protein_domain)
+  - Optionally rename feature type protein_domain -> protein_match (SO:0000349)
+  - Strip trailing semicolons from attribute strings
+  - Optionally add Ontology_term attributes with SO accession numbers
+  - Optionally strip verbose alignment attributes to reduce file size
+
+The original dante_ltr GFF3 format is preserved as the default output of
+dante_ltr for backward compatibility.
+"""
+
+import argparse
+import sys
+from version import __version__
+
+# Custom attributes that need lowercase renaming.
+# Reserved GFF3 attributes (ID, Name, Parent, Alias, Target, Gap, Derives_from,
+# Note, Dbxref, Ontology_term, Is_circular) are NOT renamed.
+ATTR_RENAME = {
+    "Final_Classification": "final_classification",
+    "Ndomains": "ndomains",
+    "Ndomains_in_cluster": "ndomains_in_cluster",
+    "Rank": "rank",
+    "LTR_Identity": "ltr_identity",
+    "LTR5_length": "ltr5_length",
+    "LTR3_length": "ltr3_length",
+    "TSD": "tsd",
+    "Best_Hit": "best_hit",
+    "Best_Hit_DB_Pos": "best_hit_db_pos",
+    "DB_Seq": "db_seq",
+    "Region_Seq": "region_seq",
+    "Query_Seq": "query_seq",
+    "Identity": "identity",
+    "Similarity": "similarity",
+    "Relat_Length": "relat_length",
+    "Relat_Interruptions": "relat_interruptions",
+    "Hit_to_DB_Length": "hit_to_db_length",
+    "Cluster": "cluster",
+    "LTR": "ltr",
+    "Length": "length",
+    "PBS_evalue": "pbs_evalue",
+}
+
+# Internal processing attributes to strip from output
+INTERNAL_ATTRS = {
+    "cls_prefilter",
+    "neighbors_count",
+    "upstream_domain",
+    "downstream_domain",
+    "domain_order",
+}
+
+# Feature type renaming
+TYPE_RENAME = {
+    "protein_domain": "protein_match",
+}
+
+# SO accession numbers for feature types
+SO_TERMS = {
+    "transposable_element": "SO:0000101",
+    "long_terminal_repeat": "SO:0000286",
+    "target_site_duplication": "SO:0000434",
+    "primer_binding_site": "SO:0005850",
+    "protein_match": "SO:0000349",
+    "protein_domain": "SO:0000349",
+}
+
+# Alignment-related attributes that can be stripped with --strip-alignment-attrs
+ALIGNMENT_ATTRS = {
+    "DB_Seq", "db_seq",
+    "Region_Seq", "region_seq",
+    "Query_Seq", "query_seq",
+    "Best_Hit_DB_Pos", "best_hit_db_pos",
+}
+
+
+def parse_attributes(attr_string):
+    """Parse GFF3 attributes string into list of (key, value) tuples.
+    Using a list instead of dict to preserve order."""
+    attrs = []
+    for item in attr_string.rstrip(';').split(';'):
+        item = item.strip()
+        if not item:
+            continue
+        if '=' in item:
+            key, value = item.split('=', 1)
+            attrs.append((key, value))
+    return attrs
+
+
+def format_attributes(attrs):
+    """Format list of (key, value) tuples back to GFF3 attributes string."""
+    return ';'.join('{}={}'.format(k, v) for k, v in attrs)
+
+
+def transform_line(line, counters, rename_type=True, add_ontology=False,
+                   strip_alignment=False):
+    """Transform a single GFF3 feature line to canonical format.
+
+    Args:
+        line: raw GFF3 line string
+        counters: dict of counters for generating unique IDs per feature type
+        rename_type: if True, rename protein_domain -> protein_match
+        add_ontology: if True, add Ontology_term attribute
+        strip_alignment: if True, remove alignment sequence attributes
+
+    Returns:
+        transformed line string
+    """
+    fields = line.rstrip('\n').split('\t')
+    if len(fields) != 9:
+        return line
+
+    feature_type = fields[2]
+    attrs = parse_attributes(fields[8])
+
+    # Rename feature type if requested
+    if rename_type and feature_type in TYPE_RENAME:
+        feature_type = TYPE_RENAME[feature_type]
+        fields[2] = feature_type
+
+    # Process attributes
+    new_attrs = []
+    has_id = False
+    parent_id = None
+
+    for key, value in attrs:
+        # Skip internal processing attributes
+        if key in INTERNAL_ATTRS:
+            continue
+
+        # Skip alignment attributes if requested
+        if strip_alignment and key in ALIGNMENT_ATTRS:
+            continue
+
+        # Skip attributes with empty values (invalid in GFF3)
+        if value == '':
+            continue
+
+        # Track ID and Parent
+        if key == "ID":
+            has_id = True
+        if key == "Parent":
+            parent_id = value
+
+        # Rename custom uppercase attributes
+        new_key = ATTR_RENAME.get(key, key)
+        new_attrs.append((new_key, value))
+
+    # Add unique ID to child features that lack one
+    if not has_id and feature_type in (
+            "long_terminal_repeat", "target_site_duplication",
+            "primer_binding_site", "protein_match", "protein_domain"):
+        counter_key = feature_type
+        counters[counter_key] = counters.get(counter_key, 0) + 1
+
+        # Derive seqid suffix from parent if available, otherwise use seqid
+        suffix = parent_id if parent_id else fields[0]
+        # Generate ID with feature-type prefix
+        prefix_map = {
+            "long_terminal_repeat": "LTR",
+            "target_site_duplication": "TSD",
+            "primer_binding_site": "PBS",
+            "protein_match": "protein_match",
+            "protein_domain": "protein_match",
+        }
+        prefix = prefix_map[feature_type]
+
+        # For LTRs, include 5/3 designation from the ltr attribute
+        ltr_designation = ""
+        for k, v in new_attrs:
+            if k == "ltr":
+                ltr_designation = "_" + v
+                break
+
+        feature_id = "{}{}_{:08d}_{}".format(
+            prefix, ltr_designation, counters[counter_key], suffix)
+        # Insert ID at beginning
+        new_attrs.insert(0, ("ID", feature_id))
+
+    # Add Ontology_term if requested and applicable
+    if add_ontology and feature_type in SO_TERMS:
+        # Check if Ontology_term already exists
+        has_ont = any(k == "Ontology_term" for k, _ in new_attrs)
+        if not has_ont:
+            new_attrs.append(("Ontology_term", SO_TERMS[feature_type]))
+
+    fields[8] = format_attributes(new_attrs)
+    return '\t'.join(fields) + '\n'
+
+
+def convert_gff3(input_file, output_file, rename_type=True, add_ontology=False,
+                 strip_alignment=False):
+    """Convert a dante_ltr GFF3 file to canonical GFF3 format.
+
+    Args:
+        input_file: path to input GFF3 file (or '-' for stdin)
+        output_file: path to output GFF3 file (or '-' for stdout)
+        rename_type: if True, rename protein_domain -> protein_match
+        add_ontology: if True, add Ontology_term attributes
+        strip_alignment: if True, remove alignment sequence attributes
+    """
+    counters = {}
+
+    if input_file == '-':
+        fin = sys.stdin
+    else:
+        fin = open(input_file, 'r')
+
+    if output_file == '-':
+        fout = sys.stdout
+    else:
+        fout = open(output_file, 'w')
+
+    try:
+        for line in fin:
+            # Pass through comments and directives
+            if line.startswith('#'):
+                fout.write(line)
+                continue
+            # Pass through empty lines
+            if line.strip() == '':
+                fout.write(line)
+                continue
+            # Transform feature lines
+            fout.write(transform_line(
+                line, counters,
+                rename_type=rename_type,
+                add_ontology=add_ontology,
+                strip_alignment=strip_alignment,
+            ))
+    finally:
+        if fin is not sys.stdin:
+            fin.close()
+        if fout is not sys.stdout:
+            fout.close()
+
+
+def get_arguments():
+    parser = argparse.ArgumentParser(
+        description="Convert dante_ltr GFF3 output to canonical GFF3 format "
+                    "that passes standard GFF3 validators.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s -g dante_output.gff3 -o canonical_output.gff3
+  %(prog)s -g dante_output.gff3 -o canonical_output.gff3 --add-ontology-terms
+  %(prog)s -g dante_output.gff3 -o canonical_output.gff3 --strip-alignment-attrs
+  %(prog)s -g dante_output.gff3 -o - | gt gff3 -tidy -sort -retainids
+        """
+    )
+    parser.add_argument(
+        '-g', '--gff3', required=True,
+        help="Input GFF3 file from dante_ltr (use '-' for stdin)"
+    )
+    parser.add_argument(
+        '-o', '--output', required=True,
+        help="Output canonical GFF3 file (use '-' for stdout)"
+    )
+    parser.add_argument(
+        '--keep-protein-domain', action='store_true',
+        help="Do not rename feature type 'protein_domain' to 'protein_match' "
+             "(SO:0000349)"
+    )
+    parser.add_argument(
+        '--add-ontology-terms', action='store_true',
+        help="Add Ontology_term attributes with SO accession numbers"
+    )
+    parser.add_argument(
+        '--strip-alignment-attrs', action='store_true',
+        help="Remove verbose alignment attributes (DB_Seq, Region_Seq, "
+             "Query_Seq, Best_Hit_DB_Pos) to reduce file size"
+    )
+    parser.add_argument(
+        '-v', '--version', action='version',
+        version='%(prog)s ' + __version__
+    )
+    return parser.parse_args()
+
+
+def main():
+    args = get_arguments()
+    convert_gff3(
+        input_file=args.gff3,
+        output_file=args.output,
+        rename_type=not args.keep_protein_domain,
+        add_ontology=args.add_ontology_terms,
+        strip_alignment=args.strip_alignment_attrs,
+    )
+
+
+if __name__ == '__main__':
+    main()
