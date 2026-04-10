@@ -34,4 +34,13 @@ echo "Running tests 4, create library"
 ./dante_ltr_to_library -s test_data/sample_genome.fasta \
 -g tmp/test_output3.gff3 -o tmp/test_output4 -c $NCPU_TO_USE
 
+echo "Running test 5, solo LTR detection"
+./dante_ltr_solo \
+  -g tmp/test_output1.gff3 \
+  -s test_data/sample_genome.fasta \
+  -o tmp/test_solo_output \
+  -c $NCPU_TO_USE
+
+cat tmp/test_solo_output_statistics.csv
+
 
