@@ -25,7 +25,9 @@ option_list <- list(
   make_option(c("-f", "--flank"), type = "integer", default = 15L,
               help = "Flanking bp added each side for MSA [default %default]"),
   make_option(c("-d", "--min_cluster_size"), type = "integer", default = 3L,
-              help = "Min cluster members required for MAFFT consensus [default %default]")
+              help = "Min cluster members required for MAFFT consensus [default %default]"),
+  make_option(c("--alignments_dir"), type = "character", default = NULL,
+              help = "Optional directory in which to save per-cluster MAFFT alignments (for debugging)")
 )
 
 parser <- OptionParser(option_list = option_list,
@@ -50,7 +52,8 @@ source(file.path(script_dir, "solo_ltr_utils.R"))
 RANK_PRIORITY <- c(DLTP = 4L, DLT = 3L, DLP = 2L, DL = 1L, D = 0L)
 
 # ---- MAFFT consensus from a set of sequences ----
-mafft_consensus <- function(seqs, threads = 1L, gap_threshold = 0.5) {
+mafft_consensus <- function(seqs, threads = 1L, gap_threshold = 0.5,
+                            save_aln_path = NULL) {
   tmp_in  <- tempfile(fileext = ".fasta")
   tmp_out <- tempfile(fileext = ".fasta")
   on.exit({ unlink(tmp_in); unlink(tmp_out) }, add = TRUE)
@@ -62,6 +65,10 @@ mafft_consensus <- function(seqs, threads = 1L, gap_threshold = 0.5) {
 
   if (ret != 0L || !file.exists(tmp_out) || file.size(tmp_out) == 0L) {
     return(seqs[which.max(width(seqs))])  # fallback: longest member
+  }
+
+  if (!is.null(save_aln_path)) {
+    try(file.copy(tmp_out, save_aln_path, overwrite = TRUE), silent = TRUE)
   }
 
   aln <- readDNAStringSet(tmp_out)
@@ -118,6 +125,10 @@ mmseqs_cluster <- function(seqs, identity = 0.9, threads = 1L) {
 # ============================================================
 # MAIN
 # ============================================================
+
+if (!is.null(opt$alignments_dir)) {
+  dir.create(opt$alignments_dir, recursive = TRUE, showWarnings = FALSE)
+}
 
 cat("Reading GFF3 ...\n")
 gff <- import(opt$gff3, format = "gff3")
@@ -207,14 +218,19 @@ for (lin in lineages) {
     midx        <- midx[!is.na(midx)]
     if (length(midx) == 0L) next
 
+    ltr_id <- sprintf("LTR_%06d", ltr_counter)
+
     if (length(midx) >= opt$min_cluster_size) {
-      cons <- mafft_consensus(seqs_lin[midx], threads = opt$threads)
+      aln_path <- if (!is.null(opt$alignments_dir)) {
+        file.path(opt$alignments_dir, paste0(ltr_id, ".aln.fasta"))
+      } else NULL
+      cons <- mafft_consensus(seqs_lin[midx], threads = opt$threads,
+                              save_aln_path = aln_path)
     } else {
       best <- midx[which.max(priority_lin[midx])]
       cons <- seqs_lin[best]
     }
 
-    ltr_id        <- sprintf("LTR_%06d", ltr_counter)
     names(cons)   <- ltr_id
     all_consensus <- c(all_consensus, cons)
     id_to_lineage[ltr_id] <- lin

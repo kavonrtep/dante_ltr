@@ -3,47 +3,76 @@
 Identify solo LTR retrotransposons from DANTE_LTR output.
 
 Workflow:
-  1. Build LTR reference library and junction tag databases (once, full genome).
-  2. Split large genomes into overlapping chunks.
-  3. Run BLAST + TSD/junction validation on each chunk.
-  4. Merge chunk outputs, remap coordinates, write final GFF3 and statistics.
+  1. Normalize reference FASTA (strip header descriptions).
+  2. Build LTR reference library and junction tag databases (once, full genome).
+  3. Split large genomes into overlapping chunks when needed.
+  4. Run BLAST + TSD/junction validation on each chunk.
+  5. Merge chunk outputs, remap coordinates, write final GFF3 and statistics.
+
+Everything is written under ``-o OUTPUT_DIR``::
+
+    <outdir>/
+      dante_ltr_solo.log
+      solo_ltr.gff3
+      solo_ltr_statistics.csv
+      reference_normalized.fasta
+      reference_input.gff3
+      library/
+        ltr_lib_LTR_library.fasta
+        ltr_lib_LTR_library_map.tsv
+        ltr_lib_5UTR_tags.fasta (+ blast db)
+        ltr_lib_PPT_tags.fasta (+ blast db)
+        ltr_lib_tsd_length_map.tsv
+        mafft_alignments/
+      chunks/
+        chunk_000.fasta
+        chunk_000.gff3
+        chunk_000_solo.gff3
+        chunk_000_solo_statistics.csv
+        chunk_000_blast.tsv
+        ...
 """
 
 import argparse
+import logging
 import os
 import shutil
-import sys
-import tempfile
-from itertools import cycle
 import subprocess
+import sys
+from itertools import cycle
 
 # Reuse chunking / GFF3 utilities from dante_ltr
+import importlib.machinery
 import importlib.util
 
+
 def _load_dante_ltr():
-    import importlib.machinery
-    path   = os.path.join(os.path.dirname(os.path.realpath(__file__)), "dante_ltr")
+    path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "dante_ltr")
     loader = importlib.machinery.SourceFileLoader("dante_ltr_mod", path)
-    spec   = importlib.util.spec_from_loader("dante_ltr_mod", loader)
-    mod    = importlib.util.module_from_spec(spec)
+    spec = importlib.util.spec_from_loader("dante_ltr_mod", loader)
+    mod = importlib.util.module_from_spec(spec)
     loader.exec_module(mod)
     return mod
 
+
 _dl = _load_dante_ltr()
 
-read_fasta_sequence_size                    = _dl.read_fasta_sequence_size
-make_temp_files                             = _dl.make_temp_files
-split_fasta_to_chunks                       = _dl.split_fasta_to_chunks
-recalculate_gff3_coordinates                = _dl.recalculate_gff3_coordinates
+read_fasta_sequence_size                      = _dl.read_fasta_sequence_size
+split_fasta_to_chunks                         = _dl.split_fasta_to_chunks
+recalculate_gff3_coordinates                  = _dl.recalculate_gff3_coordinates
 recalculate_gff3_back_to_original_coordinates = _dl.recalculate_gff3_back_to_original_coordinates
-get_unique_features                         = _dl.get_unique_features
-filter_gff3_file                            = _dl.filter_gff3_file
-add_version_to_gff3                         = _dl.add_version_to_gff3
-verify_seqnames                             = _dl.verify_seqnames
-Gff3Feature                                 = _dl.Gff3Feature
+add_version_to_gff3                           = _dl.add_version_to_gff3
+verify_seqnames                               = _dl.verify_seqnames
 
 from version import __version__
 
+
+logger = logging.getLogger("dante_ltr_solo")
+
+
+# ============================================================
+# CLI and logging
+# ============================================================
 
 def get_arguments():
     parser = argparse.ArgumentParser(
@@ -54,8 +83,9 @@ def get_arguments():
                         help='DANTE_LTR GFF3 annotation file')
     parser.add_argument('-s', '--reference_sequence', required=True,
                         help='Reference genome FASTA')
-    parser.add_argument('-o', '--output', required=True,
-                        help='Output file prefix')
+    parser.add_argument('-o', '--output_dir', required=True,
+                        help='Output directory (created if missing). '
+                             'All results, logs and debug artifacts go here.')
     parser.add_argument('-c', '--cpu', default=1, type=int,
                         help='Number of CPUs (default: %(default)s)')
     parser.add_argument('-i', '--min_identity', default=80, type=float,
@@ -69,20 +99,151 @@ def get_arguments():
     return parser.parse_args()
 
 
+def setup_logging(log_path):
+    """Configure a file handler (DEBUG) and a stderr handler (INFO)."""
+    logger.setLevel(logging.DEBUG)
+    logger.propagate = False
+    for h in list(logger.handlers):
+        logger.removeHandler(h)
+
+    file_fmt = logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+    fh = logging.FileHandler(log_path, mode='w')
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(file_fmt)
+    logger.addHandler(fh)
+
+    sh = logging.StreamHandler(sys.stderr)
+    sh.setLevel(logging.INFO)
+    sh.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
+    logger.addHandler(sh)
+
+
+def run_subprocess(cmd, description):
+    """Run a subprocess, log its command line and output, raise on failure."""
+    logger.info("Running: %s", description)
+    logger.debug("Command: %s", " ".join(cmd))
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+
+    exe = os.path.basename(cmd[0])
+    if result.stdout:
+        for line in result.stdout.rstrip().splitlines():
+            logger.debug("[%s stdout] %s", exe, line)
+    if result.stderr:
+        level = logging.DEBUG if result.returncode == 0 else logging.ERROR
+        for line in result.stderr.rstrip().splitlines():
+            logger.log(level, "[%s stderr] %s", exe, line)
+
+    if result.returncode != 0:
+        logger.error("%s failed with exit code %d", description, result.returncode)
+        raise subprocess.CalledProcessError(
+            result.returncode, cmd,
+            output=result.stdout, stderr=result.stderr
+        )
+    return result
+
+
+# ============================================================
+# FASTA / GFF3 helpers
+# ============================================================
+
+def normalize_fasta(src, dst):
+    """
+    Copy FASTA from `src` to `dst`, truncating each header at the first
+    whitespace. Guarantees consistent seqname handling across the pipeline.
+    """
+    with open(src) as fin, open(dst, 'w') as fout:
+        for line in fin:
+            if line.startswith('>'):
+                fout.write('>' + line[1:].split()[0] + '\n')
+            else:
+                fout.write(line)
+
+
+def _parse_attrs(attr_str):
+    d = {}
+    for item in attr_str.split(';'):
+        item = item.strip()
+        if not item or '=' not in item:
+            continue
+        k, v = item.split('=', 1)
+        d[k] = v
+    return d
+
+
+def dedup_solo_gff3(in_path, out_path):
+    """
+    Deduplicate a merged solo-LTR GFF3 produced by the chunking path.
+
+    Dedup key: ``(seqname, start, end, strand)``; first occurrence wins.
+    ``target_site_duplication`` children are emitted only if their Parent
+    ID is kept. Header lines pass through unchanged.
+
+    Returns the number of ``solo_LTR`` features written.
+    """
+    seen_keys = set()
+    kept_ids = set()
+    header_lines = []
+    solo_lines = []
+    child_lines = []  # list of (parent_id, raw_line)
+    n_solo = 0
+
+    with open(in_path) as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            if line.startswith('#'):
+                header_lines.append(line)
+                continue
+            fields = line.rstrip('\n').split('\t')
+            if len(fields) < 9:
+                continue
+            ftype = fields[2]
+            attrs = _parse_attrs(fields[8])
+            if ftype == 'solo_LTR':
+                key = (fields[0], fields[3], fields[4], fields[6])
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                if 'ID' in attrs:
+                    kept_ids.add(attrs['ID'])
+                solo_lines.append(line)
+                n_solo += 1
+            elif ftype == 'target_site_duplication':
+                child_lines.append((attrs.get('Parent'), line))
+            else:
+                # Unknown feature type — pass through
+                solo_lines.append(line)
+
+    with open(out_path, 'w') as fout:
+        if not any(h.startswith('##gff-version') for h in header_lines):
+            fout.write('##gff-version 3\n')
+        for hl in header_lines:
+            fout.write(hl)
+        for sl in solo_lines:
+            fout.write(sl)
+        for parent, cl in child_lines:
+            if parent in kept_ids:
+                fout.write(cl)
+    return n_solo
+
+
 def merge_solo_stats(files):
     """
     Merge per-chunk statistics CSVs.
-    Columns: Classification, SL, SL_noTSD, Complete_elements, Rsf
-    SL / SL_noTSD / Complete_elements are summed; Rsf is recomputed.
+    Columns: Classification, SL, SL_noTSD, Complete_elements, Rsf.
+    Counts are summed across chunks; Rsf is recomputed from the sums.
     """
-    merged = {}   # lineage -> [SL, SL_noTSD, Complete_elements]
+    merged = {}
     for f in files:
         if not os.path.exists(f) or os.path.getsize(f) == 0:
             continue
         with open(f) as fh:
             for line in fh:
                 parts = line.strip().split('\t')
-                if parts[0] == 'Classification':
+                if not parts or parts[0] == 'Classification':
                     continue
                 if len(parts) < 4:
                     continue
@@ -104,201 +265,293 @@ def merge_solo_stats(files):
     return lines
 
 
-def main():
-    args = get_arguments()
-    tool_path = os.path.dirname(os.path.realpath(__file__))
+# ============================================================
+# Pipeline steps
+# ============================================================
 
-    print("--------------------------------------------------------")
-    print("")
-    print("      ---|>>>>>---- DANTE_LTR solo ---->>>>>|---")
-    print("")
-    print("     Solo LTR identification from DANTE_LTR output")
-    print("")
-    print("--------------------------------------------------------")
+def build_ltr_library(tool_path, gff3, fasta, lib_dir, cpu):
+    """Call build_ltr_library.R; returns a dict of produced paths."""
+    lib_prefix = os.path.join(lib_dir, 'ltr_lib')
+    aln_dir = os.path.join(lib_dir, 'mafft_alignments')
+    os.makedirs(aln_dir, exist_ok=True)
 
-    if not verify_seqnames(args.gff3, args.reference_sequence):
-        sys.stderr.write(
-            'ERROR: No sequence names in GFF3 match the reference FASTA.\n'
-            'Ensure the GFF3 was produced from the same reference.\n'
-        )
-        sys.exit(1)
-
-    tmpdir = tempfile.mkdtemp(prefix='dante_ltr_solo_')
-    try:
-        _run(args, tool_path, tmpdir)
-    finally:
-        shutil.rmtree(tmpdir, ignore_errors=True)
-
-
-def _run(args, tool_path, tmpdir):
-    # ------------------------------------------------------------------ #
-    # Step 1 – Build LTR library (once, on the full genome + full GFF3)   #
-    # ------------------------------------------------------------------ #
-    lib_prefix = os.path.join(tmpdir, 'ltr_lib')
-    print('Building LTR reference library ...')
-    subprocess.check_call([
+    cmd = [
         f'{tool_path}/utils/build_ltr_library.R',
-        '-g', args.gff3,
-        '-s', args.reference_sequence,
+        '-g', gff3,
+        '-s', fasta,
         '-o', lib_prefix,
-        '-t', str(args.cpu),
-    ])
+        '-t', str(cpu),
+        '--alignments_dir', aln_dir,
+    ]
+    run_subprocess(cmd, "Building LTR reference library")
 
-    ltr_library = f'{lib_prefix}_LTR_library.fasta'
-    ltr_map     = f'{lib_prefix}_LTR_library_map.tsv'
-    utr5_db     = f'{lib_prefix}_5UTR_tags.fasta'
-    ppt_db      = f'{lib_prefix}_PPT_tags.fasta'
-    tsd_map     = f'{lib_prefix}_tsd_length_map.tsv'
-
-    if not os.path.exists(ltr_library) or os.path.getsize(ltr_library) == 0:
-        sys.stderr.write('ERROR: LTR library is empty. '
-                         'Ensure the input GFF3 contains DL or higher rank elements.\n')
-        sys.exit(1)
-
-    # tRNA database for PBS check
-    trna_db = os.path.join(
-        tool_path,
-        'databases',
-        'tRNAscan-SE_ALL_spliced-yes_2022-12-14_plus-old-tRNAs_UC_unique-3ends.fasta'
-    )
-
-    # ------------------------------------------------------------------ #
-    # Step 2 – Chunk genome + GFF3                                        #
-    # ------------------------------------------------------------------ #
-    fasta_seq_sizes = read_fasta_sequence_size(args.reference_sequence)
-    total_size      = sum(fasta_seq_sizes.values())
-    n_seqs          = len(fasta_seq_sizes)
-
-    fasta_split, matching_table = split_fasta_to_chunks(
-        args.reference_sequence, chunk_size=args.max_chunk_size
-    )
-    gff3_remapped = recalculate_gff3_coordinates(args.gff3, matching_table)
-
-    split_sizes = read_fasta_sequence_size(fasta_split)
-
-    if total_size > args.max_chunk_size and n_seqs > 1:
-        print(f'Running analysis in chunks of ~{args.max_chunk_size:,} bp')
-
-        seq_sorted = [k for k, _ in sorted(split_sizes.items(),
-                                           key=lambda x: x[1], reverse=True)]
-        n_chunks = min(int(total_size / args.max_chunk_size) + 1, n_seqs)
-
-        # Distribute sequences round-robin across chunk files
-        tmp_fasta = make_temp_files(n_chunks)
-        tmp_gff   = make_temp_files(n_chunks)
-        fh_fasta  = [open(f, 'w') for f in tmp_fasta]
-        seq_to_fh = dict(zip(seq_sorted, cycle(fh_fasta)))
-
-        with open(fasta_split) as f:
-            header = None
-            for line in f:
-                if line[0] == '>':
-                    header = line.strip().split()[0][1:]
-                seq_to_fh[header].write(line)
-        for fh in fh_fasta:
-            fh.close()
-        os.remove(fasta_split)
-
-        fh_gff = [open(f, 'w') for f in tmp_gff]
-        seq_to_gff = dict(zip(seq_sorted, cycle(fh_gff)))
-        with open(gff3_remapped) as f:
-            for line in f:
-                if line[0] == '#':
-                    continue
-                header = line.split('\t')[0]
-                if header in seq_to_gff:
-                    seq_to_gff[header].write(line)
-        for fh in fh_gff:
-            fh.close()
-        os.remove(gff3_remapped)
-
-        # Per-chunk detection
-        tmp_out = make_temp_files(n_chunks)
-        for i in range(n_chunks):
-            print(f'  Processing chunk {i + 1}/{n_chunks} ...')
-            _run_detect_chunk(
-                tool_path, tmp_fasta[i], tmp_gff[i],
-                ltr_library, ltr_map, utr5_db, ppt_db, tsd_map, trna_db,
-                tmp_out[i], args
-            )
-
-        # Clean up input temporaries
-        for f in tmp_fasta + tmp_gff:
-            try:
-                os.remove(f)
-            except FileNotFoundError:
-                pass
-
-        # Merge GFF3 outputs (with coordinate remapping back to original)
-        tmp_merged_gff = tempfile.NamedTemporaryFile(delete=False, suffix='.gff3').name
-        with open(tmp_merged_gff, 'w') as fout:
-            for i in range(n_chunks):
-                chunk_gff = tmp_out[i] + '.gff3'
-                if not os.path.exists(chunk_gff) or os.path.getsize(chunk_gff) == 0:
-                    continue
-                remapped = recalculate_gff3_back_to_original_coordinates(
-                    chunk_gff, matching_table
-                )
-                with open(remapped) as fin:
-                    for line in fin:
-                        fout.write(line)
-                os.remove(remapped)
-                os.remove(chunk_gff)
-
-        # Deduplicate solo_LTR features at chunk boundaries
-        good_ids = get_unique_features(tmp_merged_gff)
-        filter_gff3_file(tmp_merged_gff, good_ids, args.output + '.gff3')
-        os.remove(tmp_merged_gff)
-
-        # Merge statistics
-        stat_files = [f + '_statistics.csv' for f in tmp_out]
-        merged_stats = merge_solo_stats(stat_files)
-        with open(args.output + '_statistics.csv', 'w') as fout:
-            fout.write('\n'.join(merged_stats))
-        for f in stat_files:
-            try:
-                os.remove(f)
-            except FileNotFoundError:
-                pass
-
-    else:
-        # Small genome – run directly without chunking
-        print('Running analysis on full genome (no chunking needed)')
-        os.remove(fasta_split)
-        _run_detect_chunk(
-            tool_path, args.reference_sequence, gff3_remapped,
-            ltr_library, ltr_map, utr5_db, ppt_db, tsd_map, trna_db,
-            args.output, args
-        )
-        os.remove(gff3_remapped)
-
-    # Add version header to output GFF3
-    if os.path.exists(args.output + '.gff3') and os.path.getsize(args.output + '.gff3') > 0:
-        add_version_to_gff3(args.output + '.gff3', __version__)
-
-    print(f'Done. Output: {args.output}.gff3')
+    return {
+        'ltr_library': f'{lib_prefix}_LTR_library.fasta',
+        'ltr_map':     f'{lib_prefix}_LTR_library_map.tsv',
+        'utr5_db':     f'{lib_prefix}_5UTR_tags.fasta',
+        'ppt_db':      f'{lib_prefix}_PPT_tags.fasta',
+        'tsd_map':     f'{lib_prefix}_tsd_length_map.tsv',
+    }
 
 
-def _run_detect_chunk(tool_path, fasta, gff3, ltr_library, ltr_map,
-                      utr5_db, ppt_db, tsd_map, trna_db, output, args):
-    """Run detect_solo_ltr.R for one genome chunk."""
+def run_detect_chunk(tool_path, fasta, gff3, lib, trna_db,
+                     output_prefix, blast_out_path, cpu,
+                     min_identity, min_coverage):
+    """Run detect_solo_ltr.R on one genome chunk."""
     cmd = [
         f'{tool_path}/utils/detect_solo_ltr.R',
         '-s', fasta,
         '-g', gff3,
-        '-l', ltr_library,
-        '-M', ltr_map,
-        '-u', utr5_db,
-        '-p', ppt_db,
-        '-m', tsd_map,
-        '-o', output,
-        '-c', str(args.cpu),
-        '-i', str(args.min_identity),
-        '-C', str(args.min_coverage),
+        '-l', lib['ltr_library'],
+        '-M', lib['ltr_map'],
+        '-u', lib['utr5_db'],
+        '-p', lib['ppt_db'],
+        '-m', lib['tsd_map'],
+        '-o', output_prefix,
+        '-c', str(cpu),
+        '-i', str(min_identity),
+        '-C', str(min_coverage),
+        '--keep_blast', blast_out_path,
     ]
     if trna_db and os.path.exists(trna_db + '.nin'):
         cmd += ['-T', trna_db]
-    subprocess.check_call(cmd)
+    run_subprocess(cmd, f"Detecting solo LTRs on {os.path.basename(fasta)}")
+
+
+# ============================================================
+# Main
+# ============================================================
+
+def main():
+    args = get_arguments()
+    tool_path = os.path.dirname(os.path.realpath(__file__))
+
+    out_dir = args.output_dir
+    os.makedirs(out_dir, exist_ok=True)
+    lib_dir    = os.path.join(out_dir, 'library')
+    chunks_dir = os.path.join(out_dir, 'chunks')
+    os.makedirs(lib_dir,    exist_ok=True)
+    os.makedirs(chunks_dir, exist_ok=True)
+
+    log_path = os.path.join(out_dir, 'dante_ltr_solo.log')
+    setup_logging(log_path)
+
+    logger.info("--------------------------------------------------------")
+    logger.info("      ---|>>>>>---- DANTE_LTR solo ---->>>>>|---")
+    logger.info("     Solo LTR identification from DANTE_LTR output")
+    logger.info("--------------------------------------------------------")
+    logger.info("dante_ltr_solo version %s", __version__)
+    logger.debug("argv: %s", sys.argv)
+    logger.debug("args: %s", vars(args))
+    logger.info("Output directory: %s", os.path.abspath(out_dir))
+    logger.info("Log file:         %s", os.path.abspath(log_path))
+
+    if not os.path.exists(args.gff3):
+        logger.error("GFF3 file not found: %s", args.gff3)
+        sys.exit(1)
+    if not os.path.exists(args.reference_sequence):
+        logger.error("Reference FASTA not found: %s", args.reference_sequence)
+        sys.exit(1)
+
+    if not verify_seqnames(args.gff3, args.reference_sequence):
+        logger.error(
+            "No sequence names in GFF3 match the reference FASTA. "
+            "Ensure the GFF3 was produced from the same reference."
+        )
+        sys.exit(1)
+
+    # Normalize FASTA once — strip header descriptions so every downstream
+    # step sees consistent seqnames.
+    ref_norm = os.path.join(out_dir, 'reference_normalized.fasta')
+    logger.info("Normalizing FASTA headers -> %s", os.path.basename(ref_norm))
+    normalize_fasta(args.reference_sequence, ref_norm)
+
+    # Copy input GFF3 into the outdir for self-contained debugging
+    gff3_copy = os.path.join(out_dir, 'reference_input.gff3')
+    shutil.copy(args.gff3, gff3_copy)
+
+    try:
+        _run(args, tool_path, out_dir, lib_dir, chunks_dir, ref_norm, gff3_copy)
+    except subprocess.CalledProcessError as e:
+        logger.error("Pipeline failed (command: %s)", " ".join(e.cmd))
+        sys.exit(e.returncode or 1)
+
+
+def _run(args, tool_path, out_dir, lib_dir, chunks_dir, ref_norm, gff3_input):
+    # ---- Step 1: build LTR library (once, on the full normalized genome) ----
+    lib = build_ltr_library(tool_path, gff3_input, ref_norm, lib_dir, args.cpu)
+
+    if not os.path.exists(lib['ltr_library']) or os.path.getsize(lib['ltr_library']) == 0:
+        logger.error("LTR library is empty. Ensure the input GFF3 contains "
+                     "DL or higher rank elements.")
+        sys.exit(1)
+
+    # tRNA database for the optional PBS check
+    trna_db = os.path.join(
+        tool_path, 'databases',
+        'tRNAscan-SE_ALL_spliced-yes_2022-12-14_plus-old-tRNAs_UC_unique-3ends.fasta'
+    )
+    if not os.path.exists(trna_db + '.nin'):
+        logger.warning("tRNA BLAST database not found at %s; PBS check disabled",
+                       trna_db)
+        trna_db = None
+
+    final_gff3  = os.path.join(out_dir, 'solo_ltr.gff3')
+    final_stats = os.path.join(out_dir, 'solo_ltr_statistics.csv')
+
+    fasta_seq_sizes = read_fasta_sequence_size(ref_norm)
+    total_size = sum(fasta_seq_sizes.values())
+    n_seqs     = len(fasta_seq_sizes)
+    logger.info("Genome: %d sequences, %d bp total", n_seqs, total_size)
+
+    use_chunking = total_size > args.max_chunk_size and n_seqs > 1
+
+    if not use_chunking:
+        _run_no_chunking(args, tool_path, chunks_dir, ref_norm, gff3_input,
+                         lib, trna_db, final_gff3, final_stats)
+    else:
+        _run_chunked(args, tool_path, chunks_dir, ref_norm, gff3_input,
+                     lib, trna_db, final_gff3, final_stats, total_size, n_seqs)
+
+    # Add version header to output GFF3
+    if os.path.exists(final_gff3) and os.path.getsize(final_gff3) > 0:
+        add_version_to_gff3(final_gff3, __version__)
+
+    logger.info("Done. Final GFF3:       %s", final_gff3)
+    logger.info("      Final statistics: %s", final_stats)
+
+
+def _run_no_chunking(args, tool_path, chunks_dir, ref_norm, gff3_input,
+                     lib, trna_db, final_gff3, final_stats):
+    """Small-genome path: run detect_solo_ltr.R directly on the full genome."""
+    logger.info("Running analysis on full genome (no chunking needed)")
+
+    chunk_prefix = os.path.join(chunks_dir, 'chunk_000')
+    shutil.copy(ref_norm,   chunk_prefix + '.fasta')
+    shutil.copy(gff3_input, chunk_prefix + '.gff3')
+
+    run_detect_chunk(
+        tool_path,
+        fasta=chunk_prefix + '.fasta',
+        gff3=chunk_prefix + '.gff3',
+        lib=lib,
+        trna_db=trna_db,
+        output_prefix=chunk_prefix + '_solo',
+        blast_out_path=chunk_prefix + '_blast.tsv',
+        cpu=args.cpu,
+        min_identity=args.min_identity,
+        min_coverage=args.min_coverage,
+    )
+
+    chunk_gff = chunk_prefix + '_solo.gff3'
+    if os.path.exists(chunk_gff):
+        shutil.copy(chunk_gff, final_gff3)
+    else:
+        with open(final_gff3, 'w') as f:
+            f.write('##gff-version 3\n')
+
+    chunk_stats = chunk_prefix + '_solo_statistics.csv'
+    if os.path.exists(chunk_stats):
+        shutil.copy(chunk_stats, final_stats)
+    else:
+        with open(final_stats, 'w') as f:
+            f.write('Classification\tSL\tSL_noTSD\tComplete_elements\tRsf\n')
+
+
+def _run_chunked(args, tool_path, chunks_dir, ref_norm, gff3_input,
+                 lib, trna_db, final_gff3, final_stats, total_size, n_seqs):
+    """Large-genome path: split into chunks, detect per-chunk, merge."""
+    logger.info("Running analysis in chunks of ~%d bp", args.max_chunk_size)
+
+    fasta_split, matching_table = split_fasta_to_chunks(
+        ref_norm, chunk_size=args.max_chunk_size
+    )
+    gff3_remapped = recalculate_gff3_coordinates(gff3_input, matching_table)
+    split_sizes   = read_fasta_sequence_size(fasta_split)
+
+    seq_sorted = [k for k, _ in sorted(split_sizes.items(),
+                                        key=lambda x: x[1], reverse=True)]
+    n_chunks = min(int(total_size / args.max_chunk_size) + 1, n_seqs)
+    logger.info("Distributing %d split sequences across %d chunk files",
+                len(seq_sorted), n_chunks)
+
+    chunk_fastas = [os.path.join(chunks_dir, f'chunk_{i:03d}.fasta')
+                    for i in range(n_chunks)]
+    chunk_gffs   = [os.path.join(chunks_dir, f'chunk_{i:03d}.gff3')
+                    for i in range(n_chunks)]
+    chunk_outs   = [os.path.join(chunks_dir, f'chunk_{i:03d}_solo')
+                    for i in range(n_chunks)]
+    chunk_blasts = [os.path.join(chunks_dir, f'chunk_{i:03d}_blast.tsv')
+                    for i in range(n_chunks)]
+
+    fh_fasta  = [open(p, 'w') for p in chunk_fastas]
+    seq_to_fh = dict(zip(seq_sorted, cycle(fh_fasta)))
+    with open(fasta_split) as f:
+        header = None
+        for line in f:
+            if line[0] == '>':
+                header = line.strip().split()[0][1:]
+            seq_to_fh[header].write(line)
+    for fh in fh_fasta:
+        fh.close()
+    os.remove(fasta_split)
+
+    fh_gff     = [open(p, 'w') for p in chunk_gffs]
+    seq_to_gff = dict(zip(seq_sorted, cycle(fh_gff)))
+    with open(gff3_remapped) as f:
+        for line in f:
+            if not line or line[0] == '#':
+                continue
+            header = line.split('\t')[0]
+            if header in seq_to_gff:
+                seq_to_gff[header].write(line)
+    for fh in fh_gff:
+        fh.close()
+    os.remove(gff3_remapped)
+
+    # Per-chunk detection
+    for i in range(n_chunks):
+        logger.info("Processing chunk %d/%d ...", i + 1, n_chunks)
+        run_detect_chunk(
+            tool_path,
+            fasta=chunk_fastas[i],
+            gff3=chunk_gffs[i],
+            lib=lib,
+            trna_db=trna_db,
+            output_prefix=chunk_outs[i],
+            blast_out_path=chunk_blasts[i],
+            cpu=args.cpu,
+            min_identity=args.min_identity,
+            min_coverage=args.min_coverage,
+        )
+
+    # Merge chunk GFF3s: remap back to original coords, then dedup solo LTRs
+    merged_raw = os.path.join(chunks_dir, 'merged_raw.gff3')
+    with open(merged_raw, 'w') as fout:
+        fout.write('##gff-version 3\n')
+        for i in range(n_chunks):
+            chunk_gff = chunk_outs[i] + '.gff3'
+            if not os.path.exists(chunk_gff) or os.path.getsize(chunk_gff) == 0:
+                continue
+            remapped = recalculate_gff3_back_to_original_coordinates(
+                chunk_gff, matching_table
+            )
+            with open(remapped) as fin:
+                for line in fin:
+                    if line.startswith('#'):
+                        continue
+                    fout.write(line)
+            os.remove(remapped)
+
+    n_kept = dedup_solo_gff3(merged_raw, final_gff3)
+    logger.info("Merged GFF3: %d unique solo_LTR features kept", n_kept)
+    os.remove(merged_raw)
+
+    # Merge per-chunk statistics
+    stat_files = [f + '_statistics.csv' for f in chunk_outs]
+    merged_stats = merge_solo_stats(stat_files)
+    with open(final_stats, 'w') as fout:
+        fout.write('\n'.join(merged_stats) + '\n')
 
 
 if __name__ == '__main__':

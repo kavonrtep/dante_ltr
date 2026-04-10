@@ -38,7 +38,9 @@ option_list <- list(
   make_option(c("-C", "--min_coverage"), type = "numeric", default = 0.8,
               help = "Minimum alignment coverage of query LTR [default %default]"),
   make_option(c("-T", "--trna_db"), type = "character", default = NULL,
-              help = "tRNA BLAST database for PBS check (optional)")
+              help = "tRNA BLAST database for PBS check (optional)"),
+  make_option(c("--keep_blast"), type = "character", default = NULL,
+              help = "Path at which to save the raw BLAST tabular output (for debugging)")
 )
 
 parser <- OptionParser(option_list = option_list,
@@ -138,6 +140,15 @@ invisible(lapply(
              full.names = TRUE),
   unlink
 ))
+
+# Optionally keep raw BLAST output for debugging
+if (!is.null(opt$keep_blast)) {
+  if (file.exists(blast_out) && file.size(blast_out) > 0L) {
+    try(file.copy(blast_out, opt$keep_blast, overwrite = TRUE), silent = TRUE)
+  } else {
+    try(file.create(opt$keep_blast), silent = TRUE)
+  }
+}
 
 if (ret_blast != 0L || !file.exists(blast_out) || file.size(blast_out) == 0L) {
   cat("No BLAST hits found.\n")
