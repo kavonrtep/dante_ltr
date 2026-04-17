@@ -1,3 +1,43 @@
+## 0.4.0.6 (2026-04-17)
+
+`dante_ltr_solo` pipeline overhaul — library build, TSD detection,
+overlap handling, and performance.
+
+* **Library build (`utils/build_ltr_library.R`)**:
+  * 5'LTR-only flank-aware consensus. LTRs are extracted with `±flank` bp
+    (default 50) and aligned with MAFFT; the 5' boundary is refined by a
+    change-point scan on the per-column conservation profile. The 3'
+    boundary uses the median annotated position across the cluster.
+  * 3'LTRs are still used for the PPT tag database but no longer enter the
+    library consensus.
+  * New per-cluster QC TSV `*_LTR_library_boundary_qc.tsv` with annotated
+    vs corrected boundary columns, shift magnitudes, and body lengths.
+* **TSD detection (`check_tsd` in `utils/solo_ltr_utils.R`)**:
+  * Scans `(mode-1):(mode+1)` around the per-lineage modal TSD length
+    (clipped to 3-8); falls back to 4-6 bp when no lineage entry.
+  * 1-mismatch tolerance relaxed to length ≥ 4 (was ≥ 5).
+  * Two-pass search: exact match (longest first) always wins over 1-mm.
+* **LibraryID on every `solo_LTR`**: every hit carries the library
+  consensus id (`LibraryID=LTR_XXXXXX`) that produced it.
+* **Representative-per-locus output**: overlapping hits are now collapsed
+  with a ≥ 50 % reciprocal-overlap graph; two GFF3 files are produced:
+  * `solo_ltr_raw.gff3` — all hits (deduped by coordinate)
+  * `solo_ltr.gff3` — one representative per locus (SL preferred over
+    SL_noTSD, then longest, tie-break by identity/LibraryID)
+  * Representatives carry `ClusterSize`, `SupportingHits`, plus optional
+    `boundary_uncertain=true` (SL nested inside a longer SL_noTSD) and
+    `class_conflict=true` flags. New script
+    `utils/select_solo_representatives.R`.
+* **Performance**:
+  * Vectorised `make_solo_ltr_gff3()` (~260× faster on large chunks).
+  * Batched junction/PBS BLAST — one blastn invocation per database
+    instead of three per hit (~38× faster on that stage).
+  * Vectorised MSA helpers (conservation, sliding mean, consensus,
+    position mapping) and union-find for cluster grouping.
+  * Per-stage wall-clock profiling printed by every R script.
+  * End-to-end `detect_solo_ltr` ~4.6× faster (835 s → 180 s on the
+    reference test).
+
 ## 0.4.0.1 (2024-09-20)
 
 *  fix in installation instruction 

@@ -294,6 +294,18 @@ def build_ltr_library(tool_path, gff3, fasta, lib_dir, cpu):
     }
 
 
+def select_representatives(tool_path, in_gff, out_gff, annotation_gff, stats_out):
+    """Run select_solo_representatives.R: collapse overlapping hits to one rep per locus."""
+    cmd = [
+        f'{tool_path}/utils/select_solo_representatives.R',
+        '-i', in_gff,
+        '-o', out_gff,
+        '-a', annotation_gff,
+        '--stats_out', stats_out,
+    ]
+    run_subprocess(cmd, "Selecting representative solo LTR per locus")
+
+
 def run_detect_chunk(tool_path, fasta, gff3, lib, trna_db,
                      output_prefix, blast_out_path, cpu,
                      min_identity, min_coverage):
@@ -396,6 +408,8 @@ def _run(args, tool_path, out_dir, lib_dir, chunks_dir, ref_norm, gff3_input):
                        trna_db)
         trna_db = None
 
+    raw_gff3    = os.path.join(out_dir, 'solo_ltr_raw.gff3')
+    raw_stats   = os.path.join(out_dir, 'solo_ltr_raw_statistics.csv')
     final_gff3  = os.path.join(out_dir, 'solo_ltr.gff3')
     final_stats = os.path.join(out_dir, 'solo_ltr_statistics.csv')
 
@@ -408,21 +422,37 @@ def _run(args, tool_path, out_dir, lib_dir, chunks_dir, ref_norm, gff3_input):
 
     if not use_chunking:
         _run_no_chunking(args, tool_path, chunks_dir, ref_norm, gff3_input,
-                         lib, trna_db, final_gff3, final_stats)
+                         lib, trna_db, raw_gff3, raw_stats)
     else:
         _run_chunked(args, tool_path, chunks_dir, ref_norm, gff3_input,
-                     lib, trna_db, final_gff3, final_stats, total_size, n_seqs)
+                     lib, trna_db, raw_gff3, raw_stats, total_size, n_seqs)
 
-    # Add version header to output GFF3
-    if os.path.exists(final_gff3) and os.path.getsize(final_gff3) > 0:
-        add_version_to_gff3(final_gff3, __version__)
+    # Add version header to raw GFF3
+    if os.path.exists(raw_gff3) and os.path.getsize(raw_gff3) > 0:
+        add_version_to_gff3(raw_gff3, __version__)
 
-    logger.info("Done. Final GFF3:       %s", final_gff3)
-    logger.info("      Final statistics: %s", final_stats)
+    # Collapse raw hits to one representative per locus
+    if os.path.exists(raw_gff3) and os.path.getsize(raw_gff3) > 0:
+        select_representatives(tool_path, raw_gff3, final_gff3,
+                               annotation_gff=gff3_input,
+                               stats_out=final_stats)
+        if os.path.exists(final_gff3) and os.path.getsize(final_gff3) > 0:
+            add_version_to_gff3(final_gff3, __version__)
+    else:
+        # No raw output to collapse; write empty final files so downstream is predictable.
+        with open(final_gff3, 'w') as f:
+            f.write('##gff-version 3\n')
+        with open(final_stats, 'w') as f:
+            f.write('Classification\tSL\tSL_noTSD\tComplete_elements\tRsf\n')
+
+    logger.info("Done. Representative GFF3: %s", final_gff3)
+    logger.info("      Representative stats: %s", final_stats)
+    logger.info("      Raw GFF3            : %s", raw_gff3)
+    logger.info("      Raw stats           : %s", raw_stats)
 
 
 def _run_no_chunking(args, tool_path, chunks_dir, ref_norm, gff3_input,
-                     lib, trna_db, final_gff3, final_stats):
+                     lib, trna_db, raw_gff3, raw_stats):
     """Small-genome path: run detect_solo_ltr.R directly on the full genome."""
     logger.info("Running analysis on full genome (no chunking needed)")
 
@@ -445,21 +475,21 @@ def _run_no_chunking(args, tool_path, chunks_dir, ref_norm, gff3_input,
 
     chunk_gff = chunk_prefix + '_solo.gff3'
     if os.path.exists(chunk_gff):
-        shutil.copy(chunk_gff, final_gff3)
+        dedup_solo_gff3(chunk_gff, raw_gff3)
     else:
-        with open(final_gff3, 'w') as f:
+        with open(raw_gff3, 'w') as f:
             f.write('##gff-version 3\n')
 
     chunk_stats = chunk_prefix + '_solo_statistics.csv'
     if os.path.exists(chunk_stats):
-        shutil.copy(chunk_stats, final_stats)
+        shutil.copy(chunk_stats, raw_stats)
     else:
-        with open(final_stats, 'w') as f:
+        with open(raw_stats, 'w') as f:
             f.write('Classification\tSL\tSL_noTSD\tComplete_elements\tRsf\n')
 
 
 def _run_chunked(args, tool_path, chunks_dir, ref_norm, gff3_input,
-                 lib, trna_db, final_gff3, final_stats, total_size, n_seqs):
+                 lib, trna_db, raw_gff3, raw_stats, total_size, n_seqs):
     """Large-genome path: split into chunks, detect per-chunk, merge."""
     logger.info("Running analysis in chunks of ~%d bp", args.max_chunk_size)
 
@@ -543,14 +573,14 @@ def _run_chunked(args, tool_path, chunks_dir, ref_norm, gff3_input,
                     fout.write(line)
             os.remove(remapped)
 
-    n_kept = dedup_solo_gff3(merged_raw, final_gff3)
-    logger.info("Merged GFF3: %d unique solo_LTR features kept", n_kept)
+    n_kept = dedup_solo_gff3(merged_raw, raw_gff3)
+    logger.info("Raw merged GFF3: %d unique solo_LTR features kept", n_kept)
     os.remove(merged_raw)
 
-    # Merge per-chunk statistics
+    # Merge per-chunk statistics (raw counts; representative stats are emitted later)
     stat_files = [f + '_statistics.csv' for f in chunk_outs]
     merged_stats = merge_solo_stats(stat_files)
-    with open(final_stats, 'w') as fout:
+    with open(raw_stats, 'w') as fout:
         fout.write('\n'.join(merged_stats) + '\n')
 
 

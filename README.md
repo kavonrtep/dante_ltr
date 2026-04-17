@@ -6,6 +6,7 @@
   - [Quick start guide - How to use DANTE and DANTE_LTR on Galaxy server](#quick-start-guide---how-to-use-dante-and-dante_ltr-on-galaxy-server)
   - [Quick start guide - How to use command line version of DANTE and DANTE_LTR](#quick-start-guide---how-to-use-command-line-version-of-dante-and-dante_ltr)
   - [Tools description](#tools-description)
+  - [Solo LTR detection](#solo-ltr-detection)
   - [GFF3 DANTE_LTR output specification](#gff3-dante_ltr-output-specification)
   - [Modifying LTR-RT search constrains](#modifying-ltr-rt-search-constrains)
 
@@ -53,7 +54,7 @@ Detailed tutorial on how to use DANTE and DANTE_LTR on Galaxy server is [here](h
 
 #### Installation of both DANTE and DANTE_LTR using conda into single environment:
 ```shell
-conda create -n dante_ltr -c bioconda -c conda-forge -c petrnovak dante_ltr=0.4.0.5 dante=0.2.10
+conda create -n dante_ltr -c bioconda -c conda-forge -c petrnovak dante_ltr=0.4.0.6 dante=0.2.10
 conda activate dante_ltr
 ```
 #### Download example data:
@@ -169,6 +170,90 @@ options:
 
 ```
 
+
+## Solo LTR detection
+
+`dante_ltr_solo` identifies solo LTR retrotransposons (LTR/LTR recombination
+remnants that have lost their internal region) outside of the elements
+already annotated by `dante_ltr`. The tool reuses the complete-element
+annotation to build a per-lineage LTR reference library, then searches the
+genome and validates each candidate with target site duplication (TSD) and
+junction checks.
+
+```
+usage: dante_ltr_solo -g GFF3 -s REFERENCE_SEQUENCE -o OUTPUT_DIR [-c CPU]
+                      [-i MIN_IDENTITY] [-C MIN_COVERAGE] [-S MAX_CHUNK_SIZE]
+
+options:
+  -g GFF3, --gff3 GFF3         DANTE_LTR annotation GFF3 (from dante_ltr).
+  -s REFERENCE_SEQUENCE        Reference genome FASTA.
+  -o OUTPUT_DIR                Output directory.
+  -c CPU                       Number of CPUs.
+  -i MIN_IDENTITY              Minimum BLAST % identity (default 80).
+  -C MIN_COVERAGE              Minimum alignment coverage of library LTR
+                               (default 0.8).
+  -S MAX_CHUNK_SIZE            Genome chunk size for parallel search
+                               (default 100000000).
+```
+
+#### Pipeline overview
+
+1. Build a non-redundant LTR library from all complete elements
+   (`utils/build_ltr_library.R`). Only 5'LTRs are used; each cluster's
+   consensus is refined by change-point detection on the 5' flank
+   conservation profile.
+2. BLAST the library against the genome.
+3. Discard hits overlapping annotated complete elements by > 20 bp.
+4. Validate TSDs around each surviving hit (scan ± 1 bp around the
+   lineage-modal TSD length; allow one mismatch for length ≥ 4).
+5. For hits without TSD, run three junction / PBS checks (UTR5, PPT, PBS)
+   in batched BLAST calls.
+6. Collapse overlapping hits into representatives (`≥ 50 %` reciprocal
+   overlap of the shorter member). SL (with TSD) wins over SL_noTSD;
+   otherwise the longest is picked.
+
+#### Example
+
+```bash
+dante_ltr_solo -g DANTE_LTR_annotation.gff3 \
+               -s sample_genome.fasta \
+               -o solo_output -c 10
+```
+
+#### Output files
+
+- `solo_ltr.gff3` — one representative per locus. This is the file to use
+  for downstream analysis.
+- `solo_ltr_raw.gff3` — every BLAST hit (deduped by exact coordinates).
+  Useful for QC / inspecting fragmentation.
+- `solo_ltr_statistics.csv` — per-lineage counts of SL, SL_noTSD,
+  complete elements, and the `Rsf` ratio (solo / complete), computed on
+  the representative file.
+- `solo_ltr_raw_statistics.csv` — the same counts computed on the raw
+  file (inflated by duplicates, kept for comparison).
+- `library/` — the LTR library built from the input annotation, including
+  the MAFFT per-cluster alignments and a per-cluster
+  `*_LTR_library_boundary_qc.tsv` QC table.
+- `chunks/` — per-chunk intermediate outputs and raw BLAST tabular files.
+
+#### Additional `solo_LTR` attributes
+
+- `Rank` — `SL` (TSD confirmed) or `SL_noTSD`.
+- `TSD` — the TSD sequence (exact) or `SEQ1/SEQ2` for 1-mismatch, or
+  `not_found`.
+- `LibraryID` — the library consensus id (`LTR_XXXXXX`) that produced the
+  hit.
+- `ClusterSize` — number of raw hits collapsed into this representative.
+- `SupportingHits` — comma-separated `LibraryID`s of the other raw hits
+  in the cluster (omitted when `ClusterSize == 1`).
+- `boundary_uncertain=true` — the SL representative is strictly contained
+  (≥ 80 % of its length) inside a longer SL_noTSD member of the same
+  cluster, indicating the representative's boundaries may be too tight.
+- `class_conflict=true` — at least one reciprocal-overlap pair in the
+  cluster had different `Final_Classification`.
+- `UTR5_junction`, `PPT_junction`, `PBS_check` — for `SL_noTSD` rows:
+  `positive` indicates the hit looks like a fragment of an unannotated
+  complete element on that side; `not_applicable` for `SL` rows.
 
 ## GFF3 DANTE_LTR output specification
 Types of features in GFF3:

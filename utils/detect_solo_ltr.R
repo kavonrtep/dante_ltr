@@ -12,6 +12,7 @@ script_name     <- normalizePath(
 )
 script_dir <- dirname(script_name)
 
+options(warn = 1)    # emit warnings as they occur — makes profiling/debugging easier
 suppressPackageStartupMessages(library(optparse))
 
 option_list <- list(
@@ -85,10 +86,14 @@ db_exists <- function(prefix) {
 # MAIN
 # ============================================================
 
+t_all_start <- proc.time()[["elapsed"]]
+
+t0 <- proc.time()[["elapsed"]]
 cat("Reading genome chunk ...\n")
 s        <- readDNAStringSet(opt$reference_sequence)
 names(s) <- gsub("\\s.+", "", names(s))
 sl_vec   <- setNames(as.integer(nchar(s)), names(s))
+t_read_seq <- proc.time()[["elapsed"]] - t0
 
 cat("Reading GFF3 ...\n")
 gff <- if (file.exists(opt$gff3) && file.size(opt$gff3) > 0L) {
@@ -113,13 +118,16 @@ tsd_map <- if (nrow(tsd_map_df) > 0L) {
 } else NULL
 
 # ---- BLAST LTR library vs genome ----
+t0 <- proc.time()[["elapsed"]]
 cat("Building BLAST database from genome chunk ...\n")
 blast_db <- tempfile()
 ret_mkdb <- system(paste("makeblastdb -in", opt$reference_sequence,
                           "-dbtype nucl -out", blast_db,
                           "-title genome_chunk 2>/dev/null"))
 if (ret_mkdb != 0L) stop("makeblastdb failed", call. = FALSE)
+t_mkdb <- proc.time()[["elapsed"]] - t0
 
+t0 <- proc.time()[["elapsed"]]
 cat("Running BLAST ...\n")
 blast_out <- tempfile()
 ret_blast <- system(paste(
@@ -132,6 +140,7 @@ ret_blast <- system(paste(
   '-outfmt "6 qaccver saccver pident length qlen qstart qend sstart send sstrand evalue bitscore"',
   "-out", blast_out, "2>/dev/null"
 ))
+t_blast <- proc.time()[["elapsed"]] - t0
 
 # Clean up BLAST DB temp files
 invisible(lapply(
@@ -156,6 +165,7 @@ if (ret_blast != 0L || !file.exists(blast_out) || file.size(blast_out) == 0L) {
   quit(save = "no", status = 0L)
 }
 
+t0 <- proc.time()[["elapsed"]]
 hits_raw <- tryCatch(
   read.table(blast_out, as.is = TRUE, sep = "\t",
              col.names = c("qaccver", "saccver", "pident", "length", "qlen",
@@ -164,6 +174,7 @@ hits_raw <- tryCatch(
   error = function(e) data.frame()
 )
 unlink(blast_out)
+t_parse_blast <- proc.time()[["elapsed"]] - t0
 
 if (nrow(hits_raw) == 0L) {
   cat("No BLAST hits after parsing.\n")
@@ -172,9 +183,11 @@ if (nrow(hits_raw) == 0L) {
 }
 
 # ---- Filter hits ----
+t0 <- proc.time()[["elapsed"]]
 hits_raw$coverage <- hits_raw$length / hits_raw$qlen
 hits_raw <- hits_raw[hits_raw$coverage >= opt$min_coverage &
                      hits_raw$evalue   <= 1e-5, , drop = FALSE]
+t_filter <- proc.time()[["elapsed"]] - t0
 
 if (nrow(hits_raw) == 0L) {
   cat("No hits pass identity/coverage filters.\n")
@@ -198,11 +211,13 @@ hits_gr <- GRanges(
   strand               = hits_raw$h_strand,
   Final_Classification = hits_raw$Final_Classification,
   Identity             = round(hits_raw$pident, 2),
-  Coverage             = round(hits_raw$coverage, 3)
+  Coverage             = round(hits_raw$coverage, 3),
+  LibraryID            = as.character(hits_raw$qaccver)
 )
 seqlengths(hits_gr) <- sl_vec[seqlevels(hits_gr)]
 
 # ---- Remove hits overlapping annotated features ----
+t0 <- proc.time()[["elapsed"]]
 cat("Removing hits overlapping annotated elements ...\n")
 if (length(gff) > 0L && length(hits_gr) > 0L) {
   ovl <- findOverlaps(hits_gr, gff, ignore.strand = TRUE)
@@ -215,6 +230,7 @@ if (length(gff) > 0L && length(hits_gr) > 0L) {
     if (length(remove_idx) > 0L) hits_gr <- hits_gr[-remove_idx]
   }
 }
+t_ovl_filter <- proc.time()[["elapsed"]] - t0
 
 if (length(hits_gr) == 0L) {
   cat("No hits remain after overlap filtering.\n")
@@ -224,14 +240,18 @@ if (length(hits_gr) == 0L) {
 cat(sprintf("%d hits after overlap filtering\n", length(hits_gr)))
 
 # ---- TSD check ----
+t0 <- proc.time()[["elapsed"]]
 cat("Checking TSDs ...\n")
+# preschedule=TRUE splits work into mc.cores chunks — far less fork/IPC overhead
+# than one task per hit (we have thousands of hits, each check is fast).
 tsd_results <- mclapply(seq_along(hits_gr), function(i) {
   hit  <- hits_gr[i]
   lin  <- as.character(hit$Final_Classification)
   tlen <- if (!is.null(tsd_map)) tsd_map[lin] else NULL
   if (!is.null(tlen) && (length(tlen) == 0L || is.na(tlen))) tlen <- NULL
   check_tsd(hit, s, tlen)
-}, mc.cores = opt$cpu, mc.preschedule = FALSE)
+}, mc.cores = opt$cpu, mc.preschedule = TRUE)
+t_tsd <- proc.time()[["elapsed"]] - t0
 
 n_confirmed <- sum(sapply(tsd_results, `[[`, "confirmed"))
 n_failed    <- length(tsd_results) - n_confirmed
@@ -247,30 +267,42 @@ utr5_ok <- db_exists(opt$utr5_db)
 ppt_ok  <- db_exists(opt$ppt_db)
 trna_ok <- !is.null(opt$trna_db) && db_exists(opt$trna_db)
 
+t0 <- proc.time()[["elapsed"]]
+t_utr5 <- t_ppt <- t_pbs <- 0
 if (length(failed_idx) > 0L) {
-  cat(sprintf("Running junction/PBS checks on %d no-TSD hits ...\n", length(failed_idx)))
+  cat(sprintf("Running batched junction/PBS checks on %d no-TSD hits ...\n",
+              length(failed_idx)))
+  failed_hits <- hits_gr[failed_idx]
 
-  junc <- mclapply(failed_idx, function(i) {
-    hit <- hits_gr[i]
-    list(
-      utr5 = if (utr5_ok) check_utr5_junction(hit, s, opt$utr5_db) else FALSE,
-      ppt  = if (ppt_ok)  check_ppt_junction(hit, s, opt$ppt_db)   else FALSE,
-      pbs  = if (trna_ok) check_pbs_solo(hit, s, opt$trna_db)      else FALSE
-    )
-  }, mc.cores = opt$cpu, mc.preschedule = FALSE)
-
-  for (k in seq_along(failed_idx)) {
-    i <- failed_idx[k]
-    utr5_results[i] <- junc[[k]]$utr5
-    ppt_results[i]  <- junc[[k]]$ppt
-    pbs_results[i]  <- junc[[k]]$pbs
+  if (utr5_ok) {
+    t_sub <- proc.time()[["elapsed"]]
+    utr5_vec <- batch_check_junction(failed_hits, s, "downstream", opt$utr5_db,
+                                     cpu = opt$cpu)
+    utr5_results[failed_idx] <- utr5_vec
+    t_utr5 <- proc.time()[["elapsed"]] - t_sub
+  }
+  if (ppt_ok) {
+    t_sub <- proc.time()[["elapsed"]]
+    ppt_vec <- batch_check_junction(failed_hits, s, "upstream", opt$ppt_db,
+                                    cpu = opt$cpu)
+    ppt_results[failed_idx] <- ppt_vec
+    t_ppt <- proc.time()[["elapsed"]] - t_sub
+  }
+  if (trna_ok) {
+    t_sub <- proc.time()[["elapsed"]]
+    pbs_vec <- batch_check_pbs(failed_hits, s, opt$trna_db, cpu = opt$cpu)
+    pbs_results[failed_idx] <- pbs_vec
+    t_pbs <- proc.time()[["elapsed"]] - t_sub
   }
 }
+t_junc <- proc.time()[["elapsed"]] - t0
 
 # ---- Assemble GFF3 ----
+t0 <- proc.time()[["elapsed"]]
 cat("Assembling output GFF3 ...\n")
 gff_out <- make_solo_ltr_gff3(hits_gr, tsd_results,
                                utr5_results, ppt_results, pbs_results)
+t_assemble <- proc.time()[["elapsed"]] - t0
 
 if (length(gff_out) == 0L) {
   cat("No features to write.\n")
@@ -290,13 +322,35 @@ if (length(tsd_idx) > 0L) {
   )
 }
 
+t0 <- proc.time()[["elapsed"]]
 export(gff_out, con = paste0(opt$output, ".gff3"), format = "gff3")
+t_export <- proc.time()[["elapsed"]] - t0
 
 # ---- Statistics ----
+t0 <- proc.time()[["elapsed"]]
 stats_tbl <- get_solo_ltr_statistics(gff_out, gff)
 write.table(stats_tbl,
             file  = paste0(opt$output, "_statistics.csv"),
             sep   = "\t", quote = FALSE, row.names = FALSE)
+t_stats <- proc.time()[["elapsed"]] - t0
 
 cat(sprintf("Done. %d solo_LTR features (%d SL, %d SL_noTSD) written to %s.gff3\n",
             length(solo_idx), n_confirmed, n_failed, opt$output))
+
+t_total <- proc.time()[["elapsed"]] - t_all_start
+cat("\n[timing] detect_solo_ltr breakdown (wall-clock s):\n")
+cat(sprintf("  read genome      : %6.2f\n", t_read_seq))
+cat(sprintf("  makeblastdb      : %6.2f\n", t_mkdb))
+cat(sprintf("  blastn           : %6.2f\n", t_blast))
+cat(sprintf("  parse blast      : %6.2f\n", t_parse_blast))
+cat(sprintf("  coverage filter  : %6.2f\n", t_filter))
+cat(sprintf("  overlap GFF filt : %6.2f\n", t_ovl_filter))
+cat(sprintf("  TSD checks (mc)  : %6.2f\n", t_tsd))
+cat(sprintf("  junction/PBS tot : %6.2f\n", t_junc))
+cat(sprintf("    UTR5 batch     : %6.2f\n", t_utr5))
+cat(sprintf("    PPT  batch     : %6.2f\n", t_ppt))
+cat(sprintf("    PBS  batch     : %6.2f\n", t_pbs))
+cat(sprintf("  assemble GFF3    : %6.2f\n", t_assemble))
+cat(sprintf("  export GFF3      : %6.2f\n", t_export))
+cat(sprintf("  stats            : %6.2f\n", t_stats))
+cat(sprintf("  --- total        : %6.2f\n", t_total))

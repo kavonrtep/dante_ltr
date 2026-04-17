@@ -211,3 +211,55 @@ dante_ltr_solo -g DANTE_LTR_annotation.gff3 \
 3. **Nested elements**: A solo LTR inside another unannotated TE will survive Step 3. This is a very edge case depending on DANTE_LTR completeness and is deferred to future work.
 
 4. **BLAST for search**: BLAST is preferred over MMseqs2 for sensitivity and interpretability. It is already a dependency and shares output format with the PBS-check BLAST calls. MMseqs2 can be added as an optional fast backend in a future version if runtime becomes a bottleneck on very large genomes.
+
+---
+
+## Post-design additions (v0.4.0.6)
+
+The initial design above was extended by the following changes, documented
+here so the algorithmic picture stays complete:
+
+- **Flank-aware boundary refinement in the library (Step 1).** The
+  consensus is no longer just a column-wise majority of the annotated LTR
+  bodies. Each 5'LTR is extracted with `±flank` bp (default 50). Per
+  cluster, a per-column conservation profile is computed and the 5'
+  boundary is set by a change-point scan (high → low) walking from inside
+  the body outward into the 5' flank. The 3' boundary stays at the median
+  annotated position because the 3' flank of a 5'LTR (start of the
+  internal region) is itself conserved across copies of the same family.
+  3'LTRs are excluded from the consensus set (still used for PPT tags).
+  Rationale and edge cases: `solo_ltr_library_consensus_design.md`,
+  `solo_ltr_library_consensus_implementation_plan.md`.
+
+- **Widened TSD detection (Step 4a).** `check_tsd()` scans
+  `(mode − 1) : (mode + 1)` around the per-lineage modal length
+  (clipped to `[3, 8]`), not just the single modal value. Exact matches
+  are preferred over 1-mismatch at any length; 1-mismatch is allowed for
+  `length ≥ 4` (was `≥ 5`). This recovers 4 bp and 6 bp TSDs that the
+  previous single-length scan could never detect.
+
+- **`LibraryID` on every hit.** The library consensus id
+  (`LTR_XXXXXX`) that produced each BLAST hit is kept in `hits_gr` and
+  written to the GFF3.
+
+- **Representative-per-locus step (new Step 6, `select_solo_representatives.R`).**
+  Raw hits within a single chunk often include many overlapping copies of
+  the same locus produced by different library consensuses. After Step 5
+  we build a reciprocal-overlap graph (edge when `ov / min(width) ≥ 0.5`)
+  via union-find, pick one representative per connected component
+  (SL > SL_noTSD, longest, tie-break by identity and `LibraryID`), and
+  emit it with `ClusterSize`, `SupportingHits`, and two demotion flags:
+  - `boundary_uncertain=true` — the SL representative is strictly
+    contained (≥ 80 % of its length) inside a longer SL_noTSD in the same
+    cluster, a signal that the SL boundary may be too tight;
+  - `class_conflict=true` — at least one intra-cluster reciprocal-overlap
+    pair has different `Final_Classification`.
+  Both the raw GFF3 and the representative GFF3 are emitted (`_raw.gff3`
+  and `.gff3` respectively). Rationale: `solo_ltr_representatives_implementation_plan.md`.
+
+- **Performance.** The per-hit loop in `make_solo_ltr_gff3()` was
+  replaced with whole-vector GRanges construction (~260× faster on large
+  chunks); the UTR5/PPT/PBS junction checks now do one batched `blastn`
+  per database instead of three per hit (~38× faster on that stage). MSA
+  helpers use `colSums` / `max.col` / cumsum instead of per-column loops.
+  Every R script prints a per-stage wall-clock timing block on exit.
