@@ -79,6 +79,19 @@ t_read <- proc.time()[["elapsed"]] - t0
 if (length(solo) == 0L) {
   writeLines("##gff-version 3", opt$output)
   cat("No solo_LTR features in input; wrote empty output.\n")
+  # Still emit an empty stats CSV so downstream callers get a consistent file set.
+  if (!is.null(opt$annotation_gff3)) {
+    stats_path <- if (!is.null(opt$stats_out)) opt$stats_out
+                  else sub("\\.gff3?$", "_statistics.csv", opt$output,
+                           ignore.case = TRUE)
+    write.table(
+      data.frame(Classification = character(0L), SL = integer(0L),
+                 SL_noTSD = integer(0L), Complete_elements = integer(0L),
+                 Rsf = numeric(0L)),
+      file = stats_path, sep = "\t", quote = FALSE, row.names = FALSE
+    )
+    cat(sprintf("Empty stats written: %s\n", stats_path))
+  }
   quit(save = "no", status = 0L)
 }
 

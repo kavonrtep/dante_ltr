@@ -1,0 +1,45 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  smoke-and-short:
+    name: smoke + short
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up miniforge / mamba
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
+          auto-update-conda: false
+          use-mamba: true
+          activate-environment: dante_ltr
+          python-version: "3.11"
+          channels: conda-forge,bioconda,petrnovak
+          channel-priority: strict
+
+      - name: Install runtime dependencies
+        run: |
+          # requirements.txt uses conda-format pins shared with the recipe
+          mamba install -y --file requirements.txt
+
+      - name: Show environment
+        run: |
+          mamba info
+          mamba list
+
+      - name: Smoke test
+        run: ./tests.sh smoke
+
+      - name: Short test
+        run: ./tests.sh short

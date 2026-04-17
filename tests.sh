@@ -1,46 +1,49 @@
 #!/bin/bash
-# set to stop in case of error
-set -e
-# first argument is cpu number
-NCPU_TO_USE=$1
+# tests.sh — dispatcher. Run a specific test level:
+#   ./tests.sh smoke         # < 30 s, runs on every PR
+#   ./tests.sh short         # ~1 min, runs on every PR
+#   ./tests.sh long          # ~10-30 min, runs on release tags
+#   ./tests.sh all           # smoke + short + long
+#
+# Backwards compat: if the first argument is a number, treat it as CPU
+# count and run the long test (old behaviour of ./tests.sh 4).
+#
+# NCPU can also be set via the NCPU env var.
+set -euo pipefail
 
-# test if NCPU_TO_USE is set:
-if [ -z "${NCPU_TO_USE}" ]; then
-    echo "NCPU_TO_USE is not set, using 10"
-    NCPU_TO_USE=10
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+cd "$ROOT"
+
+LEVEL="${1:-smoke}"
+export NCPU="${NCPU:-${2:-2}}"
+
+# Numeric first arg -> legacy mode (long test)
+if [[ "$LEVEL" =~ ^[0-9]+$ ]]; then
+  export NCPU="$LEVEL"
+  LEVEL="long"
 fi
 
-eval "$(conda shell.bash hook)"
-conda activate dante_ltr
-echo "Running tests 1, detection of LTRs"
-./dante_ltr -s test_data/sample_genome.fasta \
--g test_data/sample_DANTE.gff3 -o tmp/test_output1 -c $NCPU_TO_USE
+# Some environments need an explicit conda activate; but in CI we run
+# inside an already-activated environment. Activate only if conda is on PATH
+# and we are not already in the env.
+if command -v conda >/dev/null 2>&1 && [ -z "${CONDA_DEFAULT_ENV:-}" ]; then
+  eval "$(conda shell.bash hook)"
+  if conda env list | grep -q '^dante_ltr '; then
+    conda activate dante_ltr
+  fi
+fi
 
-
-cat tmp/test_output1_statistics.csv
-
-echo "Running tests 2, create library"
-./dante_ltr_to_library -s test_data/sample_genome.fasta \
--g tmp/test_output1.gff3 -o tmp/test_output2 -c $NCPU_TO_USE
-
-echo "Running tests 3, detection of LTRs, allow missing domains"
-./dante_ltr -s test_data/sample_genome.fasta \
--g test_data/sample_DANTE.gff3 -o tmp/test_output3 -c $NCPU_TO_USE -M 2
-
-
-cat tmp/test_output3_statistics.csv
-
-echo "Running tests 4, create library"
-./dante_ltr_to_library -s test_data/sample_genome.fasta \
--g tmp/test_output3.gff3 -o tmp/test_output4 -c $NCPU_TO_USE
-
-echo "Running test 5, solo LTR detection"
-./dante_ltr_solo \
-  -g tmp/test_output1.gff3 \
-  -s test_data/sample_genome.fasta \
-  -o tmp/test_solo_output \
-  -c $NCPU_TO_USE
-
-cat tmp/test_solo_output_statistics.csv
-
-
+case "$LEVEL" in
+  smoke) bash "$ROOT/tests/smoke.sh" ;;
+  short) bash "$ROOT/tests/short.sh" ;;
+  long)  bash "$ROOT/tests/long.sh"  ;;
+  all)
+    bash "$ROOT/tests/smoke.sh"
+    bash "$ROOT/tests/short.sh"
+    bash "$ROOT/tests/long.sh"
+    ;;
+  *)
+    echo "usage: $0 {smoke|short|long|all|<NCPU>}" >&2
+    exit 2
+    ;;
+esac

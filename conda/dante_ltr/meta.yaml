@@ -1,0 +1,53 @@
+{% set data = load_file_data('../../version.py') %}
+{% set version = data.get('__version__') %}
+
+package:
+  name: dante_ltr
+  version: {{ version }}
+
+source:
+  # Build from the checked-out source tree. No URL / sha256 needed;
+  # CI checks out at the release tag and the build consumes that tree.
+  path: ../..
+
+build:
+  number: 0
+  noarch: generic
+
+requirements:
+  run:
+    - python >=3.6.0
+    - r-optparse
+    - r-dplyr =1.0.7
+    - bioconductor-biostrings
+    - bioconductor-bsgenome
+    - bioconductor-rtracklayer
+    - blast
+    - bedtools >=2.23.0
+    - mmseqs2 >=14
+    - mafft >=7.490
+    - tidehunter =1.4.3
+
+test:
+  commands:
+    - dante_ltr --version
+    - dante_ltr --help | grep -q 'usage'
+    - dante_ltr_solo --help | grep -q 'usage'
+    - dante_ltr_to_library --help | grep -q 'usage'
+    - dante_ltr_summary --help | grep -qi 'usage'
+
+about:
+  home: https://github.com/kavonrtep/dante_ltr
+  dev_url: https://github.com/kavonrtep/dante_ltr
+  license: GPL-3.0-only
+  license_family: GPL3
+  license_file: LICENSE
+  summary: >
+    DANTE_LTR — domain-based identification of complete LTR retrotransposons
+    and solo LTRs from DANTE annotation.
+
+extra:
+  copy_test_source_files: true
+  final: true
+  recipe-maintainers:
+    - kavonrtep
