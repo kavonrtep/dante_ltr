@@ -102,6 +102,20 @@ detect_5p_change_point <- function(cw, ann_col, flank, T_high, T_low) {
   NA_integer_
 }
 
+# 3' boundary change-point. Walk from inside body (ann_col) outward into the 3' flank.
+# Return the corrected MSA column of the last LTR base, or NA if no clear transition.
+detect_3p_change_point <- function(cw, ann_col, flank, T_high, T_low) {
+  n <- length(cw)
+  if (is.na(ann_col) || ann_col < 1L || ann_col > n) return(NA_integer_)
+  hi <- min(n, ann_col + flank)
+  high_seen <- FALSE
+  for (i in seq.int(ann_col, hi)) {
+    if (!high_seen && cw[i] >= T_high) high_seen <- TRUE
+    if (high_seen && cw[i] < T_low) return(as.integer(i - 1L))
+  }
+  NA_integer_
+}
+
 # Majority consensus from a precomputed base-count matrix, vectorized.
 # Gaps/Ns excluded; columns with no non-gap residue are skipped.
 majority_from_counts <- function(bc, col_from, col_to) {
@@ -129,6 +143,7 @@ mafft_boundary_consensus <- function(extended_seqs, body_starts_raw, body_ends_r
                                      T_high = 0.7, T_low = 0.4,
                                      min_consensus_len = 50L,
                                      max_length_shrink = 0.5,
+                                     roles = NULL,
                                      timing_env = NULL) {
 
   add_time <- function(slot, dt) {
@@ -149,11 +164,14 @@ mafft_boundary_consensus <- function(extended_seqs, body_starts_raw, body_ends_r
   )
   add_time("mafft", proc.time()[["elapsed"]] - t0)
 
+  n_5ltr_in <- if (!is.null(roles)) sum(roles == "5LTR") else length(extended_seqs)
+  n_3ltr_in <- if (!is.null(roles)) sum(roles == "3LTR") else 0L
   fallback_qc <- function() data.frame(
     ltr_id = ltr_id, Final_Classification = lineage,
     n_members = length(extended_seqs),
+    n_5ltr = n_5ltr_in, n_3ltr = n_3ltr_in,
     annotated_5_col = NA_integer_, corrected_5_col = NA_integer_, shift_5 = NA_integer_,
-    annotated_3_col = NA_integer_,
+    annotated_3_col = NA_integer_, corrected_3_col = NA_integer_, shift_3 = NA_integer_,
     consensus_length = NA_integer_,
     median_annot_body_len = as.integer(median(body_ends_raw - body_starts_raw + 1L)),
     stringsAsFactors = FALSE
@@ -200,40 +218,64 @@ mafft_boundary_consensus <- function(extended_seqs, body_starts_raw, body_ends_r
                        max.col(start_cond, ties.method = "first"), n_cols)
   end_cols   <- ifelse(rowSums(end_cond) > 0L,
                        max.col(end_cond,   ties.method = "first"), n_cols)
-  ann_5_col <- as.integer(median(start_cols))
-  ann_3_col <- as.integer(median(end_cols))
   add_time("position_map", proc.time()[["elapsed"]] - t0)
 
-  # Conservation profile + change-point (shared base-count matrix).
+  # Per-subset row masks. When no roles are supplied, treat every row as 5'LTR
+  # and leave the 3' boundary uncorrected (legacy behaviour).
+  is_5 <- if (!is.null(roles)) roles == "5LTR" else rep(TRUE, n_members)
+  is_3 <- if (!is.null(roles)) roles == "3LTR" else rep(FALSE, n_members)
+
+  # Annotated column medians — take each from the subset whose flank drives
+  # the corresponding change-point scan, so they are consistent.
+  ann_5_col <- as.integer(median(start_cols[is_5]))
+  ann_3_col <- if (any(is_3)) as.integer(median(end_cols[is_3]))
+               else          as.integer(median(end_cols))
+
+  # Conservation: full matrix for the consensus vote; per-subset matrices
+  # for the change-point scans.
   t0 <- proc.time()[["elapsed"]]
-  bc    <- base_counts(mat)
-  cprof <- conservation_profile(bc)
-  cw    <- sliding_mean(cprof, conservation_window)
+  bc_all <- base_counts(mat)
+  bc_5   <- base_counts(mat[is_5, , drop = FALSE])
+  cw_5   <- sliding_mean(conservation_profile(bc_5), conservation_window)
+  cw_3   <- if (any(is_3)) {
+    sliding_mean(conservation_profile(
+      base_counts(mat[is_3, , drop = FALSE])
+    ), conservation_window)
+  } else NULL
   add_time("conservation", proc.time()[["elapsed"]] - t0)
 
   t0 <- proc.time()[["elapsed"]]
-  corrected_5 <- detect_5p_change_point(cw, ann_5_col, flank, T_high, T_low)
+  corrected_5 <- detect_5p_change_point(cw_5, ann_5_col, flank, T_high, T_low)
   if (is.na(corrected_5)) corrected_5 <- ann_5_col
 
-  # Sanity: resulting body length must stay within max_length_shrink of the annotated median
+  corrected_3 <- if (!is.null(cw_3)) {
+    detect_3p_change_point(cw_3, ann_3_col, flank, T_high, T_low)
+  } else NA_integer_
+  if (is.na(corrected_3)) corrected_3 <- ann_3_col
+
+  # Sanity: total body length must stay within max_length_shrink of the annotated median
   median_body_len <- as.integer(median(body_ends_raw - body_starts_raw + 1L))
-  new_len <- ann_3_col - corrected_5 + 1L
+  new_len <- corrected_3 - corrected_5 + 1L
   if (is.na(new_len) || new_len < max_length_shrink * median_body_len) {
     corrected_5 <- ann_5_col
+    corrected_3 <- ann_3_col
   }
   add_time("change_point", proc.time()[["elapsed"]] - t0)
 
   t0 <- proc.time()[["elapsed"]]
-  consensus <- majority_from_counts(bc, corrected_5, ann_3_col)
+  consensus <- majority_from_counts(bc_all, corrected_5, corrected_3)
   add_time("consensus_build", proc.time()[["elapsed"]] - t0)
 
   qc <- data.frame(
     ltr_id = ltr_id, Final_Classification = lineage,
     n_members = n_members,
+    n_5ltr = sum(is_5), n_3ltr = sum(is_3),
     annotated_5_col = ann_5_col,
     corrected_5_col = as.integer(corrected_5),
     shift_5 = as.integer(corrected_5 - ann_5_col),
     annotated_3_col = ann_3_col,
+    corrected_3_col = as.integer(corrected_3),
+    shift_3 = as.integer(corrected_3 - ann_3_col),
     consensus_length = as.integer(nchar(consensus)),
     median_annot_body_len = median_body_len,
     stringsAsFactors = FALSE
@@ -323,49 +365,62 @@ ltr_class  <- te_class[ltr_parent]
 ltr_ltr    <- as.character(ltr_feat$LTR)   # "5LTR" or "3LTR"
 ltr_rank[is.na(ltr_rank)] <- "DL"
 
-# ---- Restrict to 5'LTRs for library build (3'LTRs used only for PPT tags) ----
+# ---- Extract body + extended sequences for ALL LTRs (5' and 3') ----
+# Clustering still uses 5'LTR bodies only, but the MAFFT step now also
+# includes sibling 3'LTRs so the 3' boundary can be change-point-corrected.
 seqlengths(ltr_feat) <- sl_vec[seqlevels(ltr_feat)]
 
 ltr5_mask <- ltr_ltr == "5LTR" & !is.na(ltr_ltr)
 if (!any(ltr5_mask)) {
   stop("No 5'LTR features in input GFF3 — cannot build library.", call. = FALSE)
 }
-ltr_feat_5     <- ltr_feat[ltr5_mask]
-ltr_rank_5     <- ltr_rank[ltr5_mask]
-ltr_class_5    <- ltr_class[ltr5_mask]
-ltr_priority_5 <- RANK_PRIORITY[ltr_rank_5]
-ltr_priority_5[is.na(ltr_priority_5)] <- 0L
 
-cat(sprintf("Using %d 5'LTR features for library build (3'LTRs excluded from clustering)\n",
-            length(ltr_feat_5)))
+ltr_priority_all <- RANK_PRIORITY[ltr_rank]
+ltr_priority_all[is.na(ltr_priority_all)] <- 0L
+
+cat(sprintf("Using %d 5'LTRs for clustering; %d 3'LTR siblings will join the MSA\n",
+            sum(ltr5_mask), sum(ltr_ltr == "3LTR" & !is.na(ltr_ltr))))
 
 # Body-only sequences (for MMseqs2 clustering and small-cluster fallback)
-ltr_body_seqs <- getSeq(s, ltr_feat_5)
+ltr_body_seqs_all <- getSeq(s, ltr_feat)
 
 # Extended ranges with ± flank, strand-aware via getSeq
 F_flank  <- opt$flank
-sn_v     <- as.character(seqnames(ltr_feat_5))
-strand_v <- as.character(strand(ltr_feat_5))
+sn_v     <- as.character(seqnames(ltr_feat))
+strand_v <- as.character(strand(ltr_feat))
 sl_per   <- sl_vec[sn_v]
-ext_start <- pmax(1L,     start(ltr_feat_5) - F_flank)
-ext_end   <- pmin(sl_per, end(ltr_feat_5)   + F_flank)
+ext_start <- pmax(1L,     start(ltr_feat) - F_flank)
+ext_end   <- pmin(sl_per, end(ltr_feat)   + F_flank)
 ltr_feat_ext <- GRanges(sn_v, IRanges(ext_start, ext_end), strand = strand_v)
 seqlengths(ltr_feat_ext) <- sl_vec[seqlevels(ltr_feat_ext)]
-ltr_ext_seqs <- getSeq(s, ltr_feat_ext)
+ltr_ext_seqs_all <- getSeq(s, ltr_feat_ext)
 
 # Per-member offsets in biological orientation
-gleft          <- start(ltr_feat_5) - ext_start   # genomic-left bases kept
-gright         <- ext_end - end(ltr_feat_5)       # genomic-right bases kept
+gleft          <- start(ltr_feat) - ext_start    # genomic-left bases kept
+gright         <- ext_end - end(ltr_feat)        # genomic-right bases kept
 bio_5flank_len <- ifelse(strand_v == "-", gright, gleft)
-bio_body_len   <- width(ltr_feat_5)
+bio_body_len   <- width(ltr_feat)
 
 # Annotated boundary positions in the raw extended sequence (1-based)
 ann_5_pos_raw <- as.integer(bio_5flank_len + 1L)
 ann_3_pos_raw <- as.integer(bio_5flank_len + bio_body_len)
 
-safe_coords <- paste0(seqnames(ltr_feat_5), "_", start(ltr_feat_5), "_", end(ltr_feat_5))
-names(ltr_body_seqs) <- safe_coords
-names(ltr_ext_seqs)  <- safe_coords
+safe_coords <- paste0(seqnames(ltr_feat), "_", start(ltr_feat), "_", end(ltr_feat))
+names(ltr_body_seqs_all) <- safe_coords
+names(ltr_ext_seqs_all)  <- safe_coords
+
+# Parent -> index lookup for sibling resolution
+idx_5 <- which(ltr_ltr == "5LTR" & !is.na(ltr_ltr))
+idx_3 <- which(ltr_ltr == "3LTR" & !is.na(ltr_ltr))
+by_parent_3 <- setNames(as.list(idx_3), ltr_parent[idx_3])
+
+# 5'LTR views used for clustering (clustering sees bodies only)
+ltr_body_seqs   <- ltr_body_seqs_all[idx_5]
+ltr_class_5     <- ltr_class[idx_5]
+ltr_priority_5  <- ltr_priority_all[idx_5]
+ltr_parent_5    <- ltr_parent[idx_5]
+# Map cluster-local (5'LTR) index back into the all-LTR frame
+all_idx_of_5    <- idx_5
 
 # ---- TSD length map ----
 cat("Computing TSD length map ...\n")
@@ -404,9 +459,8 @@ for (lin in lineages) {
   if (length(idx) == 0L) next
 
   body_lin     <- ltr_body_seqs[idx]
-  ext_lin      <- ltr_ext_seqs[idx]
-  b5_lin       <- ann_5_pos_raw[idx]
-  b3_lin       <- ann_3_pos_raw[idx]
+  parent_lin   <- ltr_parent_5[idx]
+  all_idx_lin  <- all_idx_of_5[idx]           # index in the all-LTR frame
   priority_lin <- ltr_priority_5[idx]
 
   # Cluster on body-only sequences
@@ -439,15 +493,28 @@ for (lin in lineages) {
         file.path(opt$alignments_dir, paste0(ltr_id, ".aln.fasta"))
       } else NULL
 
+      # Build joint 5'+3' input. For each 5'LTR in the cluster, pull its
+      # sibling 3'LTR (same Parent TE id) if one exists.
+      members_5 <- all_idx_lin[midx]
+      sib_3     <- unlist(lapply(parent_lin[midx], function(p) {
+        s <- by_parent_3[[p]]
+        if (is.null(s) || length(s) == 0L) NA_integer_ else s[1L]
+      }))
+      members_3   <- sib_3[!is.na(sib_3)]
+      joint_idx   <- c(members_5, members_3)
+      joint_roles <- c(rep("5LTR", length(members_5)),
+                       rep("3LTR", length(members_3)))
+
       res <- mafft_boundary_consensus(
-        extended_seqs    = ext_lin[midx],
-        body_starts_raw  = b5_lin[midx],
-        body_ends_raw    = b3_lin[midx],
+        extended_seqs    = ltr_ext_seqs_all[joint_idx],
+        body_starts_raw  = ann_5_pos_raw[joint_idx],
+        body_ends_raw    = ann_3_pos_raw[joint_idx],
         flank            = F_flank,
         threads          = opt$threads,
         save_aln_path    = aln_path,
         ltr_id           = ltr_id,
         lineage          = lin,
+        roles            = joint_roles,
         timing_env       = timing_env
       )
       qc_rows[[length(qc_rows) + 1L]] <- res$qc
@@ -466,8 +533,11 @@ for (lin in lineages) {
         qc_rows[[length(qc_rows) + 1L]] <- data.frame(
           ltr_id = ltr_id, Final_Classification = lin,
           n_members = length(midx),
+          n_5ltr = length(midx), n_3ltr = 0L,
           annotated_5_col = NA_integer_, corrected_5_col = NA_integer_,
-          shift_5 = NA_integer_, annotated_3_col = NA_integer_,
+          shift_5 = NA_integer_,
+          annotated_3_col = NA_integer_, corrected_3_col = NA_integer_,
+          shift_3 = NA_integer_,
           consensus_length = as.integer(width(cons)[1L]),
           median_annot_body_len = as.integer(median(width(body_lin[midx]))),
           stringsAsFactors = FALSE
@@ -514,10 +584,10 @@ if (length(qc_rows) > 0L) {
 } else {
   write.table(data.frame(
     ltr_id = character(0L), Final_Classification = character(0L),
-    n_members = integer(0L), annotated_5_col = integer(0L),
-    corrected_5_col = integer(0L), shift_5 = integer(0L),
-    annotated_3_col = integer(0L), consensus_length = integer(0L),
-    median_annot_body_len = integer(0L)
+    n_members = integer(0L), n_5ltr = integer(0L), n_3ltr = integer(0L),
+    annotated_5_col = integer(0L), corrected_5_col = integer(0L), shift_5 = integer(0L),
+    annotated_3_col = integer(0L), corrected_3_col = integer(0L), shift_3 = integer(0L),
+    consensus_length = integer(0L), median_annot_body_len = integer(0L)
   ), qc_path, sep = "\t", quote = FALSE, row.names = FALSE)
 }
 

@@ -219,17 +219,23 @@ dante_ltr_solo -g DANTE_LTR_annotation.gff3 \
 The initial design above was extended by the following changes, documented
 here so the algorithmic picture stays complete:
 
-- **Flank-aware boundary refinement in the library (Step 1).** The
-  consensus is no longer just a column-wise majority of the annotated LTR
-  bodies. Each 5'LTR is extracted with `±flank` bp (default 50). Per
-  cluster, a per-column conservation profile is computed and the 5'
-  boundary is set by a change-point scan (high → low) walking from inside
-  the body outward into the 5' flank. The 3' boundary stays at the median
-  annotated position because the 3' flank of a 5'LTR (start of the
-  internal region) is itself conserved across copies of the same family.
-  3'LTRs are excluded from the consensus set (still used for PPT tags).
+- **Flank-aware boundary refinement in the library (Step 1).** Each LTR
+  is extracted with `±flank` bp (default 50). MMseqs2 clusters **5'LTR
+  bodies only**, but each cluster's MAFFT input carries **both 5' and
+  3' LTRs** of every member element (resolved by shared `Parent` TE id).
+  The alignment yields two per-column conservation profiles:
+  - **5'LTR-subset profile** — its 5' flank is random genomic; a
+    change-point scan walking leftward from the body detects the 5'
+    boundary.
+  - **3'LTR-subset profile** — its 3' flank is random genomic; a
+    change-point scan walking rightward from the body detects the 3'
+    boundary.
+  The consensus is the column-wise majority across the *full* joint
+  matrix (both subsets vote) between the two corrected boundaries.
+  3'LTRs also feed the PPT tag database as before.
   Rationale and edge cases: `solo_ltr_library_consensus_design.md`,
-  `solo_ltr_library_consensus_implementation_plan.md`.
+  `solo_ltr_library_consensus_implementation_plan.md`,
+  `joint_msa_implementation_plan.md`.
 
 - **Widened TSD detection (Step 4a).** `check_tsd()` scans
   `(mode − 1) : (mode + 1)` around the per-lineage modal length

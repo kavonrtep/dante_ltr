@@ -54,7 +54,7 @@ Detailed tutorial on how to use DANTE and DANTE_LTR on Galaxy server is [here](h
 
 #### Installation of both DANTE and DANTE_LTR using conda into single environment:
 ```shell
-conda create -n dante_ltr -c bioconda -c conda-forge -c petrnovak dante_ltr=0.4.0.6 dante=0.2.10
+conda create -n dante_ltr -c bioconda -c conda-forge -c petrnovak dante_ltr=0.4.0.7 dante=0.2.10
 conda activate dante_ltr
 ```
 #### Download example data:
@@ -199,9 +199,12 @@ options:
 #### Pipeline overview
 
 1. Build a non-redundant LTR library from all complete elements
-   (`utils/build_ltr_library.R`). Only 5'LTRs are used; each cluster's
-   consensus is refined by change-point detection on the 5' flank
-   conservation profile.
+   (`utils/build_ltr_library.R`). MMseqs2 clusters 5'LTR bodies per
+   lineage; each cluster's MAFFT alignment includes both 5'LTRs and
+   their sibling 3'LTRs. The 5' and 3' boundaries of the consensus are
+   refined by change-point detection on the 5'LTR-subset and
+   3'LTR-subset conservation profiles respectively (the random genomic
+   flank of each subset reveals the boundary).
 2. BLAST the library against the genome.
 3. Discard hits overlapping annotated complete elements by > 20 bp.
 4. Validate TSDs around each surviving hit (scan ± 1 bp around the

@@ -1,3 +1,37 @@
+## 0.4.0.7 (2026-04-17)
+
+Joint 5'+3' LTR MSA for true boundary-aware consensus.
+
+* **`utils/build_ltr_library.R`**:
+  * MMseqs2 clustering still runs on 5'LTR bodies, but each cluster's
+    MAFFT input now also includes the sibling 3'LTRs (resolved by the
+    shared `Parent` TE id).
+  * Per-column conservation is now computed separately for the 5'LTR
+    subset and the 3'LTR subset. The 5' boundary is a change-point on
+    the 5'LTR-subset profile (random genomic 5' flank); the 3' boundary
+    is a change-point on the 3'LTR-subset profile (random genomic 3'
+    flank). Previously the 3' boundary fell back to the median
+    annotated column.
+  * Consensus is the column-wise majority across the full joint matrix
+    between the two corrected boundaries — both subsets contribute,
+    reinforcing the body consensus.
+  * New helper `detect_3p_change_point()` mirrors `detect_5p_change_point()`.
+  * `mafft_boundary_consensus()` gains a `roles` parameter; backwards-
+    compatible when `NULL` (falls back to median-annotated 3' end).
+* **Boundary QC TSV** gains `n_5ltr`, `n_3ltr`, `corrected_3_col`,
+  `shift_3`.
+
+Impact on reference test (`test_data/g1_dante_ltr.gff3`):
+* 888 consensuses in both before and after; median length unchanged
+  (389 → 390 bp).
+* `shift_5` distribution unchanged (same data, same algorithm).
+* `shift_3` now non-zero in 122/180 multi-member clusters (median +4 bp,
+  max +49 bp) — all extensions rightward into the annotated 3' flank,
+  consistent with DANTE_LTR annotations being slightly conservative on
+  the 3' side.
+* MAFFT wall time ~2× because the input per cluster now carries both
+  LTRs (library build 186 s → 299 s end-to-end).
+
 ## 0.4.0.6 (2026-04-17)
 
 `dante_ltr_solo` pipeline overhaul — library build, TSD detection,
