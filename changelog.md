@@ -1,3 +1,36 @@
+## 0.4.0.8 (2026-04-17)
+
+Infrastructure release — first version published through the new
+GitHub-Actions conda release workflow.
+
+* **CI** (`.github/workflows/`):
+  * `tests.yml` — smoke + short tests on every push and PR.
+  * `conda-release.yml` — on tag push, runs the long test as a gate,
+    builds the conda package via `conda mambabuild`, and uploads to the
+    `petrnovak` anaconda channel. Requires the `ANACONDA_API_TOKEN`
+    repo secret.
+* **Tests** (`tests/`):
+  * `smoke.sh` — < 30 s, exercises every CLI and a tiny pipeline on a
+    40 kb window (`tests/data/smoke/`).
+  * `short.sh` — ~ 1 min, full pipeline on the existing
+    `test_data/sample_genome_part.fasta`.
+  * `long.sh` — ~ 10-30 min, full pipeline on `test_data/g1*` (falls
+    back to `sample_genome.fasta` when `g1` is not present).
+  * Root `tests.sh` becomes a dispatcher; `./tests.sh <N>` still runs
+    the long test with `N` CPUs for backwards compatibility.
+* **In-repo conda recipe** (`conda/dante_ltr/`): `meta.yaml` reads the
+  version from `version.py` via jinja, sources from the local tree
+  (`path: ../..`, no sha256 dance); `build.sh` copies the tree and
+  symlinks every CLI into `$PREFIX/bin`. Adds the `mafft` runtime
+  dependency (missing from the previous external recipe) and the
+  `dante_ltr_solo` / `dante_ltr_gff3_to_canonical` / `dante_reclassify`
+  executables.
+* **Docs** moved to `docs/`, keeping the repo root clean (README and
+  changelog stay at the root).
+* **Bug fix**: `select_solo_representatives.R` now emits an empty
+  statistics CSV when the input GFF3 has zero `solo_LTR` features,
+  instead of early-exiting without the file.
+
 ## 0.4.0.7 (2026-04-17)
 
 Joint 5'+3' LTR MSA for true boundary-aware consensus.
