@@ -37,9 +37,11 @@ jobs:
 
       - name: Install build + runtime tooling
         run: |
-          # setuptools is required because the anaconda-client still imports
-          # pkg_resources from setuptools (removed from Python's stdlib).
-          mamba install -y conda-build boa anaconda-client setuptools
+          # anaconda-client's binstar_client still imports pkg_resources
+          # which setuptools 81.0.0 removed. Pin setuptools<81 (this is
+          # the upstream-recommended workaround). Drop the pin once
+          # anaconda-client migrates to packaging.version.
+          mamba install -y conda-build boa anaconda-client "setuptools<81"
           # Install the runtime deps so we can also run the long test
           mamba install -y --file requirements.txt
 

@@ -1,3 +1,22 @@
+## 0.4.0.12 (2026-04-18)
+
+Release-workflow fix: pin `setuptools<81` in the release env.
+
+0.4.0.11 built the correct package (`dante_ltr-0.4.0.11-0.tar.bz2`)
+but the upload step crashed with
+`ModuleNotFoundError: No module named 'pkg_resources'`.
+`anaconda-client`'s `binstar_client` still imports `pkg_resources`,
+which `setuptools 81.0.0` removed from the default install.
+
+Verified locally: with `setuptools 82.0.1` the `anaconda` CLI fails
+to load; with `setuptools 80.10.2` (the last pre-81 release) the CLI
+loads cleanly and `anaconda upload --help` prints usage.
+
+Upstream already flags the workaround:
+`"pkg_resources is deprecated ... pin to Setuptools<81"`.
+The pin stays until `anaconda-client` migrates to
+`packaging.version`.
+
 ## 0.4.0.11 (2026-04-18)
 
 Another release-workflow fix.  conda-build's `load_file_data`
