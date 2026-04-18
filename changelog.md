@@ -1,3 +1,15 @@
+## 0.4.0.11 (2026-04-18)
+
+Another release-workflow fix.  conda-build's `load_file_data`
+accepts only JSON/YAML/TOML and raised
+`ValueError: Unknown file format: py` during the second rendering
+pass, after the first pass had already fallen back to `0.0.0.dev`.
+
+`meta.yaml` now uses `load_file_regex` to extract `__version__` from
+the copied `version.py` via a regex pattern, which is the
+general-purpose text loader in conda-build's jinja context.
+Verified locally that the match yields `0.4.0.11`.
+
 ## 0.4.0.10 (2026-04-18)
 
 Further release-workflow fixes. No user-visible functional change.

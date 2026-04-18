@@ -1,10 +1,12 @@
-# Version is read from a copy of the top-level version.py placed in
-# this recipe dir by the conda-release workflow (or by a manual
-# "cp ../../version.py ." prior to local build). load_file_data
-# accepts paths relative to the recipe dir but not above it, because
-# conda-build copies the recipe to a temp workdir before rendering.
-{% set data = load_file_data('version.py') %}
-{% set version = data.get('__version__', '0.0.0.dev') %}
+# Version is extracted by regex from a copy of the top-level
+# version.py placed in this recipe dir by the conda-release workflow
+# (or manually "cp ../../version.py ." prior to a local build).
+# load_file_data only supports JSON/YAML/TOML and rejects .py;
+# load_file_regex reads any text file and returns the re.Match.
+{% set m = load_file_regex(load_file='version.py',
+                           regex_pattern="__version__\\s*=\\s*['\"]([^'\"]+)['\"]",
+                           from_recipe_dir=True) %}
+{% set version = m.group(1) if m else '0.0.0.dev' %}
 
 package:
   name: dante_ltr
