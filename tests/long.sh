@@ -5,18 +5,15 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-FASTA="$ROOT/test_data/g1.fasta"
-DANTE="$ROOT/test_data/g1_dante_ltr.gff3"
+
+# Default: the committed sample_genome.fasta + sample_DANTE.gff3.
+# Set LONG_FASTA / LONG_DANTE to point at a bigger dataset
+# (e.g. test_data/g1.fasta + test_data/g1_dante_ltr.gff3) for deeper
+# local testing; those are not in the repo.
+FASTA="${LONG_FASTA:-$ROOT/test_data/sample_genome.fasta}"
+DANTE="${LONG_DANTE:-$ROOT/test_data/sample_DANTE.gff3}"
 OUT="$ROOT/tmp/tests/long"
 NCPU="${NCPU:-4}"
-
-# If g1.fasta is not present (often not committed because of size),
-# fall back to sample_genome.fasta.
-if [ ! -f "$FASTA" ] || [ ! -f "$DANTE" ]; then
-  echo "WARN: g1 test data not found; falling back to sample_genome.fasta"
-  FASTA="$ROOT/test_data/sample_genome.fasta"
-  DANTE="$ROOT/test_data/sample_DANTE.gff3"
-fi
 
 [ -f "$FASTA" ] || { echo "FAIL: $FASTA not found"; exit 1; }
 [ -f "$DANTE" ] || { echo "FAIL: $DANTE not found"; exit 1; }

@@ -45,8 +45,11 @@ jobs:
         run: ./tests.sh long
 
       - name: Build conda package
+        env:
+          PKG_VERSION: ${{ github.ref_name }}
         run: |
           mkdir -p build_out
+          echo "building dante_ltr version '$PKG_VERSION'"
           conda mambabuild -c conda-forge -c bioconda -c petrnovak \
             --output-folder build_out \
             conda/dante_ltr

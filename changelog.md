@@ -1,3 +1,20 @@
+## 0.4.0.9 (2026-04-18)
+
+Release-workflow fixes for 0.4.0.8. Same user-visible functionality.
+
+* `conda/dante_ltr/meta.yaml` now reads the version from the
+  `PKG_VERSION` environment variable instead of
+  `load_file_data('../../version.py')`. conda-build copies the recipe
+  to a temp workdir before rendering, so relative paths *above* the
+  recipe don't resolve and the build was shipping a package named
+  `dante_ltr-None-0`.
+* `.github/workflows/conda-release.yml` passes `$GITHUB_REF_NAME` to
+  the build step as `PKG_VERSION`, matching the tag-as-version sanity
+  check earlier in the workflow.
+* `tests/long.sh` defaults to the committed `sample_genome.fasta`; the
+  g1 fallback warning is gone. Override via `LONG_FASTA` / `LONG_DANTE`
+  env vars for local runs on bigger datasets.
+
 ## 0.4.0.8 (2026-04-17)
 
 Infrastructure release — first version published through the new
