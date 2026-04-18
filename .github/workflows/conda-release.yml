@@ -37,19 +37,27 @@ jobs:
 
       - name: Install build + runtime tooling
         run: |
-          mamba install -y conda-build boa anaconda-client
+          # setuptools is required because the anaconda-client still imports
+          # pkg_resources from setuptools (removed from Python's stdlib).
+          mamba install -y conda-build boa anaconda-client setuptools
           # Install the runtime deps so we can also run the long test
           mamba install -y --file requirements.txt
 
       - name: Long test (release gate)
         run: ./tests.sh long
 
+      - name: Sync version.py into recipe dir
+        run: |
+          # meta.yaml reads version via load_file_data('version.py');
+          # conda-build copies the recipe into a temp workdir before
+          # rendering, so the file must live inside the recipe dir.
+          cp version.py conda/dante_ltr/version.py
+          echo "recipe version.py:"
+          cat conda/dante_ltr/version.py
+
       - name: Build conda package
-        env:
-          PKG_VERSION: ${{ github.ref_name }}
         run: |
           mkdir -p build_out
-          echo "building dante_ltr version '$PKG_VERSION'"
           conda mambabuild -c conda-forge -c bioconda -c petrnovak \
             --output-folder build_out \
             conda/dante_ltr

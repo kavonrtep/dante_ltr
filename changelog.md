@@ -1,3 +1,22 @@
+## 0.4.0.10 (2026-04-18)
+
+Further release-workflow fixes. No user-visible functional change.
+
+* `conda/dante_ltr/meta.yaml` is back to reading the version from a
+  `version.py` file in the recipe directory via `load_file_data`. The
+  env-var-based approach in 0.4.0.9 did not work: conda-build's jinja
+  context didn't propagate `PKG_VERSION` from the workflow step's
+  `env:` block during rendering, so the build was still producing
+  `dante_ltr-None-0.tar.bz2`.
+* `.github/workflows/conda-release.yml` now `cp`s the root
+  `version.py` into `conda/dante_ltr/` before `conda mambabuild`.
+  The copy is `.gitignore`d (canonical version.py stays at the root).
+* Release workflow installs `setuptools` alongside `anaconda-client`
+  to restore `pkg_resources`, which the client still imports. On
+  Python 3.12+ environments without setuptools this manifests as
+  `ModuleNotFoundError: No module named 'pkg_resources'` during
+  upload.
+
 ## 0.4.0.9 (2026-04-18)
 
 Release-workflow fixes for 0.4.0.8. Same user-visible functionality.

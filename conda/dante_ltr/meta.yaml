@@ -1,8 +1,10 @@
-# Version comes from the PKG_VERSION env var, set by the
-# conda-release workflow to $GITHUB_REF_NAME (i.e. the git tag).
-# Falls back to a dev marker for manual builds so mambabuild still
-# rejects clearly ("None-0") rather than silently.
-{% set version = environ.get('PKG_VERSION', '0.0.0.dev') %}
+# Version is read from a copy of the top-level version.py placed in
+# this recipe dir by the conda-release workflow (or by a manual
+# "cp ../../version.py ." prior to local build). load_file_data
+# accepts paths relative to the recipe dir but not above it, because
+# conda-build copies the recipe to a temp workdir before rendering.
+{% set data = load_file_data('version.py') %}
+{% set version = data.get('__version__', '0.0.0.dev') %}
 
 package:
   name: dante_ltr

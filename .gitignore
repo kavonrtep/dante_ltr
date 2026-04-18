@@ -9,3 +9,8 @@
 /changlog_builder.sh
 /planemo/
 /hermit/
+
+# Copied into the recipe dir by CI (and local build prep) so the
+# jinja load_file_data in meta.yaml can find it. The canonical
+# version.py is at the repo root.
+/conda/dante_ltr/version.py
