@@ -7,8 +7,8 @@ on:
     branches: [main]
 
 jobs:
-  smoke-and-short:
-    name: smoke + short
+  smoke-short-fallback:
+    name: smoke + short + fallback
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -43,3 +43,6 @@ jobs:
 
       - name: Short test
         run: ./tests.sh short
+
+      - name: Fallback test
+        run: ./tests.sh fallback
