@@ -710,6 +710,120 @@ def preprocess_gff3_for_fallback(in_path, out_path, mode):
     return n_features, n_demoted
 
 
+def _iter_gff3_records(path):
+    """Yield (parts, attrs_dict) tuples for feature lines of a GFF3."""
+    with open(path) as fh:
+        for line in fh:
+            if not line or line[0] == '#':
+                continue
+            parts = line.rstrip('\n').split('\t')
+            if len(parts) < 9:
+                continue
+            attrs = {}
+            for item in parts[8].split(';'):
+                if '=' in item:
+                    k, _, v = item.partition('=')
+                    attrs[k] = v
+            yield parts, attrs
+
+
+def nonchromo_arh_fraction(demoted_gff3, domain_span_bp,
+                           min_relative_length=0.6,
+                           target_classification='Class_I|LTR|Ty3/gypsy|non-chromovirus'):
+    """
+    Fraction of spatially-clustered non-chromovirus LTR groups that
+    contain at least one aRH domain. Clusters are: same contig, same
+    strand, feature starts within `domain_span_bp` of each other.
+
+    Returns (fraction, n_clusters, n_clusters_with_arh).
+    """
+    # Collect (contig, strand, start, name) for filtered non-chromo domains
+    items = []
+    for parts, attrs in _iter_gff3_records(demoted_gff3):
+        if parts[2] != 'protein_domain':
+            continue
+        cls = attrs.get('Final_Classification', '')
+        if cls != target_classification:
+            continue
+        try:
+            if float(attrs.get('Relat_Length', '0')) < min_relative_length:
+                continue
+        except ValueError:
+            continue
+        items.append((parts[0], parts[6], int(parts[3]), attrs.get('Name', '')))
+
+    if not items:
+        return 0.0, 0, 0
+
+    # Cluster by contig + strand, then by proximity
+    items.sort(key=lambda r: (r[0], r[1], r[2]))
+    clusters = []        # list of lists of names per cluster
+    cur_names = []
+    prev_key = None
+    prev_start = None
+    for contig, strand, start, name in items:
+        key = (contig, strand)
+        if (prev_key is None or key != prev_key
+                or start - prev_start > domain_span_bp):
+            if cur_names:
+                clusters.append(cur_names)
+            cur_names = []
+        cur_names.append(name)
+        prev_key = key
+        prev_start = start
+    if cur_names:
+        clusters.append(cur_names)
+
+    n_clusters = len(clusters)
+    n_with_arh = sum(1 for names in clusters if 'aRH' in names)
+    return (n_with_arh / n_clusters if n_clusters else 0.0,
+            n_clusters, n_with_arh)
+
+
+def maybe_insert_arh_in_constraints(in_csv, out_csv,
+                                    target_lineage_prefix='Class_I/LTR/Ty3_gypsy/non-chromovirus'):
+    """
+    Read `in_csv` (the loose constraints table), look for a row whose
+    Lineage is exactly `target_lineage_prefix`, and rewrite its
+    'Domains order' field to include aRH between RH and INT.  Write
+    the result to `out_csv`.  If no matching row is found, just copies
+    the file.  Returns True when the Domains order was actually
+    changed.
+
+    Assumes the shipped non-chromovirus order is 'GAG PROT RT RH INT'
+    (as in databases/lineage_domain_order_coarse3.csv).
+    """
+    changed = False
+    with open(in_csv) as fin, open(out_csv, 'w') as fout:
+        header = fin.readline().rstrip('\n')
+        fout.write(header + '\n')
+        cols = header.split('\t')
+        try:
+            i_lin = cols.index('Lineage')
+            i_dom = cols.index('Domains order')
+        except ValueError:
+            # Unexpected schema — copy rest verbatim
+            for line in fin:
+                fout.write(line)
+            return False
+        for line in fin:
+            row = line.rstrip('\n').split('\t')
+            if len(row) == len(cols) and row[i_lin] == target_lineage_prefix:
+                if 'aRH' not in row[i_dom].split():
+                    # Insert aRH between RH and INT (spec §6.2)
+                    tokens = row[i_dom].split()
+                    try:
+                        idx_rh = tokens.index('RH')
+                    except ValueError:
+                        idx_rh = -1
+                    if idx_rh >= 0 and tokens[idx_rh + 1:idx_rh + 2] == ['INT']:
+                        tokens.insert(idx_rh + 1, 'aRH')
+                        row[i_dom] = ' '.join(tokens)
+                        changed = True
+            fout.write('\t'.join(row) + '\n')
+    return changed
+
+
 def emit_fallback_recommendation(stats, fallback_mode):
     """
     Print a short resolution report and, when --fallback_mode=none and
@@ -797,6 +911,50 @@ def main():
             print('using built-in constraints table: ' + constrains_path)
         else:
             print('using user-supplied --te_constrains: ' + constrains_path)
+
+        # Data-driven aRH inclusion: if aRH appears in >=20% of spatially
+        # clustered non-chromovirus LTR groups, rewrite that row's
+        # Domains order to include aRH.  Only applies to coarse3.
+        ARH_FRACTION_THRESHOLD = 0.20
+        if (args.fallback_mode == 'coarse3'
+                and args.te_constrains is None):
+            # domain_span used as clustering gap — take from constraints row
+            domain_span = 9000  # fallback default; gets overwritten below
+            try:
+                import csv as _csv
+                with open(constrains_path) as _fh:
+                    rdr = _csv.DictReader(_fh, delimiter='\t')
+                    for row in rdr:
+                        if row['Lineage'] == 'Class_I/LTR/Ty3_gypsy/non-chromovirus':
+                            domain_span = int(row['domain_span'])
+                            break
+            except (IOError, KeyError, ValueError):
+                pass
+            frac, n_cl, n_cl_arh = nonchromo_arh_fraction(
+                demoted_gff3, domain_span,
+                min_relative_length=args.min_relative_length
+            )
+            print(
+                'aRH check: found in {}/{} non-chromovirus clusters '
+                '({:.0%})'.format(n_cl_arh, n_cl, frac)
+            )
+            if frac >= ARH_FRACTION_THRESHOLD:
+                rewritten_csv = os.path.join(
+                    fb_dir, 'constraints_' + args.fallback_mode + '_arh.csv'
+                )
+                changed = maybe_insert_arh_in_constraints(
+                    constrains_path, rewritten_csv
+                )
+                if changed:
+                    print(
+                        'aRH >= {:.0%} of non-chromo clusters — '
+                        'inserting aRH between RH and INT in the non-chromovirus '
+                        "row's Domains order".format(ARH_FRACTION_THRESHOLD)
+                    )
+                    constrains_path = rewritten_csv
+                    print('using modified constraints table: ' + constrains_path)
+        elif args.fallback_mode == 'coarse3' and args.te_constrains is not None:
+            print('aRH check skipped: user supplied --te_constrains')
 
     # split fasta file to chunks
     fasta_file_split, matching_table = split_fasta_to_chunks(
