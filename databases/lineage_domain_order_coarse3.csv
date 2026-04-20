@@ -1,0 +1,4 @@
+Lineage	Domains order	offset5prime	offset3prime	domain_span	ltr_length
+Class_I/LTR/Ty1_copia	GAG PROT INT RT RH	3500	3000	6500	100
+Class_I/LTR/Ty3_gypsy/chromovirus	GAG PROT RT RH INT CHD	6000	6000	8500	100
+Class_I/LTR/Ty3_gypsy/non-chromovirus	GAG PROT RT RH INT	8000	10000	9000	100
