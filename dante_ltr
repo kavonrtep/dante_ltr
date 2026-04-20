@@ -167,6 +167,17 @@ def get_arguments():
                               'can be found in '
                               'https://github.com/kavonrtep/dante_ltr/blob/main/databases/lineage_domain_order.csv'
                         )
+    parser.add_argument('--fallback_mode', default='none', required=False,
+                        choices=['none', 'coarse3', 'coarse2'],
+                        help='Classify at reduced taxonomic depth and demote '
+                             "DANTE's lineage-level calls accordingly. Useful on "
+                             'species poorly covered by REXdb.\n'
+                             '  none     default; current behaviour\n'
+                             '  coarse3  classify into copia / gypsy-chromovirus / '
+                                         'gypsy-non-chromovirus\n'
+                             '  coarse2  classify into copia / gypsy only\n'
+                             'See docs/fallback_classification_spec.md.'
+                        )
     # no_ambiguous_domains option:
     parser.add_argument('--no_ambiguous_domains', default=False, required=False,
                          action='store_true',
@@ -597,6 +608,108 @@ def ltr_resolution_stats(gff3_file, min_relative_length=0.6):
     }
 
 
+# Known branch prefixes for demotion.  Each entry is
+#   (prefix that the classification must start with,
+#    target prefix to truncate to under coarse3,
+#    target prefix under coarse2).
+# Order matters: specific (non-chromovirus/OTA) before less specific.
+_DEMOTION_RULES = [
+    ('Class_I|LTR|Ty3/gypsy|non-chromovirus|',
+     'Class_I|LTR|Ty3/gypsy|non-chromovirus',
+     'Class_I|LTR|Ty3/gypsy'),
+    ('Class_I|LTR|Ty3/gypsy|chromovirus|',
+     'Class_I|LTR|Ty3/gypsy|chromovirus',
+     'Class_I|LTR|Ty3/gypsy'),
+    ('Class_I|LTR|Ty3/gypsy|chromovirus',      # depth-4 no trailing pipe
+     None,                                      # unchanged under coarse3
+     'Class_I|LTR|Ty3/gypsy'),
+    ('Class_I|LTR|Ty3/gypsy|non-chromovirus',  # depth-4 no trailing pipe
+     None,
+     'Class_I|LTR|Ty3/gypsy'),
+    ('Class_I|LTR|Ty1/copia|',
+     'Class_I|LTR|Ty1/copia',
+     'Class_I|LTR|Ty1/copia'),
+]
+
+
+def demote_classification(cls, mode):
+    """
+    Return (new_classification, was_demoted) under the given fallback
+    mode for one Final_Classification string.
+
+    Non-LTR classifications and classifications that are already at or
+    above the target depth pass through unchanged (was_demoted=False).
+    """
+    if mode == 'none' or not cls or not cls.startswith('Class_I|LTR|'):
+        return cls, False
+    for prefix, target3, target2 in _DEMOTION_RULES:
+        if cls == prefix.rstrip('|'):
+            # classification is exactly at the prefix — no further part
+            return cls, False
+        if cls.startswith(prefix):
+            target = target3 if mode == 'coarse3' else target2
+            if target is None or cls == target:
+                return cls, False
+            return target, True
+    # Something under Class_I|LTR| we don't recognise — leave alone
+    return cls, False
+
+
+def preprocess_gff3_for_fallback(in_path, out_path, mode):
+    """
+    Read in_path (DANTE GFF3), rewrite Final_Classification values
+    according to the fallback `mode`, add Original_Classification when
+    the classification was actually demoted, write to out_path.
+
+    Returns (n_features, n_demoted_features).
+    """
+    n_features = 0
+    n_demoted = 0
+    with open(in_path) as fin, open(out_path, 'w') as fout:
+        for line in fin:
+            if not line or line[0] == '#':
+                fout.write(line)
+                continue
+            parts = line.rstrip('\n').split('\t')
+            if len(parts) < 9:
+                fout.write(line)
+                continue
+            n_features += 1
+            attrs_str = parts[8]
+            # Fast path: no LTR classification => no change
+            if 'Final_Classification=Class_I|LTR|' not in attrs_str:
+                fout.write(line)
+                continue
+            # Split attributes; preserve order
+            attrs = []
+            fc_value = None
+            for item in attrs_str.split(';'):
+                if not item:
+                    continue
+                k, _, v = item.partition('=')
+                attrs.append((k, v))
+                if k == 'Final_Classification':
+                    fc_value = v
+            new_fc, demoted = demote_classification(fc_value, mode)
+            if not demoted:
+                fout.write(line)
+                continue
+            n_demoted += 1
+            # Rebuild attribute string with Original_Classification inserted
+            # immediately after Final_Classification for readability.
+            rebuilt = []
+            for k, v in attrs:
+                if k == 'Final_Classification':
+                    rebuilt.append(('Final_Classification', new_fc))
+                    rebuilt.append(('Original_Classification', fc_value))
+                else:
+                    rebuilt.append((k, v))
+            new_attrs = ';'.join('{}={}'.format(k, v) for k, v in rebuilt)
+            parts[8] = new_attrs
+            fout.write('\t'.join(parts) + '\n')
+    return n_features, n_demoted
+
+
 def emit_fallback_recommendation(stats, fallback_mode):
     """
     Print a short resolution report and, when --fallback_mode=none and
@@ -652,15 +765,45 @@ def main():
     stats = ltr_resolution_stats(
         args.gff3, min_relative_length=args.min_relative_length
     )
-    emit_fallback_recommendation(stats, 'none')
+    emit_fallback_recommendation(stats, args.fallback_mode)
 
+    # Fallback mode: demote LTR classifications in the input GFF3 and
+    # (unless --te_constrains is set) use the matching loose constraints
+    # table.  Everything downstream sees the demoted file.
+    gff3_input = args.gff3
+    constrains_path = args.te_constrains
+    if args.fallback_mode != 'none':
+        fb_dir = os.path.join(os.path.dirname(os.path.abspath(args.output)),
+                              '_fallback_inputs')
+        os.makedirs(fb_dir, exist_ok=True)
+        demoted_gff3 = os.path.join(
+            fb_dir, 'dante_demoted_' + args.fallback_mode + '.gff3'
+        )
+        n_feat, n_demoted = preprocess_gff3_for_fallback(
+            args.gff3, demoted_gff3, args.fallback_mode
+        )
+        print(
+            'fallback_mode={}: demoted {} / {} features; '
+            'demoted GFF3 -> {}'.format(
+                args.fallback_mode, n_demoted, n_feat, demoted_gff3
+            )
+        )
+        gff3_input = demoted_gff3
+        if constrains_path is None:
+            constrains_path = os.path.join(
+                tool_path, 'databases',
+                'lineage_domain_order_' + args.fallback_mode + '.csv'
+            )
+            print('using built-in constraints table: ' + constrains_path)
+        else:
+            print('using user-supplied --te_constrains: ' + constrains_path)
 
     # split fasta file to chunks
     fasta_file_split, matching_table = split_fasta_to_chunks(
         args.reference_sequence, chunk_size=args.max_chunk_size
         )
     # recalculate gff3 coordinates
-    gff3_file_recalculated = recalculate_gff3_coordinates(args.gff3, matching_table)
+    gff3_file_recalculated = recalculate_gff3_coordinates(gff3_input, matching_table)
 
     fasta_seq_size = read_fasta_sequence_size(fasta_file_split)
     total_size = sum(fasta_seq_size.values())
@@ -721,8 +864,8 @@ def main():
                  temp_files_gff[i], '-o', output_files[i], '-c', str(args.cpu), '-M',
                  str(args.max_missing_domains), '-L', str(args.min_relative_length)]
 
-            if args.te_constrains:
-                cmd += ['--te_constrains', args.te_constrains]
+            if constrains_path:
+                cmd += ['--te_constrains', constrains_path]
             if args.no_ambiguous_domains:
                 cmd += ['--no_ambiguous_domains']
             subprocess.check_call(cmd)
@@ -782,10 +925,10 @@ def main():
         # no need to split sequences into chunks
         cmd = [f'{tool_path}/utils/detect_putative_ltr.R', '-s', args.reference_sequence,
              '-g',
-             args.gff3, '-o', args.output, '-c', str(args.cpu), '-M',
+             gff3_input, '-o', args.output, '-c', str(args.cpu), '-M',
              str(args.max_missing_domains), '-L', str(args.min_relative_length)]
-        if args.te_constrains:
-            cmd += ['--te_constrains', args.te_constrains]
+        if constrains_path:
+            cmd += ['--te_constrains', constrains_path]
         if args.no_ambiguous_domains:
             cmd += ['--no_ambiguous_domains']
         subprocess.check_call(
