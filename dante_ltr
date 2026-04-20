@@ -608,51 +608,49 @@ def ltr_resolution_stats(gff3_file, min_relative_length=0.6):
     }
 
 
-# Known branch prefixes for demotion.  Each entry is
-#   (prefix that the classification must start with,
-#    target prefix to truncate to under coarse3,
-#    target prefix under coarse2).
-# Order matters: specific (non-chromovirus/OTA) before less specific.
-_DEMOTION_RULES = [
-    ('Class_I|LTR|Ty3/gypsy|non-chromovirus|',
-     'Class_I|LTR|Ty3/gypsy|non-chromovirus',
-     'Class_I|LTR|Ty3/gypsy'),
-    ('Class_I|LTR|Ty3/gypsy|chromovirus|',
-     'Class_I|LTR|Ty3/gypsy|chromovirus',
-     'Class_I|LTR|Ty3/gypsy'),
-    ('Class_I|LTR|Ty3/gypsy|chromovirus',      # depth-4 no trailing pipe
-     None,                                      # unchanged under coarse3
-     'Class_I|LTR|Ty3/gypsy'),
-    ('Class_I|LTR|Ty3/gypsy|non-chromovirus',  # depth-4 no trailing pipe
-     None,
-     'Class_I|LTR|Ty3/gypsy'),
-    ('Class_I|LTR|Ty1/copia|',
-     'Class_I|LTR|Ty1/copia',
-     'Class_I|LTR|Ty1/copia'),
-]
-
-
 def demote_classification(cls, mode):
     """
     Return (new_classification, was_demoted) under the given fallback
     mode for one Final_Classification string.
 
-    Non-LTR classifications and classifications that are already at or
-    above the target depth pass through unchanged (was_demoted=False).
+    Demotion is branch-aware:
+      copia branch (Class_I|LTR|Ty1/copia|<lineage>) — always truncate
+            to the Ty1/copia superfamily.
+      gypsy branch (Class_I|LTR|Ty3/gypsy|...) — under coarse2 truncate
+            to the Ty3/gypsy superfamily; under coarse3 truncate
+            sublineages into their chromovirus / non-chromovirus
+            subfamily (or leave level-3-only gypsy alone — there's no
+            catch-all row for it).
+
+    Non-LTR classifications and classifications already at or above
+    the target depth pass through unchanged (was_demoted=False).
     """
     if mode == 'none' or not cls or not cls.startswith('Class_I|LTR|'):
         return cls, False
-    for prefix, target3, target2 in _DEMOTION_RULES:
-        if cls == prefix.rstrip('|'):
-            # classification is exactly at the prefix — no further part
-            return cls, False
-        if cls.startswith(prefix):
-            target = target3 if mode == 'coarse3' else target2
-            if target is None or cls == target:
+    parts = cls.split('|')
+    # parts: [Class_I, LTR, <superfamily>, ...]
+    if len(parts) < 3:
+        return cls, False
+    superfamily = parts[2]
+    if superfamily == 'Ty1/copia':
+        target = 'Class_I|LTR|Ty1/copia'  # same under coarse3 and coarse2
+    elif superfamily == 'Ty3/gypsy':
+        if mode == 'coarse2':
+            target = 'Class_I|LTR|Ty3/gypsy'
+        else:  # coarse3
+            if len(parts) >= 4 and parts[3] in ('chromovirus',
+                                                'non-chromovirus'):
+                target = '|'.join(parts[:4])
+            else:
+                # Level-3 gypsy with no sub — no row in coarse3 table,
+                # leave as-is so the user can notice and switch mode.
                 return cls, False
-            return target, True
-    # Something under Class_I|LTR| we don't recognise — leave alone
-    return cls, False
+    else:
+        # Unknown third component: leave alone
+        return cls, False
+    if cls == target:
+        return cls, False
+    return target, True
 
 
 def preprocess_gff3_for_fallback(in_path, out_path, mode):
