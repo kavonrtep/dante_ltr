@@ -9,6 +9,7 @@
   - [Solo LTR detection](#solo-ltr-detection)
   - [GFF3 DANTE_LTR output specification](#gff3-dante_ltr-output-specification)
   - [Modifying LTR-RT search constrains](#modifying-ltr-rt-search-constrains)
+  - [Fallback classification mode](#fallback-classification-mode)
 
 
 
@@ -95,6 +96,7 @@ This step will create non-redundant library of LTR-RT sequences suitable for sim
 usage: dante_ltr [-h] -g GFF3 -s REFERENCE_SEQUENCE -o OUTPUT [-c CPU]
                  [-M MAX_MISSING_DOMAINS] [-L MIN_RELATIVE_LENGTH] [-S MAX_CHUNK_SIZE]
                  [-v] [--te_constrains TE_CONSTRAINS] [--no_ambiguous_domains]
+                 [--fallback_mode {none,coarse3,coarse2}]
 
         Tool for identifying complete LTR retrotransposons based on 
         analysis of protein domains identified with the DANTE tool
@@ -123,7 +125,25 @@ options:
                         can be found in https://github.com/kavonrtep/dante_ltr/blob/main/databases/lineage_domain_order.csv
   --no_ambiguous_domains
                         Remove ambiguous domains from analysis
+  --fallback_mode {none,coarse3,coarse2}
+                        Classify at a reduced taxonomic depth and demote DANTE's
+                        lineage-level calls accordingly. Useful on species poorly
+                        covered by REXdb (see "Fallback classification" below).
+                        Default: none.
 ```
+
+> ⚠️ **EXPERIMENTAL: `--fallback_mode`**
+>
+> The fallback classification mode is a new feature as of 0.4.0.13 and
+> should be considered experimental. The loose constraint tables in
+> `databases/lineage_domain_order_coarse{2,3}.csv`, the demotion logic,
+> and the 20 % aRH inclusion threshold are all first-iteration choices
+> that may change as we gather feedback from real non-plant / distant
+> plant genomes. Results should be sanity-checked manually (e.g. spot
+> a few detected elements on the genome browser) before being used in
+> downstream publications. Run `./dante_ltr` without the flag first;
+> the output always logs a resolution statistic line which recommends
+> when a fallback is likely to help.
 
 #### Example:
 
@@ -326,6 +346,71 @@ To use modified constrains use `dante_ltr` with option `--te_constrains` and pro
 
 The full table with default constraints can be found in  
 [databases/lineage_domain_order.csv](./databases/lineage_domain_order.csv).
+
+## Fallback classification mode
+
+> ⚠️ **Experimental — introduced in 0.4.0.13.** Use with caution and
+> sanity-check results. Details and rationale:
+> [docs/fallback_classification_spec.md](./docs/fallback_classification_spec.md).
+
+On species that are distantly related to anything in the REXdb
+reference set, DANTE often cannot resolve LTR protein domains past
+the superfamily (`Ty1/copia`, `Ty3/gypsy`) or subfamily
+(`Ty3/gypsy/chromovirus`, `Ty3/gypsy/non-chromovirus`) level. Because
+`dante_ltr` matches against a lineage-keyed constraints table,
+those under-resolved domains contribute nothing to LTR detection and
+the tool returns almost no complete elements.
+
+`--fallback_mode` turns off that blocker by (a) truncating LTR
+`Final_Classification` values in the input to a chosen coarse depth
+and (b) using a correspondingly relaxed constraints table shipped in
+`databases/`. The original classification of every demoted feature
+is preserved on an `Original_Classification` attribute.
+
+| mode | keeps resolution at | use when |
+|---|---|---|
+| `none` | lineage (default) | well-covered species — Arabidopsis, rice, … |
+| `coarse3` | `copia`, `gypsy/chromovirus`, `gypsy/non-chromovirus` | distant species where level-4 (chromo vs non-chromo) calls are reasonably reliable |
+| `coarse2` | `copia`, `gypsy` | very distant species where most LTR domains only reach superfamily level |
+
+**Recommendation heuristic (always on).** Every run of `dante_ltr`
+logs a line like
+
+```
+LTR-domain resolution: superfamily-only=23%, not-reaching-lineage=86%
+    (of 10316 filtered LTR protein_domain features)
+INFO: 86% of LTR protein domains do not reach lineage depth.
+      Consider re-running with --fallback_mode=coarse3 ...
+```
+
+Thresholds:
+`superfamily-only > 50 %` → suggests `coarse2`;
+`not-reaching-lineage > 20 %` → suggests `coarse3`.
+No suggestion fires on well-resolved inputs.
+
+**Example.** On a plant genome with poorly-resolved DANTE output:
+
+```bash
+./dante_ltr -g DANTE.gff3 -s genome.fasta \
+            -o out \
+            --fallback_mode coarse2 \
+            -M 1 \
+            -c 4
+```
+
+In fallback mode the output is the same set of files as the default
+run, with `Final_Classification` reported at the coarse depth and a
+new `Original_Classification` attribute on every demoted
+`protein_domain` and `transposable_element`. The demoted GFF3 that
+was actually fed to the matcher is kept under
+`<out_dir>/_fallback_inputs/` for inspection.
+
+**aRH handling (coarse3 only).** On `coarse3`, the wrapper also
+inspects the demoted input: if `aRH` domains appear in ≥ 20 % of
+non-chromovirus spatial clusters, it rewrites (in a run-time-only
+copy) the non-chromovirus `Domains order` to
+`GAG PROT RT RH aRH INT`. This helps recover Tat-family elements
+(Ogre, Retand, …) whose aRH would otherwise be ignored.
 
 
 
