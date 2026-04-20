@@ -1,3 +1,49 @@
+## 0.4.0.13 (2026-04-20)
+
+Fallback classification mode for distantly-related species.
+
+* New `dante_ltr --fallback_mode {none,coarse3,coarse2}` flag. When
+  enabled, LTR `Final_Classification` values are demoted to a coarser
+  taxonomic depth before matching, and a correspondingly relaxed
+  built-in constraints table is used.
+  * `coarse3` — classify into `Ty1/copia`, `Ty3/gypsy/chromovirus`,
+    `Ty3/gypsy/non-chromovirus`.
+  * `coarse2` — classify into `Ty1/copia`, `Ty3/gypsy` only.
+* Every demoted feature carries an `Original_Classification`
+  attribute so nothing is lost downstream.
+* Always-on **recommendation heuristic**: the Python wrapper logs
+  one line summarising LTR-domain resolution (filtered by
+  `Relat_Length >= min_relative_length`) and, when
+  `--fallback_mode=none`, suggests a fallback mode when the input
+  has a lot of under-resolved calls.  No behaviour change beyond
+  the log line for well-classified inputs (`sample_DANTE*`: 1 %
+  superfamily-only, no recommendation; Drapa subset: 68 %, suggests
+  `coarse2`).
+* **Data-driven aRH inclusion** for `coarse3`. After demotion, the
+  wrapper spatially clusters non-chromovirus LTR domains; when aRH
+  appears in ≥ 20 % of clusters, the non-chromovirus row's
+  `Domains order` is rewritten to `GAG PROT RT RH aRH INT` in a
+  run-time-only copy of the constraints table (written to
+  `<out_dir>/_fallback_inputs/constraints_coarse3_arh.csv` for
+  inspection).  The shipped constraints tables on disk are never
+  modified.
+* Two new shipped constraints tables:
+  `databases/lineage_domain_order_coarse3.csv` (3 rows) and
+  `databases/lineage_domain_order_coarse2.csv` (2 rows).
+* New test data `tests/data/fallback_medium/` — 4 MB single-contig
+  slice of a Drapa assembly (distantly related, no aRH). New
+  `tests/fallback.sh` exercises both the aRH-absent (Drapa) and
+  aRH-present (`sample_DANTE_part`) arms end-to-end; wired into
+  `tests.sh`, `./tests.sh all`, and the GitHub Actions workflow.
+
+Non-fallback runs (`--fallback_mode=none`, default) on the existing
+test data produce the same TE counts as 0.4.0.12 — only a new
+informational log line differs.
+
+Design: `docs/fallback_classification_design.md` (draft with user
+annotations), `docs/fallback_classification_spec.md` (locked v1
+spec), `docs/fallback_classification_implementation_plan.md`.
+
 ## 0.4.0.12 (2026-04-18)
 
 Release-workflow fix: pin `setuptools<81` in the release env.
