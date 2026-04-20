@@ -523,6 +523,114 @@ def add_version_to_gff3(gff3_file, version_info):
         # Replace the original file with the new file
     os.replace(tmp_file.name, gff3_file)
 
+def ltr_resolution_stats(gff3_file, min_relative_length=0.6):
+    """
+    Scan a DANTE GFF3 and count LTR protein_domain features by
+    resolution depth, using the branch-aware semantics of the
+    REXdb hierarchy:
+      copia lineages live at depth >= 4 (Class_I|LTR|Ty1/copia|<lineage>)
+      gypsy lineages live at depth >= 5
+                         (Class_I|LTR|Ty3/gypsy|<sub>|<lineage>)
+
+    Only counts features that pass the Relat_Length filter
+    (>= min_relative_length), matching dante_filtering() in
+    detect_putative_ltr.R. Non-LTR features are ignored.
+
+    Returns a dict with keys:
+        n_counted         — filtered LTR protein_domains
+        n_superfam_only   — just Class_I|LTR|Ty1/copia or Ty3/gypsy (depth 3)
+        n_unresolved      — below lineage depth (includes superfam_only +
+                            Ty3/gypsy at depth 4 without lineage part)
+        f_superfam_only   — share of n_superfam_only
+        f_unresolved      — share of n_unresolved
+    """
+    n_total = 0
+    n_superfam_only = 0
+    n_unresolved = 0
+    with open(gff3_file) as fh:
+        for line in fh:
+            if not line or line[0] == '#':
+                continue
+            parts = line.rstrip('\n').split('\t')
+            if len(parts) < 9 or parts[2] != 'protein_domain':
+                continue
+            attrs = {}
+            for item in parts[8].split(';'):
+                if '=' in item:
+                    k, _, v = item.partition('=')
+                    attrs[k] = v
+            cls = attrs.get('Final_Classification', '')
+            if not cls.startswith('Class_I|LTR|'):
+                continue
+            rl = attrs.get('Relat_Length', '')
+            try:
+                if float(rl) < min_relative_length:
+                    continue
+            except ValueError:
+                continue
+            n_total += 1
+            components = cls.split('|')
+            depth = len(components)
+            # components[2] is Ty1/copia or Ty3/gypsy (or unknown)
+            third = components[2] if depth >= 3 else ''
+            if depth == 3:
+                n_superfam_only += 1
+                n_unresolved += 1
+            elif third == 'Ty3/gypsy' and depth == 4:
+                # gypsy with only sub-family (chromovirus / non-chromovirus)
+                # but no lineage — still unresolved
+                n_unresolved += 1
+            elif depth < 3:
+                # Class_I or Class_I|LTR without any superfamily
+                n_unresolved += 1
+    if n_total == 0:
+        return {
+            'n_counted': 0, 'n_superfam_only': 0, 'n_unresolved': 0,
+            'f_superfam_only': 0.0, 'f_unresolved': 0.0,
+        }
+    return {
+        'n_counted': n_total,
+        'n_superfam_only': n_superfam_only,
+        'n_unresolved': n_unresolved,
+        'f_superfam_only': n_superfam_only / n_total,
+        'f_unresolved': n_unresolved / n_total,
+    }
+
+
+def emit_fallback_recommendation(stats, fallback_mode):
+    """
+    Print a short resolution report and, when --fallback_mode=none and
+    the input looks distant, a recommendation.
+
+    Thresholds per docs/fallback_classification_spec.md §3.
+    """
+    n = stats['n_counted']
+    if n == 0:
+        return
+    fs = stats['f_superfam_only']
+    fu = stats['f_unresolved']
+    print(
+        "LTR-domain resolution: superfamily-only={:.0%}, "
+        "not-reaching-lineage={:.0%} (of {} filtered LTR "
+        "protein_domain features)".format(fs, fu, n)
+    )
+    if fallback_mode != 'none':
+        return
+    if fs > 0.5:
+        print(
+            "INFO: {:.0%} of LTR protein domains are only classified at "
+            "Ty1/copia or Ty3/gypsy depth.  Consider re-running with "
+            "--fallback_mode=coarse2 (see "
+            "docs/fallback_classification_spec.md).".format(fs)
+        )
+    elif fu > 0.2:
+        print(
+            "INFO: {:.0%} of LTR protein domains do not reach lineage "
+            "depth.  Consider re-running with --fallback_mode=coarse3 "
+            "(see docs/fallback_classification_spec.md).".format(fu)
+        )
+
+
 def main():
     """
     Main function
@@ -539,6 +647,12 @@ def main():
             'Please check that gff3 file was created from reference fasta file.\n'
             )
         sys.exit(1)
+
+    # Observation-only: scan classifications and log recommendation
+    stats = ltr_resolution_stats(
+        args.gff3, min_relative_length=args.min_relative_length
+    )
+    emit_fallback_recommendation(stats, 'none')
 
 
     # split fasta file to chunks
