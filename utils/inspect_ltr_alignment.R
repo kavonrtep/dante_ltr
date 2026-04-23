@@ -96,3 +96,17 @@ cat("\nconservation profile (1 char per 5 aln cols):\n")
 cat(paste(marker, collapse = ""), "\n")
 cat("legend:  # >=0.9   = >=0.7   - >=0.5   . >=0.3   ' ' < 0.3\n")
 cat("         A=annotated boundary   5/3=corrected boundary (if shifted)\n")
+
+# Boundary-validation signals (TG/CA + TSD), if present in the QC TSV.
+if (all(c("tgca_frac_annotated", "tgca_frac_corrected",
+          "tsd_frac_annotated", "tsd_frac_corrected") %in% names(row))) {
+  fmt <- function(x) if (is.na(x)) "   NA" else sprintf("%.3f", x)
+  dlt <- function(a, c) if (is.na(a) || is.na(c)) "   NA" else sprintf("%+.3f", c - a)
+  cat("\nboundary validation signals:\n")
+  cat(sprintf("  TG/CA frac : annotated=%s  corrected=%s  delta=%s\n",
+              fmt(row$tgca_frac_annotated), fmt(row$tgca_frac_corrected),
+              dlt(row$tgca_frac_annotated, row$tgca_frac_corrected)))
+  cat(sprintf("  TSD   frac : annotated=%s  corrected=%s  delta=%s\n",
+              fmt(row$tsd_frac_annotated),  fmt(row$tsd_frac_corrected),
+              dlt(row$tsd_frac_annotated,  row$tsd_frac_corrected)))
+}

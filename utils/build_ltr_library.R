@@ -152,10 +152,98 @@ majority_from_counts <- function(bc, col_from, col_to) {
   paste(chars[!is.na(chars)], collapse = "")
 }
 
+# ---- Boundary-validation helpers (TG/CA + TSD, report-only) ----
+# Both are evaluated at the annotated and the corrected column pair inside
+# mafft_boundary_consensus() so the four values can be written into the QC TSV.
+
+# Fraction of cluster rows whose bases at (c5, c5+1, c3-1, c3) form TG...CA.
+# Rows that have a gap at any of the four positions are excluded from the
+# denominator, keeping the metric comparable across column choices.
+tgca_frac_at <- function(mat, c5, c3) {
+  n <- ncol(mat)
+  if (is.na(c5) || is.na(c3)) return(NA_real_)
+  if (c5 < 1L || c5 + 1L > n || c3 > n || c3 - 1L < 1L) return(NA_real_)
+  if (c3 - 1L < c5 + 1L) return(NA_real_)
+  b1 <- mat[, c5];       b2 <- mat[, c5 + 1L]
+  b3 <- mat[, c3 - 1L];  b4 <- mat[, c3]
+  keep <- b1 != "-" & b2 != "-" & b3 != "-" & b4 != "-"
+  if (!any(keep)) return(NA_real_)
+  mean(b1[keep] == "T" & b2[keep] == "G" &
+       b3[keep] == "C" & b4[keep] == "A")
+}
+
+# Single-pair TSD check at two raw positions.  Two-pass (exact then
+# 1-mismatch for L >= 4), longest first.  Mirrors check_tsd() in
+# solo_ltr_utils.R but works off a pair of character sequences + raw
+# 1-based positions rather than BLAST/GRanges input.
+check_tsd_pair <- function(seq5_chr, p5, seq3_chr, p3, tsd_length = NULL) {
+  scan_lengths <- if (!is.null(tsd_length) && !is.na(tsd_length) &&
+                      length(tsd_length) == 1L) {
+    L <- as.integer(tsd_length)
+    seq.int(max(3L, L - 1L), min(8L, L + 1L))
+  } else 4L:6L
+  scan_lengths <- sort(unique(scan_lengths), decreasing = TRUE)
+  max_len <- max(scan_lengths)
+
+  L5 <- nchar(seq5_chr); L3 <- nchar(seq3_chr)
+  l_end   <- p5 - 1L
+  l_start <- max(1L, l_end - max_len + 1L)
+  r_start <- p3 + 1L
+  r_end   <- min(L3, r_start + max_len - 1L)
+  if (l_end < l_start || r_end < r_start) return(FALSE)
+
+  l_full <- substr(seq5_chr, l_start, l_end)
+  r_full <- substr(seq3_chr, r_start, r_end)
+
+  for (len in scan_lengths) {
+    if (nchar(l_full) < len || nchar(r_full) < len) next
+    l <- substr(l_full, nchar(l_full) - len + 1L, nchar(l_full))
+    r <- substr(r_full, 1L, len)
+    if (l == r) return(TRUE)
+  }
+  for (len in scan_lengths) {
+    if (len < 4L) next
+    if (nchar(l_full) < len || nchar(r_full) < len) next
+    l <- substr(l_full, nchar(l_full) - len + 1L, nchar(l_full))
+    r <- substr(r_full, 1L, len)
+    if (sum(strsplit(l, "")[[1L]] != strsplit(r, "")[[1L]]) <= 1L) return(TRUE)
+  }
+  FALSE
+}
+
+# Fraction of sibling (5'LTR, 3'LTR) pairs in the cluster with a confirmed
+# TSD at the given MSA column pair.  MSA columns are mapped to raw
+# per-row positions through cum_mat (# non-gap bases up to column c).
+tsd_frac_at <- function(c5, c3, ext_chars, is_5_vec, sibling_pairs,
+                        non_gap_mat, cum_mat, tsd_length = NULL) {
+  if (is.null(sibling_pairs)) return(NA_real_)
+  if (is.na(c5) || is.na(c3)) return(NA_real_)
+  n_cols <- ncol(cum_mat)
+  if (c5 < 1L || c5 > n_cols || c3 < 1L || c3 > n_cols) return(NA_real_)
+  r5_idxs <- which(is_5_vec)
+  ok <- 0L; denom <- 0L
+  for (r5 in r5_idxs) {
+    r3 <- sibling_pairs[r5]
+    if (is.na(r3)) next
+    if (!non_gap_mat[r5, c5]) next
+    if (!non_gap_mat[r3, c3]) next
+    p5 <- cum_mat[r5, c5]
+    p3 <- cum_mat[r3, c3]
+    denom <- denom + 1L
+    if (check_tsd_pair(ext_chars[r5], p5, ext_chars[r3], p3,
+                       tsd_length = tsd_length)) ok <- ok + 1L
+  }
+  if (denom == 0L) NA_real_ else ok / denom
+}
+
 # ---- Flank-aware boundary-detecting consensus ----
 # extended_seqs : DNAStringSet of LTR ± flank (biological orientation)
 # body_starts_raw, body_ends_raw : per-member 1-based positions in the raw extended
 #   sequence marking the annotated LTR body (inclusive).
+# sibling_pairs : integer vector aligned with the MSA rows. For each 5'LTR
+#   row, gives the MSA row index of its paired 3'LTR (or NA); entries
+#   for 3'LTR rows are NA.  Used only for the TSD validation signal.
+# tsd_length : lineage-modal TSD length (or NULL for the 4:6 fallback).
 # Returns list(consensus = DNAStringSet | NULL, qc = data.frame_row, status = "ok"|"fallback").
 mafft_boundary_consensus <- function(extended_seqs, body_starts_raw, body_ends_raw,
                                      flank, threads = 1L,
@@ -169,6 +257,8 @@ mafft_boundary_consensus <- function(extended_seqs, body_starts_raw, body_ends_r
                                      max_length_shrink = 0.5,
                                      max_length_grow   = 2.0,
                                      roles = NULL,
+                                     sibling_pairs = NULL,
+                                     tsd_length = NULL,
                                      timing_env = NULL) {
 
   add_time <- function(slot, dt) {
@@ -202,6 +292,8 @@ mafft_boundary_consensus <- function(extended_seqs, body_starts_raw, body_ends_r
     shift_3 = NA_integer_, detected_3 = FALSE,
     consensus_length = NA_integer_,
     median_annot_body_len = as.integer(median(body_ends_raw - body_starts_raw + 1L)),
+    tgca_frac_annotated = NA_real_, tgca_frac_corrected = NA_real_,
+    tsd_frac_annotated  = NA_real_, tsd_frac_corrected  = NA_real_,
     stringsAsFactors = FALSE
   )
 
@@ -298,6 +390,26 @@ mafft_boundary_consensus <- function(extended_seqs, body_starts_raw, body_ends_r
   }
   add_time("change_point", proc.time()[["elapsed"]] - t0)
 
+  # ---- Report-only boundary-validation signals (TG/CA + TSD) ----
+  # Measure at both the annotated and the final corrected column pair,
+  # so the caller can compare.  When the grow-cap reverted the
+  # correction, annotated == corrected and the two values will match.
+  t0 <- proc.time()[["elapsed"]]
+  tgca_ann  <- tgca_frac_at(mat, ann_5_col, ann_3_col)
+  tgca_corr <- tgca_frac_at(mat, corrected_5, corrected_3)
+  if (!is.null(sibling_pairs) && any(is_3)) {
+    ext_chars <- as.character(extended_seqs)
+    tsd_ann  <- tsd_frac_at(ann_5_col, ann_3_col, ext_chars, is_5,
+                            sibling_pairs, non_gap_mat, cum_mat,
+                            tsd_length = tsd_length)
+    tsd_corr <- tsd_frac_at(corrected_5, corrected_3, ext_chars, is_5,
+                            sibling_pairs, non_gap_mat, cum_mat,
+                            tsd_length = tsd_length)
+  } else {
+    tsd_ann <- NA_real_; tsd_corr <- NA_real_
+  }
+  add_time("boundary_validation", proc.time()[["elapsed"]] - t0)
+
   t0 <- proc.time()[["elapsed"]]
   consensus <- majority_from_counts(bc_all, corrected_5, corrected_3)
   add_time("consensus_build", proc.time()[["elapsed"]] - t0)
@@ -317,6 +429,10 @@ mafft_boundary_consensus <- function(extended_seqs, body_starts_raw, body_ends_r
     detected_3 = if (!is.null(cw_3)) !is.na(corrected_3_raw) else FALSE,
     consensus_length = as.integer(nchar(consensus)),
     median_annot_body_len = median_body_len,
+    tgca_frac_annotated = tgca_ann,
+    tgca_frac_corrected = tgca_corr,
+    tsd_frac_annotated  = tsd_ann,
+    tsd_frac_corrected  = tsd_corr,
     stringsAsFactors = FALSE
   )
 
@@ -512,7 +628,8 @@ qc_rows       <- list()
 # Accumulate per-step wall-clock times across all clusters for profiling.
 timing_env <- new.env(parent = emptyenv())
 for (slot in c("mmseqs", "mafft", "parse_aln", "position_map",
-               "conservation", "change_point", "consensus_build")) {
+               "conservation", "change_point", "boundary_validation",
+               "consensus_build")) {
   timing_env[[slot]] <- 0
 }
 t_main_start <- proc.time()[["elapsed"]]
@@ -568,6 +685,18 @@ for (lin in lineages) {
       joint_roles <- c(rep("5LTR", length(members_5)),
                        rep("3LTR", length(members_3)))
 
+      # For each MSA row that is a 5'LTR, record the MSA row index of its
+      # 3'LTR sibling (or NA).  Entries for 3'LTR rows are NA.  Used only
+      # by the TSD boundary-validation signal.
+      K <- length(members_5); M <- length(members_3)
+      sibling_pairs <- rep(NA_integer_, K + M)
+      pos3 <- which(!is.na(sib_3))
+      if (length(pos3) > 0L) {
+        sibling_pairs[pos3] <- K + seq_along(pos3)
+      }
+      tsd_len_for_cluster <- if (!is.null(tsd_map) && lin %in% names(tsd_map))
+        tsd_map[[lin]] else NULL
+
       res <- mafft_boundary_consensus(
         extended_seqs    = ltr_ext_seqs_all[joint_idx],
         body_starts_raw  = ann_5_pos_raw[joint_idx],
@@ -578,6 +707,8 @@ for (lin in lineages) {
         ltr_id           = ltr_id,
         lineage          = lin,
         roles            = joint_roles,
+        sibling_pairs    = sibling_pairs,
+        tsd_length       = tsd_len_for_cluster,
         timing_env       = timing_env
       )
 
@@ -602,6 +733,8 @@ for (lin in lineages) {
           ltr_id          = ltr_id,
           lineage         = lin,
           roles           = joint_roles,
+          sibling_pairs   = sibling_pairs,
+          tsd_length      = tsd_len_for_cluster,
           timing_env      = timing_env
         )
         if (res2$status == "ok") {
@@ -639,6 +772,8 @@ for (lin in lineages) {
           shift_3 = NA_integer_, detected_3 = FALSE,
           consensus_length = as.integer(width(cons)[1L]),
           median_annot_body_len = as.integer(median(width(body_lin[midx]))),
+          tgca_frac_annotated = NA_real_, tgca_frac_corrected = NA_real_,
+          tsd_frac_annotated  = NA_real_, tsd_frac_corrected  = NA_real_,
           stringsAsFactors = FALSE
         )
       }
@@ -658,6 +793,7 @@ cat(sprintf("  parse alignment : %6.2f\n",  timing_env$parse_aln))
 cat(sprintf("  position map    : %6.2f\n",  timing_env$position_map))
 cat(sprintf("  conservation    : %6.2f\n",  timing_env$conservation))
 cat(sprintf("  change-point    : %6.2f\n",  timing_env$change_point))
+cat(sprintf("  validation      : %6.2f\n",  timing_env$boundary_validation))
 cat(sprintf("  consensus build : %6.2f\n",  timing_env$consensus_build))
 cat(sprintf("  --- total loop  : %6.2f\n",  t_main_total))
 
@@ -689,7 +825,9 @@ if (length(qc_rows) > 0L) {
     shift_5 = integer(0L), detected_5 = logical(0L),
     annotated_3_col = integer(0L), corrected_3_col = integer(0L),
     shift_3 = integer(0L), detected_3 = logical(0L),
-    consensus_length = integer(0L), median_annot_body_len = integer(0L)
+    consensus_length = integer(0L), median_annot_body_len = integer(0L),
+    tgca_frac_annotated = numeric(0L), tgca_frac_corrected = numeric(0L),
+    tsd_frac_annotated  = numeric(0L), tsd_frac_corrected  = numeric(0L)
   ), qc_path, sep = "\t", quote = FALSE, row.names = FALSE)
 }
 
@@ -739,6 +877,29 @@ if (length(qc_rows) > 0L) {
       cat(sprintf("  shift_3  min/med/max  : %d / %d / %d bp  (among %d detected)\n",
                   min(s3), as.integer(median(s3)), max(s3), length(s3)))
     }
+
+    # TG/CA and TSD rollups (report-only boundary validation)
+    report_delta <- function(x, label, unit_tol = 0.1) {
+      valid <- !is.na(x$ann) & !is.na(x$corr)
+      if (!any(valid)) return(invisible(NULL))
+      a <- x$ann[valid]; c <- x$corr[valid]; d <- c - a
+      lost      <- sum(d < -unit_tol)
+      gained    <- sum(d >  unit_tol)
+      unchanged <- sum(abs(d) <= unit_tol)
+      cat(sprintf("\n  %s at corrected vs annotated boundary (n = %d clusters):\n",
+                  label, length(a)))
+      cat(sprintf("    annotated frac   min/med/max : %.3f / %.3f / %.3f\n",
+                  min(a), median(a), max(a)))
+      cat(sprintf("    corrected frac   min/med/max : %.3f / %.3f / %.3f\n",
+                  min(c), median(c), max(c)))
+      cat(sprintf("    LOST   (delta < -%.2f)       : %d / %d\n", unit_tol, lost,      length(a)))
+      cat(sprintf("    GAINED (delta > +%.2f)       : %d / %d\n", unit_tol, gained,    length(a)))
+      cat(sprintf("    UNCHANGED (|delta| <= %.2f)  : %d / %d\n", unit_tol, unchanged, length(a)))
+    }
+    report_delta(list(ann = msa$tgca_frac_annotated,
+                      corr = msa$tgca_frac_corrected), "TG/CA")
+    report_delta(list(ann = msa$tsd_frac_annotated,
+                      corr = msa$tsd_frac_corrected), "TSD ")
   }
   if (!is.null(opt$alignments_dir) && dir.exists(opt$alignments_dir)) {
     cat(sprintf("  per-cluster MSAs      : %s  (%d .aln.fasta files)\n",
