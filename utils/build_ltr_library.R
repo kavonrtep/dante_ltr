@@ -910,6 +910,29 @@ if (length(qc_rows) > 0L) {
   cat(sprintf("  per-cluster QC TSV    : %s\n", qc_path))
 }
 
+# ---- HTML visual report --------------------------------------------------
+# Only rendered when alignments were kept (report's per-cluster panels rely
+# on them).  A failure here is non-fatal — the TSV is the source of truth.
+if (!is.null(opt$alignments_dir) && dir.exists(opt$alignments_dir) &&
+    length(qc_rows) > 0L) {
+  report_script <- file.path(script_dir, "boundary_report.R")
+  report_path   <- paste0(opt$output, "_LTR_library_boundary_report.html")
+  rs_args <- c(report_script,
+               "--qc",         qc_path,
+               "--alignments", opt$alignments_dir,
+               "--out",        report_path)
+  cat("Rendering boundary HTML report ...\n")
+  ret <- tryCatch(
+    system2("Rscript", rs_args, stdout = "", stderr = ""),
+    error = function(e) { cat("  warning: report render failed: ",
+                              conditionMessage(e), "\n"); 1L })
+  if (identical(ret, 0L) && file.exists(report_path)) {
+    cat(sprintf("  boundary report      : %s\n", report_path))
+  } else {
+    cat("  (boundary report not produced)\n")
+  }
+}
+
 # ---- 5'UTR tag database ----
 cat("Building 5'UTR junction tag database ...\n")
 ltr5_idx <- which(ltr_ltr == "5LTR" & !is.na(ltr_ltr))
