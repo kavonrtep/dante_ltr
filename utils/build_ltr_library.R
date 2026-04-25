@@ -24,10 +24,13 @@ option_list <- list(
               help = "Threads for MMseqs2 and MAFFT [default %default]"),
   make_option(c("-f", "--flank"), type = "integer", default = 50L,
               help = "Flanking bp added each side for MSA and change-point boundary detection [default %default]"),
-  make_option(c("--wide_flank"), type = "integer", default = 250L,
-              help = paste("Retry-flank size used when the default scan cannot",
-                           "locate a boundary within +-flank bp (cluster is",
-                           "'boundary-blocked' — whole flank is high-conservation).",
+  make_option(c("--wide_flank"), type = "integer", default = 1000L,
+              help = paste("Maximum retry-flank size when the default scan cannot",
+                           "locate a boundary within +-flank bp.  The actual flank",
+                           "used per cluster is",
+                           "min(--wide_flank, max(500, median_annotated_body_length))",
+                           "— so it is proportional to the cluster's annotated LTR",
+                           "length but capped above by --wide_flank.",
                            "Set to 0 to disable the retry. [default %default]")),
   make_option(c("-d", "--min_cluster_size"), type = "integer", default = 6L,
               help = paste("Min cluster members required for MAFFT consensus and",
@@ -715,19 +718,22 @@ for (lin in lineages) {
       # Wide-flank retry: the default ±F_flank window may be too narrow
       # when the real boundary is > F_flank bp from the annotated column
       # (flank over-conserved, scan can't see a low column to anchor
-      # against). Re-extract only this cluster's members with the wider
-      # flank and rescan.  Only triggered when at least one boundary
-      # wasn't detected in the first pass.
+      # against). Re-extract only this cluster's members with a wider
+      # flank and rescan.  The retry flank is proportional to the
+      # cluster's annotated LTR length: min(--wide_flank, max(500, body_len)).
+      # Only triggered when at least one boundary wasn't detected.
       if (res$status == "ok" &&
           opt$wide_flank > F_flank &&
           (!res$qc$detected_5 || !res$qc$detected_3)) {
-        ext <- extract_extended(joint_idx, opt$wide_flank)
+        body_len <- as.integer(res$qc$median_annot_body_len)
+        wide_flank_used <- min(opt$wide_flank, max(500L, body_len))
+        ext <- extract_extended(joint_idx, wide_flank_used)
         names(ext$seqs) <- names(ltr_ext_seqs_all[joint_idx])
         res2 <- mafft_boundary_consensus(
           extended_seqs   = ext$seqs,
           body_starts_raw = ext$b5,
           body_ends_raw   = ext$b3,
-          flank           = opt$wide_flank,
+          flank           = wide_flank_used,
           threads         = opt$threads,
           save_aln_path   = aln_path,   # overwrite — wider version is the one used
           ltr_id          = ltr_id,
