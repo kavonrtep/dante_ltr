@@ -34,6 +34,11 @@ requirements:
     - mmseqs2 >=14
     - mafft >=7.490
     - tidehunter =1.4.3
+    # used by dante_ltr_refine (parasail anchored extension + per-member
+    # genome access); pyfaidx is also a transitive dep of parasail's
+    # workflow scripts but listed explicitly so it is guaranteed.
+    - parasail-python >=1.3
+    - pyfaidx >=0.7
 
 test:
   commands:
@@ -42,6 +47,9 @@ test:
     - dante_ltr_solo --help | grep -q 'usage'
     - dante_ltr_to_library --help | grep -q 'usage'
     - dante_ltr_summary --help | grep -qi 'usage'
+    - dante_ltr_refine --help | grep -q 'usage'
+    # Ensure the Python deps used by dante_ltr_refine are importable.
+    - python -c 'import parasail, pyfaidx'
 
 about:
   home: https://github.com/kavonrtep/dante_ltr

@@ -12,6 +12,7 @@ cp -r . "${DANTE_LTR_DIR}"
 # Executables
 ln -s "${DANTE_LTR_DIR}/dante_ltr"                 "${PREFIX}/bin/dante_ltr"
 ln -s "${DANTE_LTR_DIR}/dante_ltr_solo"            "${PREFIX}/bin/dante_ltr_solo"
+ln -s "${DANTE_LTR_DIR}/dante_ltr_refine"          "${PREFIX}/bin/dante_ltr_refine"
 ln -s "${DANTE_LTR_DIR}/dante_ltr_to_library"      "${PREFIX}/bin/dante_ltr_to_library"
 ln -s "${DANTE_LTR_DIR}/dante_ltr_summary"         "${PREFIX}/bin/dante_ltr_summary"
 ln -s "${DANTE_LTR_DIR}/dante_reclassify"          "${PREFIX}/bin/dante_reclassify"

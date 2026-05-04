@@ -9,3 +9,5 @@ tidehunter=1.4.3
 bedtools>=2.23.0
 mmseqs2>=14
 mafft>=7.490
+parasail-python>=1.3
+pyfaidx>=0.7
