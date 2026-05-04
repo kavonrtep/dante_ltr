@@ -30,8 +30,11 @@ jobs:
 
       - name: Install runtime dependencies
         run: |
-          # requirements.txt uses conda-format pins shared with the recipe
-          mamba install -y --file requirements.txt
+          # conda-deps.txt uses conda-format pins shared with the recipe;
+          # named .conda-deps (not requirements.txt) so GitHub's
+          # dependency-graph / Dependabot pip detector doesn't try to
+          # parse it as a PEP 440 file.
+          mamba install -y --file conda-deps.txt
 
       - name: Show environment
         run: |
@@ -46,3 +49,6 @@ jobs:
 
       - name: Fallback test
         run: ./tests.sh fallback
+
+      - name: Refine test
+        run: ./tests.sh refine
