@@ -6,6 +6,7 @@
   - [Quick start guide - How to use DANTE and DANTE_LTR on Galaxy server](#quick-start-guide---how-to-use-dante-and-dante_ltr-on-galaxy-server)
   - [Quick start guide - How to use command line version of DANTE and DANTE_LTR](#quick-start-guide---how-to-use-command-line-version-of-dante-and-dante_ltr)
   - [Tools description](#tools-description)
+  - [Boundary refinement](#boundary-refinement)
   - [Solo LTR detection](#solo-ltr-detection)
   - [GFF3 DANTE_LTR output specification](#gff3-dante_ltr-output-specification)
   - [Modifying LTR-RT search constrains](#modifying-ltr-rt-search-constrains)
@@ -181,6 +182,55 @@ options:
 ```
 
 
+## Boundary refinement
+
+`dante_ltr_refine` improves per-element LTR boundaries on a DANTE_LTR
+annotation by parasail anchored extension across MMseqs2-clustered
+members, with optional MAFFT change-point fallback for low-confidence
+clusters.  The output is a refined GFF3 with the same schema plus
+`Original_Start` / `Original_End` / `Refinement_Method` /
+`Refinement_Confidence` / `TG_OK` / `CA_OK` attributes; downstream
+`dante_ltr_solo` can consume it via `--refined_gff3` to build a cleaner
+LTR library from validated members only.
+
+```
+usage: dante_ltr_refine -g GFF3 -s GENOME -o OUTPUT [OPTIONS]
+
+options:
+  -g GFF3                       DANTE_LTR GFF3 input.
+  -s GENOME                     Reference genome FASTA.
+  -o OUTPUT                     Output prefix (4 files: refined GFF3, per-
+                                element TSV, cluster TSV, run JSON).
+  --identity 0.9                MMseqs2 cluster identity.
+  --min_cluster_size 6          Minimum members for parasail.
+  --anchor_len 50               Anchor length inside LTR (bp).
+  --flank_len 1000              Flank length scanned outside LTR (bp).
+  --boundary_motif TG/CA        TG/CA strict, or "none" for parasail
+                                evidence only.
+  --mafft_fallback_threshold 0.5
+                                Cluster validation rate below which
+                                MAFFT change-point fallback fires.
+  --no-mafft-fallback           Disable MAFFT fallback (parasail-only).
+  --threads 4                   MMseqs2 / MAFFT threads.
+  --workers 4                   Parallel cluster workers.
+```
+
+#### Example
+
+```bash
+dante_ltr_refine -g DANTE_LTR_annotation.gff3 \
+                 -s sample_genome.fasta \
+                 -o refined/sample --threads 4 --workers 4
+
+dante_ltr_solo -g DANTE_LTR_annotation.gff3 \
+               --refined_gff3 refined/sample_refined.gff3 \
+               -s sample_genome.fasta \
+               -o solo_output -c 10
+```
+
+See `docs/parasail_boundary_refinement_plan.md` for the design
+rationale and validation strategy.
+
 ## Solo LTR detection
 
 `dante_ltr_solo` identifies solo LTR retrotransposons (LTR/LTR recombination
@@ -193,6 +243,7 @@ junction checks.
 ```
 usage: dante_ltr_solo -g GFF3 -s REFERENCE_SEQUENCE -o OUTPUT_DIR [-c CPU]
                       [-i MIN_IDENTITY] [-C MIN_COVERAGE] [-S MAX_CHUNK_SIZE]
+                      [--refined_gff3 PATH] [--min_validated_members N]
 
 options:
   -g GFF3, --gff3 GFF3         DANTE_LTR annotation GFF3 (from dante_ltr).
@@ -204,6 +255,12 @@ options:
                                (default 0.8).
   -S MAX_CHUNK_SIZE            Genome chunk size for parallel search
                                (default 100000000).
+  --refined_gff3 PATH          Optional refined GFF3 from dante_ltr_refine.
+                               When supplied, the LTR library is built from
+                               validated members only (low-confidence
+                               clusters are flagged in the map TSV).
+  --min_validated_members 4    Minimum validated cluster members required
+                               for a high-confidence consensus (default 4).
 ```
 
 #### Pipeline overview

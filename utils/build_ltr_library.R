@@ -37,14 +37,36 @@ option_list <- list(
                            "boundary correction. Below this, the highest-rank",
                            "single annotated LTR is used instead [default %default]")),
   make_option(c("--alignments_dir"), type = "character", default = NULL,
-              help = "Optional directory in which to save per-cluster MAFFT alignments (for debugging)")
+              help = "Optional directory in which to save per-cluster MAFFT alignments (for debugging)"),
+  make_option(c("--refined_gff3"), type = "character", default = NULL,
+              help = paste("Optional refined GFF3 produced by dante_ltr_refine.",
+                           "When supplied, this script uses the refined LTR",
+                           "coordinates directly and filters cluster members to",
+                           "validated ones (TG_OK and CA_OK both TRUE on the",
+                           "appropriate side), skipping the per-cluster MAFFT",
+                           "change-point boundary correction.  The MAFFT step",
+                           "is still used to build the per-cluster consensus.")),
+  make_option(c("--min_validated_members"), type = "integer", default = 4L,
+              help = paste("With --refined_gff3: minimum number of validated",
+                           "members required to build a high-confidence cluster",
+                           "consensus.  Below this threshold the script falls",
+                           "back to all cluster members and flags the cluster",
+                           "low_confidence in the map TSV. [default %default]"))
 )
 
 parser <- OptionParser(option_list = option_list,
                        usage = "usage: %prog -g GFF3 -s FASTA -o OUTPUT [OPTIONS]")
 opt <- parse_args(parser)
 
-for (arg in c("gff3", "reference_sequence", "output")) {
+# Allow either --gff3 or --refined_gff3 as the GFF3 input.
+USE_REFINED <- !is.null(opt$refined_gff3) && nzchar(opt$refined_gff3)
+GFF_INPUT   <- if (USE_REFINED) opt$refined_gff3 else opt$gff3
+
+if (is.null(GFF_INPUT) || !nzchar(GFF_INPUT)) {
+  print_help(parser)
+  stop("One of --gff3 or --refined_gff3 must be given", call. = FALSE)
+}
+for (arg in c("reference_sequence", "output")) {
   if (is.null(opt[[arg]])) {
     print_help(parser)
     stop("Mandatory argument missing: --", arg, call. = FALSE)
@@ -450,6 +472,44 @@ mafft_boundary_consensus <- function(extended_seqs, body_starts_raw, body_ends_r
   )
 }
 
+# ---- Refined-mode helpers ----
+# Used when --refined_gff3 is supplied.  The cluster members are already
+# at correct boundaries; build the consensus by majority vote over a
+# straightforward MAFFT alignment of the (validated) bodies.
+
+mafft_simple_consensus <- function(body_seqs, threads = 1L,
+                                   ltr_id = "LTR_unknown",
+                                   save_aln_path = NULL,
+                                   min_consensus_len = 50L) {
+  tmp_in  <- tempfile(fileext = ".fasta")
+  tmp_out <- tempfile(fileext = ".fasta")
+  on.exit({ unlink(tmp_in); unlink(tmp_out) }, add = TRUE)
+
+  writeXStringSet(body_seqs, tmp_in)
+  ret <- system(
+    paste("mafft --auto --thread", threads, "--quiet",
+          tmp_in, ">", tmp_out, "2>/dev/null")
+  )
+  if (ret != 0L || !file.exists(tmp_out) || file.size(tmp_out) == 0L) {
+    return(list(consensus = NULL, status = "fallback"))
+  }
+  if (!is.null(save_aln_path)) {
+    try(file.copy(tmp_out, save_aln_path, overwrite = TRUE), silent = TRUE)
+  }
+  aln <- readDNAStringSet(tmp_out)
+  if (length(aln) == 0L) {
+    return(list(consensus = NULL, status = "fallback"))
+  }
+  mat <- toupper(as.matrix(aln))
+  bc  <- base_counts(mat)
+  cons_str <- majority_from_counts(bc, 1L, ncol(mat))
+  if (nchar(cons_str) < min_consensus_len) {
+    return(list(consensus = NULL, status = "fallback"))
+  }
+  list(consensus = DNAStringSet(setNames(cons_str, ltr_id)),
+       status    = "ok")
+}
+
 # ---- MMseqs2 clustering (returns named vector: member -> representative) ----
 mmseqs_cluster <- function(seqs, identity = 0.9, threads = 1L) {
   if (length(seqs) < 2L) return(setNames(names(seqs), names(seqs)))
@@ -495,7 +555,10 @@ if (!is.null(opt$alignments_dir)) {
 }
 
 cat("Reading GFF3 ...\n")
-gff <- import(opt$gff3, format = "gff3")
+gff <- import(GFF_INPUT, format = "gff3")
+if (USE_REFINED) {
+  cat(sprintf("  using refined GFF3: %s\n", GFF_INPUT))
+}
 
 cat("Reading genome ...\n")
 s        <- readDNAStringSet(opt$reference_sequence)
@@ -522,6 +585,27 @@ ltr_rank   <- te_rank[ltr_parent]
 ltr_class  <- te_class[ltr_parent]
 ltr_ltr    <- as.character(ltr_feat$LTR)   # "5LTR" or "3LTR"
 ltr_rank[is.na(ltr_rank)] <- "DL"
+
+# Per-LTR validation flags (only meaningful in refined mode).  In
+# unrefined mode we treat every member as validated so the existing
+# behaviour is preserved.
+#
+# Definition of "validated" in refined mode:
+#   - Refinement_Confidence in {"high", "medium"} -> validated
+#   - everything else (low / unrefined / missing)  -> not validated
+# This consolidates both the TG/CA-strict path and the motif=none path
+# (where Confidence is set by parasail evidence alone) into a single
+# rule.
+if (USE_REFINED) {
+  conf_attr <- if (!is.null(ltr_feat$Refinement_Confidence))
+                 as.character(ltr_feat$Refinement_Confidence)
+               else rep(NA_character_, length(ltr_feat))
+  ltr_validated <- conf_attr %in% c("high", "medium")
+  cat(sprintf("Refined-mode validation: %d / %d LTRs validated (high+medium confidence)\n",
+              sum(ltr_validated), length(ltr_validated)))
+} else {
+  ltr_validated <- rep(TRUE, length(ltr_feat))
+}
 
 # ---- Extract body + extended sequences for ALL LTRs (5' and 3') ----
 # Clustering still uses 5'LTR bodies only, but the MAFFT step now also
@@ -625,6 +709,10 @@ cat("Clustering and building LTR consensus sequences ...\n")
 lineages <- unique(ltr_class_5[!is.na(ltr_class_5)])
 all_consensus <- DNAStringSet()
 id_to_lineage <- character(0L)    # maps FASTA ID -> Final_Classification
+id_low_conf   <- logical(0L)      # one entry per consensus; TRUE = low_confidence
+id_built_from <- character(0L)    # "validated" | "all_members" | "fallback"
+id_n_validated <- integer(0L)
+id_n_total    <- integer(0L)
 ltr_counter   <- 0L
 qc_rows       <- list()
 
@@ -670,8 +758,75 @@ for (lin in lineages) {
 
     use_mafft <- length(midx) >= opt$min_cluster_size
     cons_done <- FALSE
+    cluster_low_conf  <- FALSE
+    cluster_built_from <- "fallback"
+    cluster_n_validated <- 0L
+    cluster_n_total     <- length(midx)
 
-    if (use_mafft) {
+    if (USE_REFINED) {
+      # Refined-mode path: skip change-point; pick validated bodies and
+      # build a simple majority consensus over a MAFFT alignment.
+      members_5 <- all_idx_lin[midx]
+      sib_3     <- unlist(lapply(parent_lin[midx], function(p) {
+        s <- by_parent_3[[p]]
+        if (is.null(s) || length(s) == 0L) NA_integer_ else s[1L]
+      }))
+      members_3   <- sib_3[!is.na(sib_3)]
+      joint_idx   <- c(members_5, members_3)
+      cluster_n_total <- length(joint_idx)
+
+      validated_mask <- ltr_validated[joint_idx]
+      n_val <- sum(validated_mask, na.rm = TRUE)
+      cluster_n_validated <- as.integer(n_val)
+
+      if (n_val >= opt$min_validated_members) {
+        keep_idx <- joint_idx[validated_mask]
+        cluster_built_from <- "validated"
+      } else {
+        keep_idx <- joint_idx
+        cluster_built_from <- if (length(joint_idx) > 0L) "all_members" else "fallback"
+        cluster_low_conf <- TRUE
+      }
+
+      # Cluster-size gating: small clusters skip MAFFT entirely and use
+      # the highest-rank single annotated body (mirrors legacy behaviour).
+      if (length(keep_idx) >= opt$min_cluster_size) {
+        aln_path <- if (!is.null(opt$alignments_dir)) {
+          file.path(opt$alignments_dir, paste0(ltr_id, ".aln.fasta"))
+        } else NULL
+        body_seqs <- ltr_body_seqs_all[keep_idx]
+        names(body_seqs) <- safe_coords[keep_idx]
+        t0 <- proc.time()[["elapsed"]]
+        res <- mafft_simple_consensus(
+          body_seqs     = body_seqs,
+          threads       = opt$threads,
+          ltr_id        = ltr_id,
+          save_aln_path = aln_path
+        )
+        timing_env$mafft <- timing_env$mafft + (proc.time()[["elapsed"]] - t0)
+        if (res$status == "ok" && !is.null(res$consensus)) {
+          cons      <- res$consensus
+          cons_done <- TRUE
+        }
+      }
+
+      # Refined-mode QC row (compact; cols match unrefined schema where possible)
+      qc_rows[[length(qc_rows) + 1L]] <- data.frame(
+        ltr_id = ltr_id, Final_Classification = lin,
+        n_members = length(joint_idx),
+        n_5ltr = length(members_5), n_3ltr = length(members_3),
+        flank = NA_integer_,
+        annotated_5_col = NA_integer_, corrected_5_col = NA_integer_,
+        shift_5 = NA_integer_, detected_5 = FALSE,
+        annotated_3_col = NA_integer_, corrected_3_col = NA_integer_,
+        shift_3 = NA_integer_, detected_3 = FALSE,
+        consensus_length = if (cons_done) as.integer(width(cons)[1L]) else NA_integer_,
+        median_annot_body_len = as.integer(median(width(ltr_body_seqs_all[joint_idx]))),
+        tgca_frac_annotated = NA_real_, tgca_frac_corrected = NA_real_,
+        tsd_frac_annotated  = NA_real_, tsd_frac_corrected  = NA_real_,
+        stringsAsFactors = FALSE
+      )
+    } else if (use_mafft) {
       aln_path <- if (!is.null(opt$alignments_dir)) {
         file.path(opt$alignments_dir, paste0(ltr_id, ".aln.fasta"))
       } else NULL
@@ -766,7 +921,10 @@ for (lin in lineages) {
       # Fallback: use highest-rank single annotated LTR body
       best <- midx[which.max(priority_lin[midx])]
       cons <- body_lin[best]
-      if (!use_mafft) {
+      # In refined mode the QC row was already appended above; only emit
+      # the legacy single-fallback row when neither MAFFT nor the
+      # refined-mode path produced one.
+      if (!use_mafft && !USE_REFINED) {
         qc_rows[[length(qc_rows) + 1L]] <- data.frame(
           ltr_id = ltr_id, Final_Classification = lin,
           n_members = length(midx),
@@ -788,6 +946,10 @@ for (lin in lineages) {
     names(cons)   <- ltr_id
     all_consensus <- c(all_consensus, cons)
     id_to_lineage[ltr_id] <- lin
+    id_low_conf    <- c(id_low_conf, cluster_low_conf)
+    id_built_from  <- c(id_built_from, cluster_built_from)
+    id_n_validated <- c(id_n_validated, cluster_n_validated)
+    id_n_total     <- c(id_n_total, cluster_n_total)
   }
 }
 
@@ -812,10 +974,22 @@ ltr_lib_path <- paste0(opt$output, "_LTR_library.fasta")
 writeXStringSet(all_consensus, ltr_lib_path)
 
 ltr_map_path <- paste0(opt$output, "_LTR_library_map.tsv")
-write.table(data.frame(ltr_id = names(id_to_lineage),
-                        Final_Classification = as.character(id_to_lineage),
-                        stringsAsFactors = FALSE),
-            ltr_map_path, sep = "\t", quote = FALSE, row.names = FALSE)
+map_df <- data.frame(
+  ltr_id               = names(id_to_lineage),
+  Final_Classification = as.character(id_to_lineage),
+  stringsAsFactors     = FALSE
+)
+if (USE_REFINED) {
+  # Augment with refinement-aware columns when available
+  if (length(id_n_validated) == nrow(map_df)) {
+    map_df$n_validated        <- as.integer(id_n_validated)
+    map_df$n_total            <- as.integer(id_n_total)
+    map_df$consensus_built_from <- as.character(id_built_from)
+    map_df$low_confidence     <- as.logical(id_low_conf)
+  }
+}
+write.table(map_df, ltr_map_path,
+            sep = "\t", quote = FALSE, row.names = FALSE)
 
 # Write boundary QC table
 qc_path <- paste0(opt$output, "_LTR_library_boundary_qc.tsv")

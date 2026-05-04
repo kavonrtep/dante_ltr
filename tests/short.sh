@@ -62,4 +62,24 @@ N_MISSING_LIB=$(awk -F'\t' '$3=="solo_LTR" && $9 !~ /LibraryID=LTR_/' \
 echo "OK: all representatives carry LibraryID"
 
 echo
+echo "=== dante_ltr_refine (parasail anchored extension) ==="
+./dante_ltr_refine -g "$OUT/ltr.gff3" -s "$FASTA" \
+                   -o "$OUT/refined/sample" \
+                   --threads "$NCPU" --workers "$NCPU" --no-mafft-fallback
+
+for f in sample_refined.gff3 sample_per_element.tsv sample_clusters.tsv sample_run.json; do
+  [ -e "$OUT/refined/$f" ] || { echo "FAIL: missing refine output $f"; exit 1; }
+done
+
+# refined GFF3 should have at least one Refinement_Method attribute
+N_REFINED_ATTR=$(grep -c 'Refinement_Method=' "$OUT/refined/sample_refined.gff3" || true)
+[ "$N_REFINED_ATTR" -ge 1 ] \
+  || { echo "FAIL: refined GFF3 has no Refinement_Method attributes"; exit 1; }
+echo "OK: refined GFF3 has $N_REFINED_ATTR Refinement_Method attributes"
+
+# per-element TSV header sanity
+head -1 "$OUT/refined/sample_per_element.tsv" | grep -q final_method \
+  || { echo "FAIL: per_element.tsv missing final_method header"; exit 1; }
+
+echo
 echo "short PASSED"

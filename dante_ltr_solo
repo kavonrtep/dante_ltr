@@ -94,6 +94,18 @@ def get_arguments():
                         help='Minimum alignment coverage of query LTR (default: %(default)s)')
     parser.add_argument('-S', '--max_chunk_size', default=100_000_000, type=int,
                         help='Max genome chunk size in bp (default: %(default)s)')
+    parser.add_argument('--refined_gff3', default=None,
+                        help='Optional refined GFF3 (output of dante_ltr_refine). '
+                             'When supplied, the LTR library is built from '
+                             'validated members only (per --boundary_motif), '
+                             'and downstream solo-LTR detection runs against '
+                             'that cleaner library.  --gff3 is still required '
+                             'to provide the full DANTE_LTR annotation that '
+                             'is used as overlap mask during detection.')
+    parser.add_argument('--min_validated_members', default=4, type=int,
+                        help='Minimum validated cluster members required to '
+                             'build a high-confidence consensus when '
+                             '--refined_gff3 is given (default: %(default)s)')
     parser.add_argument('-v', '--version', action='version',
                         version='%(prog)s ' + __version__)
     return parser.parse_args()
@@ -269,7 +281,8 @@ def merge_solo_stats(files):
 # Pipeline steps
 # ============================================================
 
-def build_ltr_library(tool_path, gff3, fasta, lib_dir, cpu):
+def build_ltr_library(tool_path, gff3, fasta, lib_dir, cpu,
+                      refined_gff3=None, min_validated_members=4):
     """Call build_ltr_library.R; returns a dict of produced paths."""
     lib_prefix = os.path.join(lib_dir, 'ltr_lib')
     aln_dir = os.path.join(lib_dir, 'mafft_alignments')
@@ -283,6 +296,9 @@ def build_ltr_library(tool_path, gff3, fasta, lib_dir, cpu):
         '-t', str(cpu),
         '--alignments_dir', aln_dir,
     ]
+    if refined_gff3:
+        cmd += ['--refined_gff3', refined_gff3,
+                '--min_validated_members', str(min_validated_members)]
     run_subprocess(cmd, "Building LTR reference library")
 
     return {
@@ -390,8 +406,24 @@ def main():
 
 
 def _run(args, tool_path, out_dir, lib_dir, chunks_dir, ref_norm, gff3_input):
+    # If --refined_gff3 was supplied, validate and copy it into the outdir
+    # alongside the original GFF3.
+    refined_copy = None
+    if args.refined_gff3:
+        if not os.path.exists(args.refined_gff3):
+            logger.error("Refined GFF3 not found: %s", args.refined_gff3)
+            sys.exit(1)
+        refined_copy = os.path.join(out_dir, 'reference_input_refined.gff3')
+        shutil.copy(args.refined_gff3, refined_copy)
+        logger.info("Refined GFF3 supplied; library will be built from "
+                    "validated members of %s", args.refined_gff3)
+
     # ---- Step 1: build LTR library (once, on the full normalized genome) ----
-    lib = build_ltr_library(tool_path, gff3_input, ref_norm, lib_dir, args.cpu)
+    lib = build_ltr_library(
+        tool_path, gff3_input, ref_norm, lib_dir, args.cpu,
+        refined_gff3=refined_copy,
+        min_validated_members=args.min_validated_members,
+    )
 
     if not os.path.exists(lib['ltr_library']) or os.path.getsize(lib['ltr_library']) == 0:
         logger.error("LTR library is empty. Ensure the input GFF3 contains "

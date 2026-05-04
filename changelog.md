@@ -1,3 +1,29 @@
+## unreleased
+
+Per-element LTR boundary refinement.
+
+* New `dante_ltr_refine` command — parasail anchored extension across
+  MMseqs2-clustered members, with optional MAFFT change-point fallback
+  for low-confidence clusters.  Outputs a refined GFF3 with the same
+  schema plus `Original_Start` / `Original_End` /
+  `Refinement_Method` / `Refinement_Confidence` /
+  `Cluster_ID` / `Cluster_Size` / `TG_OK` / `CA_OK` attributes, plus
+  a per-element TSV, cluster manifest TSV and run JSON.
+* `dante_ltr_solo` accepts `--refined_gff3 PATH` and
+  `--min_validated_members N` (default 4).  When supplied, the LTR
+  reference library is built from validated members only;
+  low-confidence clusters fall back to all members and are flagged in
+  the library map TSV.
+* `utils/build_ltr_library.R` accepts `--refined_gff3` (skips the
+  per-cluster change-point step in this mode and builds the
+  consensus by majority vote over a MAFFT alignment of the validated
+  bodies) and `--min_validated_members`.
+* New library module `utils/parasail_boundary.py` (importable) with
+  the parasail anchored-extension primitives, motif validation and
+  per-side / per-strand boundary geometry.
+* See `docs/parasail_boundary_refinement_plan.md` for design and
+  validation strategy.
+
 ## 0.4.0.13 (2026-04-20)
 
 Fallback classification mode for distantly-related species.

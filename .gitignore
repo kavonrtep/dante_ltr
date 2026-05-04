@@ -14,3 +14,6 @@
 # jinja load_file_data in meta.yaml can find it. The canonical
 # version.py is at the repo root.
 /conda/dante_ltr/version.py
+
+# pyfaidx auto-generates this next to the test fixture FASTA at runtime.
+/tests/data/refine/genome.fasta.fai

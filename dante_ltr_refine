@@ -1,0 +1,32 @@
+#!/usr/bin/env python
+"""Per-element LTR boundary refinement (parasail anchored extension +
+optional MAFFT change-point fallback).
+
+Reads a DANTE_LTR GFF3 + genome FASTA, refines each LTR feature's
+outward-facing boundary, and emits a refined GFF3 plus diagnostic TSVs.
+The refined GFF3 keeps the same column 1-8 schema as DANTE_LTR's output;
+attributes are augmented with Original_Start / Original_End /
+Refinement_Method / Refinement_Confidence / Cluster_ID / Cluster_Size
+(and TG_OK / CA_OK when --boundary_motif=TG/CA).
+
+Outputs at <output>_*:
+  - <output>_refined.gff3      refined GFF3
+  - <output>_per_element.tsv   per-element refinement record
+  - <output>_clusters.tsv      cluster manifest
+  - <output>_run.json          parameters + timing summary
+"""
+
+import os
+import sys
+
+# Make utils/ importable as a sibling-of-this-script directory
+HERE = os.path.dirname(os.path.realpath(__file__))
+UTILS = os.path.join(HERE, "utils")
+if UTILS not in sys.path:
+    sys.path.insert(0, UTILS)
+
+from refine_boundaries import main as _main  # type: ignore
+
+
+if __name__ == "__main__":
+    sys.exit(_main())
