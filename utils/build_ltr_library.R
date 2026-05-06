@@ -599,10 +599,10 @@ if (USE_REFINED) {
   conf_attr <- if (!is.null(ltr_feat$Refinement_Confidence))
                  as.character(ltr_feat$Refinement_Confidence)
                else rep(NA_character_, length(ltr_feat))
-  ltr_validated <- conf_attr %in% c("dual", "divergent", "inner_only",
-                                     "msa_rescue",
+  ltr_validated <- conf_attr %in% c("dual", "divergent", "confirmed",
+                                     "inner_only", "msa_rescue",
                                      "high", "medium")
-  cat(sprintf("Refined-mode validation: %d / %d LTRs validated (dual/divergent/inner_only/msa_rescue)\n",
+  cat(sprintf("Refined-mode validation: %d / %d LTRs validated (dual/divergent/confirmed/inner_only/msa_rescue)\n",
               sum(ltr_validated), length(ltr_validated)))
 } else {
   ltr_validated <- rep(TRUE, length(ltr_feat))
