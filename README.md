@@ -186,12 +186,23 @@ options:
 
 `dante_ltr_refine` improves per-element LTR boundaries on a DANTE_LTR
 annotation by parasail anchored extension across MMseqs2-clustered
-members, with optional MAFFT change-point fallback for low-confidence
-clusters.  The output is a refined GFF3 with the same schema plus
-`Original_Start` / `Original_End` / `Refinement_Method` /
-`Refinement_Confidence` / `TG_OK` / `CA_OK` attributes; downstream
-`dante_ltr_solo` can consume it via `--refined_gff3` to build a cleaner
-LTR library from validated members only.
+members.  Each side is refined using two independent anchor pools and
+the *inner-primary policy* gates the result on TG/CA preservation and
+TSD survival, so refinement never destroys an originally-detected TSD.
+
+| attribute on the refined GFF3 | values |
+|---|---|
+| `Refinement_Method`     | `parasail_inner` / `parasail_outer` / `mafft` / `none` |
+| `Refinement_Confidence` | `dual` / `divergent` / `inner_only` / `unrefined` |
+| `TSD_Outcome`           | `kept_exact` / `kept_fuzzy` / `shifted` / `gained` / `both_none` |
+| `Motif_Orig`, `Motif_New` | TG/CA dinucleotide at orig vs new outer boundary |
+| `Outer_Pool_g`, `Inner_Pool_g` | per-pool boundary calls (diagnostic) |
+
+`target_site_duplication` child rows are re-emitted at refined
+coordinates and inherit the parent TE's `Refinement_Confidence`.
+Downstream `dante_ltr_solo` consumes the refined GFF3 via
+`--refined_gff3` to build a cleaner LTR library from validated
+members.
 
 ```
 usage: dante_ltr_refine -g GFF3 -s GENOME -o OUTPUT [OPTIONS]
@@ -202,13 +213,14 @@ options:
   -o OUTPUT                     Output prefix (4 files: refined GFF3, per-
                                 element TSV, cluster TSV, run JSON).
   --identity 0.9                MMseqs2 cluster identity.
-  --min_cluster_size 6          Minimum members for parasail.
+  --min_cluster_size 6          Minimum members per role (5'LTR and 3'LTR
+                                must each have >= N).
   --anchor_len 50               Anchor length inside LTR (bp).
   --flank_len 1000              Flank length scanned outside LTR (bp).
-  --boundary_motif TG/CA        TG/CA strict, or "none" for parasail
-                                evidence only.
+  --no_tsd_revert               Disable per-element TSD-loss revert
+                                rule (diagnostic).
   --mafft_fallback_threshold 0.5
-                                Cluster validation rate below which
+                                Inner-pool validation rate below which
                                 MAFFT change-point fallback fires.
   --no-mafft-fallback           Disable MAFFT fallback (parasail-only).
   --threads 4                   MMseqs2 / MAFFT threads.
@@ -228,8 +240,8 @@ dante_ltr_solo -g DANTE_LTR_annotation.gff3 \
                -o solo_output -c 10
 ```
 
-See `docs/parasail_boundary_refinement_plan.md` for the design
-rationale and validation strategy.
+See `docs/refine_v2_analysis.md` for the design rationale, validation
+data, and term definitions.
 
 ## Solo LTR detection
 
