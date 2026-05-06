@@ -292,14 +292,17 @@ class RefRecord:
     # ---- captured original state ----
     orig_motif_ok: Optional[bool] = None
 
-    # ---- MAFFT fallback diagnostics (filled only if invoked) ----
-    mafft_corrected_g: Optional[int] = None
-    mafft_motif_ok: Optional[bool] = None
+    # ---- MAFFT/MSA per-side outputs (populated on every record whose
+    #      cluster ran MAFFT, regardless of whether the rescue actually
+    #      fired on this side) ----
+    msa_corrected_g: Optional[int] = None
+    msa_motif_ok: Optional[bool] = None
+    msa_agree_with_final: Optional[bool] = None  # |msa - final| <= 5
 
     # ---- final, after gates ----
     final_corrected_g: Optional[int] = None
     refinement_method: str = "none"   # parasail_inner | parasail_outer | mafft | none
-    confidence: str = "unrefined"     # dual | divergent | inner_only | unrefined
+    confidence: str = "unrefined"     # dual | divergent | inner_only | msa_rescue | unrefined
     revert_reason: str = ""           # "" | "tsd_lost" | "tsd_lost_partner" | ...
 
     # ---- per-element TSD outcome (set on BOTH 5LTR and 3LTR records of an element) ----
@@ -589,24 +592,33 @@ def _member_from_rec(rec: RefRecord) -> Member:
 
 
 # ============================================================
-# MAFFT fallback (subprocess to refine_mafft_fallback.R)
+# MAFFT MSA (subprocess to refine_mafft_fallback.R)
+#
+# In v2 this was a threshold-gated *fallback* tier.  In v2.1 / tier 3
+# we run the same MAFFT MSA on EVERY qualifying cluster (when
+# --msa_rescue is enabled, the default) so per-side rescue can fire
+# independently of the cluster-level validation rate.  The R subprocess
+# itself is identical; what changed is the trigger and the application
+# rule (per-side: rescue any side with final_corrected_g still None).
 # ============================================================
 
-def run_mafft_fallback(records: List[RefRecord], cluster_members: List[Member],
-                       cluster_id: str, cluster_lineage: str,
-                       genome, genome_lens: Dict[str, int],
-                       opts: argparse.Namespace) -> None:
-    """Mutate `records` in place with MAFFT-corrected boundaries for any
-    record whose parasail call did NOT validate, IFF MAFFT's per-member
-    call validates better.
 
-    Uses an Rscript subprocess.  Writes a per-cluster FASTA of LTR ±
-    --mafft_flank bp and reads back a per-member TSV.
+def _run_mafft_subprocess(cluster_members: List[Member],
+                          cluster_id: str,
+                          genome, genome_lens: Dict[str, int],
+                          opts: argparse.Namespace
+                          ) -> Optional[Dict[str, Tuple[Optional[int], Optional[bool]]]]:
+    """Run the per-cluster MAFFT MSA + change-point detector via the R
+    helper script.  Returns a dict mapping the per-member name string
+    (built from member coords) to (corrected_g, motif_ok).  Returns
+    None on failure (timeout / non-zero exit / missing output) — caller
+    treats None as "no MSA results for this cluster".
     """
     script = os.path.join(HERE, "refine_mafft_fallback.R")
     if not os.path.exists(script):
-        logger.warning("MAFFT fallback script missing at %s; skipping", script)
-        return
+        logger.warning("MAFFT script missing at %s; skipping cluster %s",
+                       script, cluster_id)
+        return None
 
     tmpdir = tempfile.mkdtemp(prefix="dante_ltr_refine_mafft_")
     try:
@@ -614,9 +626,6 @@ def run_mafft_fallback(records: List[RefRecord], cluster_members: List[Member],
         meta_path = os.path.join(tmpdir, "members.tsv")
         out_path = os.path.join(tmpdir, "result.tsv")
 
-        # Build per-member extended FASTA in biological orientation.
-        # Each row is: header = "<chrom>:<start>-<end>:<role>:<strand>"
-        # (so we can match back).
         with open(fa_path, "w") as fa, open(meta_path, "w") as meta:
             meta.write("name\tchrom\tstart\tend\tstrand\trole\t"
                        "ext_start\text_end\tbody_start_raw\tbody_end_raw\n")
@@ -627,7 +636,6 @@ def run_mafft_fallback(records: List[RefRecord], cluster_members: List[Member],
                 seq = str(genome[m.chrom][ext_start - 1:ext_end]).upper()
                 if m.strand == '-':
                     seq = revcomp(seq)
-                # In bio orientation, body offsets:
                 gleft = m.start - ext_start
                 gright = ext_end - m.end
                 bio_5flank = gright if m.strand == '-' else gleft
@@ -651,16 +659,15 @@ def run_mafft_fallback(records: List[RefRecord], cluster_members: List[Member],
             r = subprocess.run(cmd, capture_output=True, text=True,
                                check=False, timeout=opts.mafft_timeout)
         except subprocess.TimeoutExpired:
-            logger.warning("MAFFT fallback timeout for cluster %s", cluster_id)
-            return
+            logger.warning("MAFFT timeout for cluster %s", cluster_id)
+            return None
         if r.returncode != 0:
-            logger.warning("MAFFT fallback failed for cluster %s: %s",
+            logger.warning("MAFFT failed for cluster %s: %s",
                            cluster_id, r.stderr.strip()[:200])
-            return
+            return None
         if not os.path.exists(out_path):
-            return
+            return None
 
-        # Parse: per-row member name + corrected_g + motif_ok
         by_name: Dict[str, Tuple[Optional[int], Optional[bool]]] = {}
         with open(out_path) as f:
             header = f.readline().rstrip().split("\t")
@@ -669,41 +676,83 @@ def run_mafft_fallback(records: List[RefRecord], cluster_members: List[Member],
                 i_g = header.index("corrected_g")
                 i_ok = header.index("motif_ok")
             except ValueError:
-                return
+                return None
             for line in f:
                 parts = line.rstrip("\n").split("\t")
                 if len(parts) < 3:
                     continue
                 nm = parts[i_name]
-                cg = parts[i_g]
-                mo = parts[i_ok]
+                cg = parts[i_g]; mo = parts[i_ok]
                 cg_v = int(cg) if cg not in ("NA", "", "None") else None
                 mo_v = (True if mo == "TRUE" else
                         False if mo == "FALSE" else None)
                 by_name[nm] = (cg_v, mo_v)
-
-        # Merge into records.  Override only on records the inner-primary
-        # policy did NOT already accept (final_corrected_g is None) AND
-        # where MAFFT's call validates the TG/CA motif.  TSD-loss revert
-        # is applied later in refine_all by `apply_tsd_gate_per_element`.
-        for rec in records:
-            nm = (f"{rec.chrom}__{rec.start_orig}__{rec.end_orig}"
-                  f"__{rec.role}__{rec.strand}")
-            mafft = by_name.get(nm)
-            if mafft is None:
-                continue
-            cg, mok = mafft
-            rec.mafft_corrected_g = cg
-            rec.mafft_motif_ok = mok
-            if rec.final_corrected_g is not None:
-                continue   # parasail_inner already accepted this side
-            if cg is None or mok is not True:
-                continue
-            rec.final_corrected_g = cg
-            rec.refinement_method = "mafft"
-            rec.confidence = "inner_only"
+        return by_name
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _apply_msa_results(records: List[RefRecord],
+                       per_member: Dict[str, Tuple[Optional[int], Optional[bool]]]
+                       ) -> int:
+    """Populate msa_* fields on every record whose name appears in
+    per_member; rescue any side whose final_corrected_g is still None
+    AND whose MSA call validates motif.
+
+    Returns the number of sides rescued by this call.
+    """
+    n_rescued = 0
+    for rec in records:
+        nm = (f"{rec.chrom}__{rec.start_orig}__{rec.end_orig}"
+              f"__{rec.role}__{rec.strand}")
+        msa = per_member.get(nm)
+        if msa is None:
+            continue
+        cg, mok = msa
+        rec.msa_corrected_g = cg
+        rec.msa_motif_ok = mok
+        # Rescue: only fire on sides the inner-primary policy left empty.
+        if rec.final_corrected_g is not None:
+            continue
+        if cg is None or mok is not True:
+            continue
+        rec.final_corrected_g = cg
+        rec.refinement_method = "mafft"
+        rec.confidence = "msa_rescue"
+        n_rescued += 1
+    return n_rescued
+
+
+def run_mafft_for_cluster(records: List[RefRecord],
+                           cluster_members: List[Member],
+                           cluster_id: str,
+                           cluster_lineage: str,
+                           genome, genome_lens: Dict[str, int],
+                           opts: argparse.Namespace) -> int:
+    """Run the MAFFT MSA + change-point detector for one cluster, and
+    apply the per-side rescue rule.  Returns the number of sides
+    rescued.
+
+    Both the v2 cluster-level fallback and the v2.1 per-side rescue use
+    this function — the only difference is the trigger (whether the
+    caller decides to invoke it).  See the driver in `refine_all`.
+    """
+    per_member = _run_mafft_subprocess(cluster_members, cluster_id,
+                                        genome, genome_lens, opts)
+    if per_member is None:
+        return 0
+    return _apply_msa_results(records, per_member)
+
+
+def compute_msa_agreement(records: List[RefRecord], window: int = 5) -> None:
+    """Set msa_agree_with_final on every record where both
+    msa_corrected_g and final_corrected_g are populated.
+    """
+    for rec in records:
+        if rec.msa_corrected_g is None or rec.final_corrected_g is None:
+            rec.msa_agree_with_final = None
+            continue
+        rec.msa_agree_with_final = abs(rec.msa_corrected_g - rec.final_corrected_g) <= window
 
 
 # ============================================================
@@ -749,7 +798,13 @@ def _refined_ltr_coords(rec: RefRecord) -> Tuple[int, int, str]:
     return new_s, new_e, "yes"
 
 
-_CONF_RANK = {"unrefined": 0, "inner_only": 1, "divergent": 2, "dual": 3}
+_CONF_RANK = {
+    "unrefined":  0,
+    "msa_rescue": 1,
+    "inner_only": 2,
+    "divergent":  3,
+    "dual":       4,
+}
 
 
 def _tsd_child_coords(rec5: RefRecord, rec3: RefRecord, tsd_len: int
@@ -804,6 +859,7 @@ def emit_refined_gff3(raw_lines: List[str], records: List[RefRecord],
                  "Motif_Orig", "Motif_New", "TSD_Outcome",
                  "Outer_Pool_g", "Outer_Pool_Motif_OK",
                  "Inner_Pool_g", "Inner_Pool_Motif_OK",
+                 "MSA_g", "MSA_Motif_OK", "MSA_Agree",
                  "Revert_Reason", "TSD_Status")
 
     with open(out_path, "w") as out:
@@ -865,6 +921,11 @@ def emit_refined_gff3(raw_lines: List[str], records: List[RefRecord],
                     add_attrs_parts.append(
                         f"Inner_Pool_g={rec.inner_corrected_g};"
                         f"Inner_Pool_Motif_OK={_b(rec.inner_motif_ok)}")
+                if rec.msa_corrected_g is not None:
+                    add_attrs_parts.append(
+                        f"MSA_g={rec.msa_corrected_g};"
+                        f"MSA_Motif_OK={_b(rec.msa_motif_ok)};"
+                        f"MSA_Agree={_b(rec.msa_agree_with_final)}")
                 if rec.revert_reason:
                     add_attrs_parts.append(f"Revert_Reason={rec.revert_reason}")
                 add_attrs = ";".join(add_attrs_parts)
@@ -897,13 +958,26 @@ def emit_refined_gff3(raw_lines: List[str], records: List[RefRecord],
                 if refined_any:
                     counts["te_refined"] += 1
 
-                # Element-level method/confidence: take the lower of the two sides.
+                # Element-level method/confidence.
+                # Method: any side that refined "wins"; "none" only when
+                # neither side refined.
                 m5 = rec5.refinement_method if rec5 else "none"
                 m3 = rec3.refinement_method if rec3 else "none"
                 te_method = (m5 if m5 != "none" else m3 if m3 != "none" else "none")
+                # Confidence: "unrefined" iff BOTH sides have method=none.
+                # Otherwise treat any unrefined side as "inner_only" (the
+                # lowest non-unrefined label, since the original boundary
+                # is kept) and take the minimum across sides.  This avoids
+                # labelling a partially-refined element as "unrefined".
                 c5 = rec5.confidence if rec5 else "unrefined"
                 c3 = rec3.confidence if rec3 else "unrefined"
-                te_conf = min((c5, c3), key=lambda c: _CONF_RANK.get(c, 0))
+                if m5 == "none" and m3 == "none":
+                    te_conf = "unrefined"
+                else:
+                    eff5 = c5 if m5 != "none" else "inner_only"
+                    eff3 = c3 if m3 != "none" else "inner_only"
+                    te_conf = min((eff5, eff3),
+                                  key=lambda c: _CONF_RANK.get(c, 0))
                 cluster_id = (rec5.cluster_id if rec5 else
                               rec3.cluster_id if rec3 else "")
                 cluster_size = (rec5.cluster_size if rec5 else
@@ -968,6 +1042,16 @@ def emit_refined_gff3(raw_lines: List[str], records: List[RefRecord],
                     add_parts.append(
                         f"Inner_Pool_Motif_OK={_b(rec5.inner_motif_ok)},"
                         f"{_b(rec3.inner_motif_ok)}")
+                if rec5 is not None and rec5.msa_corrected_g is not None \
+                        and rec3 is not None and rec3.msa_corrected_g is not None:
+                    add_parts.append(
+                        f"MSA_g={rec5.msa_corrected_g},{rec3.msa_corrected_g}")
+                    add_parts.append(
+                        f"MSA_Motif_OK={_b(rec5.msa_motif_ok)},"
+                        f"{_b(rec3.msa_motif_ok)}")
+                    add_parts.append(
+                        f"MSA_Agree={_b(rec5.msa_agree_with_final)},"
+                        f"{_b(rec3.msa_agree_with_final)}")
 
                 add_attrs = ";".join(add_parts)
                 new_attrs = attrs_clean_te + ";" + add_attrs if attrs_clean_te else add_attrs
@@ -1016,8 +1100,8 @@ def emit_per_element_tsv(records: List[RefRecord], out_path: str) -> None:
         "inner_corrected_g", "inner_motif_ok", "inner_snap_offset", "inner_n_pairs",
         # captured original state
         "orig_motif_ok",
-        # mafft fallback (filled only when invoked)
-        "mafft_corrected_g", "mafft_motif_ok",
+        # MSA per-side (filled when MAFFT ran on this cluster)
+        "msa_corrected_g", "msa_motif_ok", "msa_agree_with_final",
         # final
         "final_corrected_g", "refinement_method", "confidence", "revert_reason",
         # tsd outcome
@@ -1047,7 +1131,7 @@ def emit_per_element_tsv(records: List[RefRecord], out_path: str) -> None:
                 r.outer_corrected_g, r.outer_motif_ok, r.outer_snap_offset, r.outer_n_pairs,
                 r.inner_corrected_g, r.inner_motif_ok, r.inner_snap_offset, r.inner_n_pairs,
                 r.orig_motif_ok,
-                r.mafft_corrected_g, r.mafft_motif_ok,
+                r.msa_corrected_g, r.msa_motif_ok, r.msa_agree_with_final,
                 r.final_corrected_g, r.refinement_method, r.confidence, r.revert_reason,
                 r.orig_tsd_len, r.orig_tsd_seq,
                 r.tsd_outcome, r.tsd_new_len, r.tsd_new_seq,
@@ -1077,7 +1161,8 @@ def emit_cluster_manifest(records: List[RefRecord], cluster_index,
                 "inner_validated_5\tinner_validated_3\t"
                 "outer_validated_5\touter_validated_3\t"
                 "inner_validation_rate\touter_validation_rate\t"
-                "mafft_invoked\tmafft_validation_rate\tlow_confidence\n")
+                "mafft_invoked\tmafft_validation_rate\t"
+                "msa_rescue_count\tlow_confidence\n")
         for cid, recs in by_cl.items():
             lin = recs[0].lineage if recs else ""
             n5 = sum(1 for r in recs if r.role == "5LTR")
@@ -1093,11 +1178,13 @@ def emit_cluster_manifest(records: List[RefRecord], cluster_index,
             mafft_inv = "TRUE" if cmeta.get("mafft_invoked") else "FALSE"
             mafft_rate = cmeta.get("mafft_validation_rate")
             mafft_rate_str = f"{mafft_rate:.4f}" if mafft_rate is not None else "NA"
+            msa_rescue = cmeta.get("msa_rescue_count", 0)
             low_conf = "TRUE" if (iv5 + iv3) < 4 else "FALSE"
             f.write(f"{cid}\t{lin}\t{len(recs)}\t{n5}\t{n3}\t"
                     f"{iv5}\t{iv3}\t{ov5}\t{ov3}\t"
                     f"{inner_rate:.4f}\t{outer_rate:.4f}\t"
-                    f"{mafft_inv}\t{mafft_rate_str}\t{low_conf}\n")
+                    f"{mafft_inv}\t{mafft_rate_str}\t"
+                    f"{msa_rescue}\t{low_conf}\n")
 
 
 # ============================================================
@@ -1175,9 +1262,18 @@ def refine_all(args: argparse.Namespace) -> Dict:
     t_parasail = time.time() - t0
     logger.info("Parasail finished in %.1fs", t_parasail)
 
-    # MAFFT fallback per cluster (gated on inner-pool validation rate).
+    # MAFFT MSA per cluster.
+    #
+    #   * --msa_rescue (default ON) : MAFFT runs on every qualifying
+    #     cluster; per-side rescue applies to any side with
+    #     final_corrected_g == None.
+    #   * --no_msa_rescue           : threshold-gated v2 behaviour —
+    #     MAFFT runs only on clusters with inner-pool validation rate
+    #     below --mafft_fallback_threshold.
+    #   * --no-mafft-fallback       : disables BOTH (no MAFFT at all).
     t0 = time.time()
-    n_fallback = 0
+    n_clusters_mafft = 0
+    n_msa_rescued_total = 0
     if args.mafft_fallback:
         cl_mems_by_id: Dict[str, List[Member]] = {}
         for ci, mems in enumerate(cluster_members):
@@ -1186,18 +1282,25 @@ def refine_all(args: argparse.Namespace) -> Dict:
             cluster_id = f"clu_{ci:06d}_{cluster_rep[ci][:80]}"
             cl_mems_by_id[cluster_id] = mems
         for cid, recs in cluster_records.items():
-            rate, _, _ = cluster_inner_validation_rate(recs)
-            if rate < args.mafft_fallback_threshold:
-                n_fallback += 1
-                cluster_index[cid]["mafft_invoked"] = True
-                run_mafft_fallback(recs, cl_mems_by_id[cid],
-                                   cid, cluster_index[cid]["lineage"],
-                                   genome, genome_lens, args)
-                n_accepted = sum(1 for r in recs if r.final_corrected_g is not None)
-                cluster_index[cid]["mafft_validation_rate"] = (
-                    n_accepted / len(recs) if recs else 0.0)
+            should_run = args.msa_rescue
+            if not should_run:
+                rate, _, _ = cluster_inner_validation_rate(recs)
+                should_run = rate < args.mafft_fallback_threshold
+            if not should_run:
+                continue
+            n_clusters_mafft += 1
+            cluster_index[cid]["mafft_invoked"] = True
+            n_rescued = run_mafft_for_cluster(
+                recs, cl_mems_by_id[cid], cid,
+                cluster_index[cid]["lineage"], genome, genome_lens, args)
+            n_msa_rescued_total += n_rescued
+            n_accepted = sum(1 for r in recs if r.final_corrected_g is not None)
+            cluster_index[cid]["mafft_validation_rate"] = (
+                n_accepted / len(recs) if recs else 0.0)
+            cluster_index[cid]["msa_rescue_count"] = n_rescued
     t_mafft = time.time() - t0
-    logger.info("MAFFT fallback ran on %d clusters in %.1fs", n_fallback, t_mafft)
+    logger.info("MAFFT ran on %d clusters in %.1fs; rescued %d sides",
+                n_clusters_mafft, t_mafft, n_msa_rescued_total)
 
     # Build full record set: include EVERY LTR member.
     refined_keys = set()
@@ -1225,6 +1328,12 @@ def refine_all(args: argparse.Namespace) -> Dict:
     t_tsd = time.time() - t0
     logger.info("TSD recheck + gate applied in %.2fs", t_tsd)
 
+    # MSA-agreement label (records where MSA produced a call AND we have
+    # a final coord — flags whether the MSA's independent vote agrees
+    # with the final pick within ±5 bp).  Computed AFTER the TSD gate
+    # so reverts are reflected.
+    compute_msa_agreement(all_records, window=5)
+
     # Outputs
     refined_gff = out_prefix + "_refined.gff3"
     per_element = out_prefix + "_per_element.tsv"
@@ -1244,7 +1353,11 @@ def refine_all(args: argparse.Namespace) -> Dict:
     n_dual = sum(1 for r in all_records if r.confidence == "dual")
     n_diverg = sum(1 for r in all_records if r.confidence == "divergent")
     n_io = sum(1 for r in all_records if r.confidence == "inner_only")
+    n_msa_rescue = sum(1 for r in all_records if r.confidence == "msa_rescue")
     n_reverted = sum(1 for r in all_records if r.revert_reason)
+    n_msa_calls = sum(1 for r in all_records if r.msa_corrected_g is not None)
+    n_msa_motif_ok = sum(1 for r in all_records if r.msa_motif_ok is True)
+    n_msa_agree = sum(1 for r in all_records if r.msa_agree_with_final is True)
     tsd_counts = {k: 0 for k in
                   ("kept_exact", "kept_fuzzy", "shifted", "lost",
                    "gained", "both_none")}
@@ -1267,6 +1380,7 @@ def refine_all(args: argparse.Namespace) -> Dict:
             "no_tsd_revert": bool(args.no_tsd_revert),
             "mafft_fallback": args.mafft_fallback,
             "mafft_fallback_threshold": args.mafft_fallback_threshold,
+            "msa_rescue": bool(args.msa_rescue),
             "threads": args.threads,
             "workers": args.workers,
         },
@@ -1280,6 +1394,10 @@ def refine_all(args: argparse.Namespace) -> Dict:
             "n_confidence_dual": n_dual,
             "n_confidence_divergent": n_diverg,
             "n_confidence_inner_only": n_io,
+            "n_confidence_msa_rescue": n_msa_rescue,
+            "n_msa_calls_total": n_msa_calls,
+            "n_msa_motif_ok": n_msa_motif_ok,
+            "n_msa_agree_with_final": n_msa_agree,
             "ltr_refined_in_gff": counts["ltr_refined"],
             "te_refined_in_gff": counts["te_refined"],
             "tsd_emitted_rows": counts["tsd_emitted"],
@@ -1287,12 +1405,12 @@ def refine_all(args: argparse.Namespace) -> Dict:
             "tsd_outcome": tsd_counts,
             "n_clusters_total": len(cluster_members),
             "n_clusters_qualifying": len(qualifying),
-            "n_clusters_mafft_fallback": n_fallback,
+            "n_clusters_mafft_invoked": n_clusters_mafft,
         },
         "timing_s": {
             "cluster": t_cluster,
             "parasail": t_parasail,
-            "mafft_fallback": t_mafft,
+            "mafft": t_mafft,
             "tsd_gate": t_tsd,
             "total": time.time() - t0_total,
         },
@@ -1306,9 +1424,9 @@ def refine_all(args: argparse.Namespace) -> Dict:
     logger.info("Wrote run summary:     %s", run_json)
     logger.info("Refinement summary: %d/%d LTR features refined "
                 "(parasail_inner=%d, mafft=%d), %d reverted; "
-                "confidence dual=%d divergent=%d inner_only=%d",
+                "confidence dual=%d divergent=%d inner_only=%d msa_rescue=%d",
                 n_inner + n_mafft, n_total, n_inner, n_mafft, n_reverted,
-                n_dual, n_diverg, n_io)
+                n_dual, n_diverg, n_io, n_msa_rescue)
     return summary
 
 
@@ -1356,12 +1474,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
                          "which MAFFT fallback fires (default: %(default)s)")
     ap.add_argument("--no-mafft-fallback", dest="mafft_fallback",
                     action="store_false",
-                    help="Disable MAFFT fallback (parasail-only)")
+                    help="Disable MAFFT entirely (no MSA rescue, no fallback)")
     ap.set_defaults(mafft_fallback=True)
+    ap.add_argument("--no_msa_rescue", dest="msa_rescue",
+                    action="store_false",
+                    help="Disable per-side MSA rescue (tier 3); fall back "
+                         "to v2 threshold-gated MAFFT behaviour driven by "
+                         "--mafft_fallback_threshold.")
+    ap.set_defaults(msa_rescue=True)
     ap.add_argument("--mafft_flank", type=int, default=50,
-                    help="±bp flank for MAFFT fallback (default: %(default)s)")
+                    help="±bp flank for MAFFT MSA (default: %(default)s)")
     ap.add_argument("--mafft_timeout", type=int, default=600,
-                    help="MAFFT fallback per-cluster timeout, s "
+                    help="MAFFT per-cluster timeout, s "
                          "(default: %(default)s)")
 
     # Parasail scoring (rarely changed)

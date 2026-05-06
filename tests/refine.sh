@@ -38,16 +38,16 @@ for f in r_refined.gff3 r_per_element.tsv r_clusters.tsv r_run.json; do
   [ -e "$OUT/parasail/$f" ] || { echo "FAIL: missing $f (parasail-only)"; exit 1; }
 done
 
-# v2 per_element TSV columns:
-#   1 chrom  2 start_orig  3 end_orig  ...  23 refinement_method  24 confidence
-N_PARASAIL=$(awk -F'\t' 'NR>1 && $23 ~ /^parasail/' \
+# v2.1 per_element TSV columns:
+#   1 chrom  2 start_orig  3 end_orig  ...  24 refinement_method  25 confidence
+N_PARASAIL=$(awk -F'\t' 'NR>1 && $24 ~ /^parasail/' \
              "$OUT/parasail/r_per_element.tsv" | wc -l)
 [ "$N_PARASAIL" -ge 6 ] \
   || { echo "FAIL: expected >=6 parasail-refined LTRs, got $N_PARASAIL"; exit 1; }
 echo "  OK: $N_PARASAIL LTR features refined by parasail"
 
-# v2 confidence labels: dual / divergent / inner_only / unrefined
-N_VALIDATED=$(awk -F'\t' 'NR>1 && $23 ~ /^parasail/ && $24 != "unrefined"' \
+# v2.1 confidence labels: dual / divergent / inner_only / msa_rescue / unrefined
+N_VALIDATED=$(awk -F'\t' 'NR>1 && $24 ~ /^parasail/ && $25 != "unrefined"' \
               "$OUT/parasail/r_per_element.tsv" | wc -l)
 [ "$N_VALIDATED" -ge 1 ] \
   || { echo "FAIL: no validated (dual|divergent|inner_only) LTRs"; exit 1; }
@@ -61,6 +61,9 @@ grep -q 'Original_Start=' "$OUT/parasail/r_refined.gff3" \
 grep -qE 'Motif_New=(TG|CA|TG/CA|TG/none|none/CA)' \
      "$OUT/parasail/r_refined.gff3" \
   || { echo "FAIL: refined GFF3 missing Motif_New attribute"; exit 1; }
+# v2.1: MSA rescue is NOT enabled in stage 1a (--no-mafft-fallback) -> no MSA_g
+grep -q 'MSA_g=' "$OUT/parasail/r_refined.gff3" \
+  && { echo "FAIL: MSA_g present despite --no-mafft-fallback"; exit 1; } || true
 
 # v2: TSD-loss revert rule must eliminate any 'lost' outcomes by default
 N_TSD_LOST=$(grep -c 'TSD_Outcome=lost' "$OUT/parasail/r_refined.gff3" || true)
@@ -84,10 +87,18 @@ echo "=== 1b. dante_ltr_refine (hybrid: parasail + MAFFT fallback) ==="
                    --threads "$NCPU" --workers "$NCPU" \
                    --min_cluster_size 3 > "$OUT/hybrid.log" 2>&1
 
-N_HYB=$(awk -F'\t' 'NR>1 && $23 ~ /^parasail/' "$OUT/hybrid/r_per_element.tsv" | wc -l)
+N_HYB=$(awk -F'\t' 'NR>1 && $24 ~ /^parasail/' "$OUT/hybrid/r_per_element.tsv" | wc -l)
 [ "$N_HYB" -ge "$N_PARASAIL" ] \
   || { echo "FAIL: hybrid parasail count $N_HYB < parasail-only $N_PARASAIL"; exit 1; }
 echo "  OK: hybrid produced $N_HYB parasail refinements"
+
+# v2.1: hybrid mode runs MSA on every qualifying cluster -> MSA_g must
+# appear on at least one row, and MSA_Agree must be present.
+grep -q 'MSA_g=' "$OUT/hybrid/r_refined.gff3" \
+  || { echo "FAIL: hybrid GFF3 missing MSA_g (msa_rescue should be ON by default)"; exit 1; }
+grep -q 'MSA_Agree=' "$OUT/hybrid/r_refined.gff3" \
+  || { echo "FAIL: hybrid GFF3 missing MSA_Agree"; exit 1; }
+echo "  OK: hybrid GFF3 carries MSA_g + MSA_Agree attributes"
 
 # JSON timing/counts sanity
 python3 - "$OUT/hybrid/r_run.json" <<'PY'
@@ -95,10 +106,12 @@ import json, sys
 with open(sys.argv[1]) as f:
     d = json.load(f)
 assert d["params"]["mafft_fallback"] is True, "expected mafft_fallback=true"
+assert d["params"]["msa_rescue"] is True, "expected msa_rescue=true"
 assert d["policy"] == "inner_primary", f"expected policy=inner_primary, got {d.get('policy')}"
 assert d["counts"]["n_ltr_features"] >= 90, f"expected >= 90 LTR features, got {d['counts']['n_ltr_features']}"
+assert "n_msa_calls_total" in d["counts"], "expected n_msa_calls_total in counts"
 assert d["timing_s"]["total"] < 600, f"runtime exceeded 600s: {d['timing_s']['total']}"
-print(f"  OK: run.json sane (policy={d['policy']}, n_ltr_features={d['counts']['n_ltr_features']}, total={d['timing_s']['total']:.1f}s)")
+print(f"  OK: run.json sane (policy={d['policy']}, msa_calls={d['counts']['n_msa_calls_total']}, total={d['timing_s']['total']:.1f}s)")
 PY
 
 # ---- 1c. --no_tsd_revert diagnostic mode ----
