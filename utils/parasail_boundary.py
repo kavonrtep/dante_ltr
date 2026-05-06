@@ -334,6 +334,102 @@ def extract_seq_for_side(member: Member, genome, side: str,
 # Per-cluster pairwise parasail
 # ============================================================
 
+def extract_pool_for_side(members: List[Member], role_keep: str, side: str,
+                          genome, genome_lens: Dict[str, int],
+                          anchor_len: int, flank_len: int) -> List[Dict]:
+    """Build a list of per-member info dicts (seq + anchor metadata) for
+    members whose `.role` matches `role_keep`.
+
+    The geometry returned by extract_seq_for_side() depends on the
+    member's coordinates and strand only — not the role label — so this
+    function can be used to construct *opposite-role* anchor pools (the
+    inner-edge pool from §2 of the v2 design): pass `role_keep` as the
+    role you want to keep (e.g. '3LTR' when refining 5'LTR boundaries
+    via the inner pool) and the same `side` value the query is using.
+    """
+    out: List[Dict] = []
+    for m in members:
+        if m.role != role_keep:
+            continue
+        info = extract_seq_for_side(m, genome, side, anchor_len, flank_len,
+                                    genome_lens)
+        info["member"] = m
+        out.append(info)
+    return out
+
+
+def project_corrected_g(member: Member, side: str,
+                        ext_len: Optional[int],
+                        anchor_used: int) -> Optional[int]:
+    """Map a per-query degapped extension length to a 1-based genomic
+    coordinate for the refined boundary.  Returns None if ext_len is None.
+    """
+    if ext_len is None:
+        return None
+    flank_ext = ext_len - anchor_used
+    if side == "5":
+        return (member.start - flank_ext) if member.strand == "+" \
+               else (member.end + flank_ext)
+    return (member.end + flank_ext) if member.strand == "+" \
+           else (member.start - flank_ext)
+
+
+def aggregate_extension(query_info: Dict, anchor_infos: List[Dict],
+                        side: str,
+                        match: int = 2, mismatch: int = -2,
+                        gap_open: int = 12, gap_extend: int = 3,
+                        score_threshold: int = 20,
+                        min_num_alignments: int = 3,
+                        max_pairs: int = 0) -> Dict:
+    """Pairwise-align a single query against each anchor; aggregate the
+    Nth-largest degapped query extension as the consensus call.
+
+    Returns a dict with keys:
+      ext_len     : Nth-largest extension (or None if n_pairs < N)
+      n_pairs     : number of alignments that passed score_threshold
+      score_max   : max parasail score across pairs (None if no pairs)
+    """
+    end_param = "3" if side == "5" else "5"
+    if (query_info["anchor"] < 10 or
+            len(query_info["seq"]) < query_info["anchor"] + 5):
+        return {"ext_len": None, "n_pairs": 0, "score_max": None}
+
+    # Subsample if too many anchors
+    anchors = anchor_infos
+    if max_pairs and len(anchors) > max_pairs:
+        import random
+        rng = random.Random(123)
+        anchors = rng.sample(anchors, max_pairs)
+
+    ext_lens: List[int] = []
+    score_max: Optional[int] = None
+    for a in anchors:
+        if a["anchor"] < 10 or len(a["seq"]) < a["anchor"] + 5:
+            continue
+        # Skip self-alignment if query and anchor are the same member
+        if a.get("member") is not None and \
+                a["member"].feat_id == query_info.get("member") and \
+                query_info.get("member") is not None and \
+                a["member"].feat_id == query_info["member"].feat_id:
+            continue
+        try:
+            r = align_pair(query_info["seq"], a["seq"], end_param,
+                           match=match, mismatch=mismatch,
+                           gap_open=gap_open, gap_extend=gap_extend)
+        except Exception:
+            continue
+        if r["max_score"] < score_threshold:
+            continue
+        ext_lens.append(r["degapped_query_len"])
+        if score_max is None or r["max_score"] > score_max:
+            score_max = r["max_score"]
+
+    if len(ext_lens) < min_num_alignments:
+        return {"ext_len": None, "n_pairs": len(ext_lens), "score_max": score_max}
+    sel = sorted(ext_lens, reverse=True)[min_num_alignments - 1]
+    return {"ext_len": sel, "n_pairs": len(ext_lens), "score_max": score_max}
+
+
 def process_cluster_side(cluster_members: List[Member], side: str,
                          genome, genome_lens: Dict[str, int],
                          anchor_len: int, flank_len: int,
@@ -352,23 +448,20 @@ def process_cluster_side(cluster_members: List[Member], side: str,
     Returns (per_member_rows, n_pairs_used).  Each row is a dict; see
     keys at the bottom of this function.
 
-    Mixing roles is incorrect: the *flank* opposite the boundary we are
-    refining must be variable (genomic), not TE-internal.  Callers must
-    pass cluster_members containing both 5' and 3'LTRs; this function
-    filters to the appropriate role per side.
+    Mixing roles is incorrect *for v1*: the same-role pool requires both
+    sides of the alignment have variable genomic flanks.  v2 uses a
+    different geometry for opposite-role pools — see
+    `extract_pool_for_side` and `aggregate_extension` for the reusable
+    primitives.  Callers must pass cluster_members containing both 5'
+    and 3'LTRs; this function filters to the appropriate role per side.
     """
-    end_param = "3" if side == "5" else "5"
     role_keep = "5LTR" if side == "5" else "3LTR"
+    seqinfo = extract_pool_for_side(cluster_members, role_keep, side,
+                                    genome, genome_lens, anchor_len, flank_len)
 
-    seqinfo: List[Dict] = []
-    for m in cluster_members:
-        if m.role != role_keep:
-            continue
-        info = extract_seq_for_side(m, genome, side, anchor_len, flank_len,
-                                    genome_lens)
-        info["member"] = m
-        seqinfo.append(info)
-
+    # Pairwise all-vs-all uses the same engine via aggregate_extension,
+    # but we need each pair to contribute to BOTH endpoints, so we keep
+    # the explicit pair loop here for the v1 path.
     n = len(seqinfo)
     pair_indices = [(i, j) for i in range(n) for j in range(i + 1, n)
                     if seqinfo[i]["anchor"] >= 10 and seqinfo[j]["anchor"] >= 10
@@ -379,6 +472,7 @@ def process_cluster_side(cluster_members: List[Member], side: str,
         rng = random.Random(123)
         pair_indices = rng.sample(pair_indices, max_pairs)
 
+    end_param = "3" if side == "5" else "5"
     pool: Dict[int, List[int]] = defaultdict(list)
     n_pairs_used = 0
     for i, j in pair_indices:
@@ -405,20 +499,7 @@ def process_cluster_side(cluster_members: List[Member], side: str,
         else:
             sel = None
             ext_len = None
-        flank_extension = (ext_len - anchor_used) if ext_len is not None else None
-        if flank_extension is None:
-            corrected_g = None
-        else:
-            if side == "5":
-                if m.strand == '+':
-                    corrected_g = m.start - flank_extension
-                else:
-                    corrected_g = m.end + flank_extension
-            else:
-                if m.strand == '+':
-                    corrected_g = m.end + flank_extension
-                else:
-                    corrected_g = m.start - flank_extension
+        corrected_g = project_corrected_g(m, side, ext_len, anchor_used)
 
         chrom_len = genome_lens[m.chrom]
         motif_at_parasail = None
@@ -441,7 +522,7 @@ def process_cluster_side(cluster_members: List[Member], side: str,
             "n_pairs": len(lengths),
             "anchor_used": anchor_used,
             "ext_len_nth": sel,
-            "flank_extension": flank_extension,
+            "flank_extension": (ext_len - anchor_used) if ext_len is not None else None,
             "annotated_g": (m.start if (side == "5" and m.strand == '+') or
                                        (side == "3" and m.strand == '-')
                             else m.end),
