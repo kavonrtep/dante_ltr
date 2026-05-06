@@ -247,7 +247,12 @@ motif_at_raw <- function(seq_chr, raw_pos, side) {
   substr(seq_chr, raw_pos - 1L, raw_pos)
 }
 
-snap_window <- 5L
+# Empirically the MSA change-point lands 5–15 bp inside the conserved
+# region for typical LTR clusters; ±20 bp covers both ends of that
+# range without producing false motif matches outside the LTR.
+# (Validated on at + g2 in tmp/msa_validation_*.tsv — see
+# docs/refine_msa_rescue_plan.md §3.)
+snap_window <- 20L
 target_for_side <- function(side) if (side == "5") "TG" else "CA"
 
 snap_raw <- function(seq_chr, raw_pos, side, motif) {
