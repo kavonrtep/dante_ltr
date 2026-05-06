@@ -39,14 +39,14 @@ for f in r_refined.gff3 r_per_element.tsv r_clusters.tsv r_run.json; do
 done
 
 # v2.1 per_element TSV columns:
-#   1 chrom  2 start_orig  3 end_orig  ...  24 refinement_method  25 confidence
+#   1 chrom  2 start_orig  ...  24 refinement_method  25 confidence  26 evaluation_status
 N_PARASAIL=$(awk -F'\t' 'NR>1 && $24 ~ /^parasail/' \
              "$OUT/parasail/r_per_element.tsv" | wc -l)
 [ "$N_PARASAIL" -ge 6 ] \
   || { echo "FAIL: expected >=6 parasail-refined LTRs, got $N_PARASAIL"; exit 1; }
 echo "  OK: $N_PARASAIL LTR features refined by parasail"
 
-# v2.1 confidence labels: dual / divergent / inner_only / msa_rescue / unrefined
+# v2.1 confidence labels: dual / divergent / inner_only / mafft / unrefined
 N_VALIDATED=$(awk -F'\t' 'NR>1 && $24 ~ /^parasail/ && $25 != "unrefined"' \
               "$OUT/parasail/r_per_element.tsv" | wc -l)
 [ "$N_VALIDATED" -ge 1 ] \
@@ -70,6 +70,17 @@ N_TSD_LOST=$(grep -c 'TSD_Outcome=lost' "$OUT/parasail/r_refined.gff3" || true)
 [ "$N_TSD_LOST" = "0" ] \
   || { echo "FAIL: $N_TSD_LOST TSD_Outcome=lost rows survived the revert gate"; exit 1; }
 echo "  OK: 0 TSD_Outcome=lost rows (revert gate working)"
+
+# v2.1 evaluation_status axis: every LTR row must carry exactly one of
+# the four labels.
+for s in not_evaluated unresolved confirmed refined; do
+  c=$(grep -c "Refinement_Status=$s" "$OUT/parasail/r_refined.gff3" || true)
+  echo "    Refinement_Status=$s: $c rows"
+done
+N_TOTAL_STATUS=$(grep -c 'Refinement_Status=' "$OUT/parasail/r_refined.gff3" || true)
+[ "$N_TOTAL_STATUS" -gt 0 ] \
+  || { echo "FAIL: refined GFF3 missing Refinement_Status attribute"; exit 1; }
+echo "  OK: $N_TOTAL_STATUS rows carry Refinement_Status"
 
 # Refined GFF3 row count must be >= input rows minus original target_site_duplication
 # rows (we drop and rebuild them; rebuilt count may differ).

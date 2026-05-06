@@ -590,20 +590,39 @@ ltr_rank[is.na(ltr_rank)] <- "DL"
 # unrefined mode we treat every member as validated so the existing
 # behaviour is preserved.
 #
-# Definition of "validated" in refined mode (refine v2 schema):
-#   - Refinement_Confidence in {"dual", "divergent", "inner_only"} -> validated
-#   - everything else ("unrefined" / missing)                       -> not validated
-# Legacy v1 keywords ("high", "medium") are also accepted for
-# backwards-compat with older refined GFF3 files.
+# Validation in refined mode prefers the new Refinement_Status axis
+# (refine v2.1+) and falls back to Refinement_Confidence for older
+# refined GFF3s:
+#
+#   Refinement_Status   in {"confirmed", "refined"}              -> validated
+#   Refinement_Confidence in {"dual", "divergent", "inner_only",
+#                             "mafft", "high", "medium",
+#                             "confirmed", "msa_rescue"}          -> validated (legacy)
+#
+# Anything else (not_evaluated / unresolved / unrefined / missing)
+# is treated as not-validated.
 if (USE_REFINED) {
-  conf_attr <- if (!is.null(ltr_feat$Refinement_Confidence))
-                 as.character(ltr_feat$Refinement_Confidence)
-               else rep(NA_character_, length(ltr_feat))
-  ltr_validated <- conf_attr %in% c("dual", "divergent", "confirmed",
-                                     "inner_only", "msa_rescue",
-                                     "high", "medium")
-  cat(sprintf("Refined-mode validation: %d / %d LTRs validated (dual/divergent/confirmed/inner_only/msa_rescue)\n",
-              sum(ltr_validated), length(ltr_validated)))
+  status_attr <- if (!is.null(ltr_feat$Refinement_Status))
+                   as.character(ltr_feat$Refinement_Status)
+                 else rep(NA_character_, length(ltr_feat))
+  conf_attr   <- if (!is.null(ltr_feat$Refinement_Confidence))
+                   as.character(ltr_feat$Refinement_Confidence)
+                 else rep(NA_character_, length(ltr_feat))
+  status_ok <- status_attr %in% c("confirmed", "refined")
+  conf_ok   <- conf_attr %in% c("dual", "divergent", "inner_only",
+                                 "mafft", "high", "medium",
+                                 "confirmed", "msa_rescue")
+  # If the v2.1 status attribute is present anywhere, it takes
+  # precedence; otherwise fall back to confidence-based validation.
+  if (any(!is.na(status_attr))) {
+    ltr_validated <- status_ok
+    cat(sprintf("Refined-mode validation (Refinement_Status): %d / %d LTRs validated (confirmed/refined)\n",
+                sum(ltr_validated), length(ltr_validated)))
+  } else {
+    ltr_validated <- conf_ok
+    cat(sprintf("Refined-mode validation (Refinement_Confidence, legacy): %d / %d LTRs validated\n",
+                sum(ltr_validated), length(ltr_validated)))
+  }
 } else {
   ltr_validated <- rep(TRUE, length(ltr_feat))
 }

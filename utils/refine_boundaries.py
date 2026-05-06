@@ -302,7 +302,8 @@ class RefRecord:
     # ---- final, after gates ----
     final_corrected_g: Optional[int] = None
     refinement_method: str = "none"   # parasail_inner | parasail_outer | mafft | none
-    confidence: str = "unrefined"     # dual | divergent | confirmed | inner_only | msa_rescue | unrefined
+    confidence: str = "unrefined"     # dual | divergent | inner_only | mafft | unrefined
+    evaluation_status: str = "not_evaluated"  # not_evaluated | unresolved | confirmed | refined
     revert_reason: str = ""           # "" | "tsd_lost" | "tsd_lost_partner" | ...
 
     # ---- per-element TSD outcome (set on BOTH 5LTR and 3LTR records of an element) ----
@@ -694,23 +695,18 @@ def _run_mafft_subprocess(cluster_members: List[Member],
 
 def _apply_msa_results(records: List[RefRecord],
                        per_member: Dict[str, Tuple[Optional[int], Optional[bool]]]
-                       ) -> Tuple[int, int]:
+                       ) -> int:
     """Populate msa_* fields on every record whose name appears in
     per_member; rescue any side whose final_corrected_g is still None
     AND whose MSA call validates motif.
 
-    The rescue is split into two confidence labels:
+    Whether the MSA's call equals the DANTE_LTR original coord (no
+    movement) or differs (boundary moved) is captured downstream by
+    the `evaluation_status` axis (`confirmed` vs `refined`).  The
+    `confidence` field here just records the source — `mafft`.
 
-      "confirmed"  — MSA's coord equals the DANTE_LTR original outer
-                     boundary (i.e. MSA validates the original; no
-                     movement).  Two-source agreement (DANTE_LTR + MSA)
-                     even though parasail-inner/outer failed motif here.
-      "msa_rescue" — MSA proposes a coord different from the original
-                     (MSA actually moved the boundary).  Single-source.
-
-    Returns (n_confirmed, n_rescued).
+    Returns the number of sides where this rescue fired.
     """
-    n_confirmed = 0
     n_rescued = 0
     for rec in records:
         nm = (f"{rec.chrom}__{rec.start_orig}__{rec.end_orig}"
@@ -727,14 +723,9 @@ def _apply_msa_results(records: List[RefRecord],
             continue
         rec.final_corrected_g = cg
         rec.refinement_method = "mafft"
-        orig_outer = _outer_g(_member_from_rec(rec), rec.refinement_side)
-        if cg == orig_outer:
-            rec.confidence = "confirmed"
-            n_confirmed += 1
-        else:
-            rec.confidence = "msa_rescue"
-            n_rescued += 1
-    return n_confirmed, n_rescued
+        rec.confidence = "mafft"
+        n_rescued += 1
+    return n_rescued
 
 
 def run_mafft_for_cluster(records: List[RefRecord],
@@ -742,9 +733,11 @@ def run_mafft_for_cluster(records: List[RefRecord],
                            cluster_id: str,
                            cluster_lineage: str,
                            genome, genome_lens: Dict[str, int],
-                           opts: argparse.Namespace) -> Tuple[int, int]:
+                           opts: argparse.Namespace) -> int:
     """Run the MAFFT MSA + change-point detector for one cluster, and
-    apply the per-side rescue rule.  Returns (n_confirmed, n_rescued).
+    apply the per-side rescue rule.  Returns the number of sides
+    rescued (i.e., where final_corrected_g was None before this call
+    and now carries a valid MSA-derived coord).
 
     Both the v2 cluster-level fallback and the v2.1 per-side rescue use
     this function — the only difference is the trigger (whether the
@@ -753,7 +746,7 @@ def run_mafft_for_cluster(records: List[RefRecord],
     per_member = _run_mafft_subprocess(cluster_members, cluster_id,
                                         genome, genome_lens, opts)
     if per_member is None:
-        return 0, 0
+        return 0
     return _apply_msa_results(records, per_member)
 
 
@@ -766,6 +759,41 @@ def compute_msa_agreement(records: List[RefRecord], window: int = 5) -> None:
             rec.msa_agree_with_final = None
             continue
         rec.msa_agree_with_final = abs(rec.msa_corrected_g - rec.final_corrected_g) <= window
+
+
+def compute_evaluation_status(records: List[RefRecord]) -> None:
+    """Set rec.evaluation_status per side (4 buckets):
+
+      not_evaluated : the side wasn't in a qualifying cluster — no
+                      analysis was run on it (cluster_id is empty).
+      unresolved    : analysis ran but no method validated a coord;
+                      the original DANTE_LTR boundary is kept.  This
+                      includes sides that got reverted by the TSD-loss
+                      gate (revert_reason != "").
+      confirmed     : analysis ran and at least one method validated
+                      a coord that EQUALS the DANTE_LTR original.
+                      Boundary did NOT move; we have positive evidence
+                      supporting it.
+      refined       : analysis ran and the boundary MOVED to a new
+                      coord.
+
+    See docs/refine_v2_analysis.md / docs/refine_msa_rescue_plan.md
+    for the design rationale.  This axis is independent of (and lives
+    alongside) `confidence`, which describes WHICH method/pool gave
+    the call.
+    """
+    for rec in records:
+        if not rec.cluster_id:
+            rec.evaluation_status = "not_evaluated"
+            continue
+        if rec.final_corrected_g is None:
+            rec.evaluation_status = "unresolved"
+            continue
+        orig_outer = _outer_g(_member_from_rec(rec), rec.refinement_side)
+        if rec.final_corrected_g == orig_outer:
+            rec.evaluation_status = "confirmed"
+        else:
+            rec.evaluation_status = "refined"
 
 
 # ============================================================
@@ -813,11 +841,21 @@ def _refined_ltr_coords(rec: RefRecord) -> Tuple[int, int, str]:
 
 _CONF_RANK = {
     "unrefined":  0,
-    "msa_rescue": 1,
+    "mafft":      1,
     "inner_only": 2,
-    "confirmed":  3,
-    "divergent":  4,
-    "dual":       5,
+    "divergent":  3,
+    "dual":       4,
+}
+
+# For TE-row aggregation under the new "evaluation_status" axis.  Most-
+# noteworthy wins: any side `refined` makes the whole TE refined; else
+# any `confirmed`; else `unresolved`; else `not_evaluated`.  These ranks
+# are used as keys for max() across the two sides.
+_STATUS_RANK = {
+    "not_evaluated": 0,
+    "unresolved":    1,
+    "confirmed":     2,
+    "refined":       3,
 }
 
 
@@ -869,6 +907,7 @@ def emit_refined_gff3(raw_lines: List[str], records: List[RefRecord],
 
     drop_keys = ("Original_Start", "Original_End",
                  "Refinement_Method", "Refinement_Confidence",
+                 "Refinement_Status",
                  "Cluster_ID", "Cluster_Size", "TG_OK", "CA_OK",
                  "Motif_Orig", "Motif_New", "TSD_Outcome",
                  "Outer_Pool_g", "Outer_Pool_Motif_OK",
@@ -917,6 +956,7 @@ def emit_refined_gff3(raw_lines: List[str], records: List[RefRecord],
                 else:
                     motif_new = "none"
                 add_attrs_parts = [
+                    f"Refinement_Status={rec.evaluation_status}",
                     f"Refinement_Method={rec.refinement_method}",
                     f"Refinement_Confidence={rec.confidence}",
                     f"Cluster_ID={rec.cluster_id}",
@@ -992,6 +1032,12 @@ def emit_refined_gff3(raw_lines: List[str], records: List[RefRecord],
                     eff3 = c3 if m3 != "none" else "inner_only"
                     te_conf = min((eff5, eff3),
                                   key=lambda c: _CONF_RANK.get(c, 0))
+
+                # Evaluation status: most-noteworthy across the two sides.
+                # refined > confirmed > unresolved > not_evaluated.
+                s5 = rec5.evaluation_status if rec5 else "not_evaluated"
+                s3 = rec3.evaluation_status if rec3 else "not_evaluated"
+                te_status = max((s5, s3), key=lambda s: _STATUS_RANK.get(s, 0))
                 cluster_id = (rec5.cluster_id if rec5 else
                               rec3.cluster_id if rec3 else "")
                 cluster_size = (rec5.cluster_size if rec5 else
@@ -1033,6 +1079,7 @@ def emit_refined_gff3(raw_lines: List[str], records: List[RefRecord],
                     f"Original_Start={s1}",
                     f"Original_End={e1}",
                     f"TSD={tsd_attr_val}",
+                    f"Refinement_Status={te_status}",
                     f"Refinement_Method={te_method}",
                     f"Refinement_Confidence={te_conf}",
                     f"Cluster_ID={cluster_id}",
@@ -1117,7 +1164,8 @@ def emit_per_element_tsv(records: List[RefRecord], out_path: str) -> None:
         # MSA per-side (filled when MAFFT ran on this cluster)
         "msa_corrected_g", "msa_motif_ok", "msa_agree_with_final",
         # final
-        "final_corrected_g", "refinement_method", "confidence", "revert_reason",
+        "final_corrected_g", "refinement_method", "confidence",
+        "evaluation_status", "revert_reason",
         # tsd outcome
         "orig_tsd_len", "orig_tsd_seq",
         "tsd_outcome", "tsd_new_len", "tsd_new_seq",
@@ -1146,7 +1194,8 @@ def emit_per_element_tsv(records: List[RefRecord], out_path: str) -> None:
                 r.inner_corrected_g, r.inner_motif_ok, r.inner_snap_offset, r.inner_n_pairs,
                 r.orig_motif_ok,
                 r.msa_corrected_g, r.msa_motif_ok, r.msa_agree_with_final,
-                r.final_corrected_g, r.refinement_method, r.confidence, r.revert_reason,
+                r.final_corrected_g, r.refinement_method, r.confidence,
+                r.evaluation_status, r.revert_reason,
                 r.orig_tsd_len, r.orig_tsd_seq,
                 r.tsd_outcome, r.tsd_new_len, r.tsd_new_seq,
                 shift,
@@ -1176,8 +1225,7 @@ def emit_cluster_manifest(records: List[RefRecord], cluster_index,
                 "outer_validated_5\touter_validated_3\t"
                 "inner_validation_rate\touter_validation_rate\t"
                 "mafft_invoked\tmafft_validation_rate\t"
-                "msa_confirmed_count\tmsa_rescue_count\t"
-                "low_confidence\n")
+                "mafft_rescue_count\tlow_confidence\n")
         for cid, recs in by_cl.items():
             lin = recs[0].lineage if recs else ""
             n5 = sum(1 for r in recs if r.role == "5LTR")
@@ -1193,14 +1241,13 @@ def emit_cluster_manifest(records: List[RefRecord], cluster_index,
             mafft_inv = "TRUE" if cmeta.get("mafft_invoked") else "FALSE"
             mafft_rate = cmeta.get("mafft_validation_rate")
             mafft_rate_str = f"{mafft_rate:.4f}" if mafft_rate is not None else "NA"
-            msa_conf = cmeta.get("msa_confirmed_count", 0)
-            msa_rescue = cmeta.get("msa_rescue_count", 0)
+            mafft_rescue = cmeta.get("mafft_rescue_count", 0)
             low_conf = "TRUE" if (iv5 + iv3) < 4 else "FALSE"
             f.write(f"{cid}\t{lin}\t{len(recs)}\t{n5}\t{n3}\t"
                     f"{iv5}\t{iv3}\t{ov5}\t{ov3}\t"
                     f"{inner_rate:.4f}\t{outer_rate:.4f}\t"
                     f"{mafft_inv}\t{mafft_rate_str}\t"
-                    f"{msa_conf}\t{msa_rescue}\t{low_conf}\n")
+                    f"{mafft_rescue}\t{low_conf}\n")
 
 
 # ============================================================
@@ -1289,8 +1336,7 @@ def refine_all(args: argparse.Namespace) -> Dict:
     #   * --no-mafft-fallback       : disables BOTH (no MAFFT at all).
     t0 = time.time()
     n_clusters_mafft = 0
-    n_msa_confirmed_total = 0
-    n_msa_rescued_total = 0
+    n_mafft_rescued_total = 0
     if args.mafft_fallback:
         cl_mems_by_id: Dict[str, List[Member]] = {}
         for ci, mems in enumerate(cluster_members):
@@ -1307,20 +1353,17 @@ def refine_all(args: argparse.Namespace) -> Dict:
                 continue
             n_clusters_mafft += 1
             cluster_index[cid]["mafft_invoked"] = True
-            n_conf, n_rescued = run_mafft_for_cluster(
+            n_rescued = run_mafft_for_cluster(
                 recs, cl_mems_by_id[cid], cid,
                 cluster_index[cid]["lineage"], genome, genome_lens, args)
-            n_msa_confirmed_total += n_conf
-            n_msa_rescued_total += n_rescued
+            n_mafft_rescued_total += n_rescued
             n_accepted = sum(1 for r in recs if r.final_corrected_g is not None)
             cluster_index[cid]["mafft_validation_rate"] = (
                 n_accepted / len(recs) if recs else 0.0)
-            cluster_index[cid]["msa_confirmed_count"] = n_conf
-            cluster_index[cid]["msa_rescue_count"] = n_rescued
+            cluster_index[cid]["mafft_rescue_count"] = n_rescued
     t_mafft = time.time() - t0
-    logger.info("MAFFT ran on %d clusters in %.1fs; confirmed %d, rescued %d sides",
-                n_clusters_mafft, t_mafft,
-                n_msa_confirmed_total, n_msa_rescued_total)
+    logger.info("MAFFT ran on %d clusters in %.1fs; rescued %d sides",
+                n_clusters_mafft, t_mafft, n_mafft_rescued_total)
 
     # Build full record set: include EVERY LTR member.
     refined_keys = set()
@@ -1354,6 +1397,12 @@ def refine_all(args: argparse.Namespace) -> Dict:
     # so reverts are reflected.
     compute_msa_agreement(all_records, window=5)
 
+    # Evaluation-status axis: not_evaluated / unresolved / confirmed /
+    # refined.  This is the user-facing "what happened to this side?"
+    # label, distinct from the confidence (which records *which method*
+    # gave the call).  Computed last, after all gates have settled.
+    compute_evaluation_status(all_records)
+
     # Outputs
     refined_gff = out_prefix + "_refined.gff3"
     per_element = out_prefix + "_per_element.tsv"
@@ -1373,8 +1422,14 @@ def refine_all(args: argparse.Namespace) -> Dict:
     n_dual = sum(1 for r in all_records if r.confidence == "dual")
     n_diverg = sum(1 for r in all_records if r.confidence == "divergent")
     n_io = sum(1 for r in all_records if r.confidence == "inner_only")
-    n_confirmed = sum(1 for r in all_records if r.confidence == "confirmed")
-    n_msa_rescue = sum(1 for r in all_records if r.confidence == "msa_rescue")
+    n_conf_mafft = sum(1 for r in all_records if r.confidence == "mafft")
+
+    # Evaluation-status histogram
+    n_status = {k: 0 for k in ("not_evaluated", "unresolved",
+                                "confirmed", "refined")}
+    for r in all_records:
+        if r.evaluation_status in n_status:
+            n_status[r.evaluation_status] += 1
     n_reverted = sum(1 for r in all_records if r.revert_reason)
     n_msa_calls = sum(1 for r in all_records if r.msa_corrected_g is not None)
     n_msa_motif_ok = sum(1 for r in all_records if r.msa_motif_ok is True)
@@ -1415,8 +1470,11 @@ def refine_all(args: argparse.Namespace) -> Dict:
             "n_confidence_dual": n_dual,
             "n_confidence_divergent": n_diverg,
             "n_confidence_inner_only": n_io,
-            "n_confidence_confirmed": n_confirmed,
-            "n_confidence_msa_rescue": n_msa_rescue,
+            "n_confidence_mafft": n_conf_mafft,
+            "n_status_not_evaluated": n_status["not_evaluated"],
+            "n_status_unresolved": n_status["unresolved"],
+            "n_status_confirmed": n_status["confirmed"],
+            "n_status_refined": n_status["refined"],
             "n_msa_calls_total": n_msa_calls,
             "n_msa_motif_ok": n_msa_motif_ok,
             "n_msa_agree_with_final": n_msa_agree,
@@ -1445,11 +1503,13 @@ def refine_all(args: argparse.Namespace) -> Dict:
     logger.info("Wrote cluster TSV:     %s", cluster_tsv)
     logger.info("Wrote run summary:     %s", run_json)
     logger.info("Refinement summary: %d/%d LTR features refined "
-                "(parasail_inner=%d, mafft=%d), %d reverted; "
-                "confidence dual=%d divergent=%d confirmed=%d "
-                "inner_only=%d msa_rescue=%d",
-                n_inner + n_mafft, n_total, n_inner, n_mafft, n_reverted,
-                n_dual, n_diverg, n_confirmed, n_io, n_msa_rescue)
+                "(parasail_inner=%d, mafft=%d); status not_evaluated=%d "
+                "unresolved=%d confirmed=%d refined=%d; "
+                "confidence dual=%d divergent=%d inner_only=%d mafft=%d",
+                n_inner + n_mafft, n_total, n_inner, n_mafft,
+                n_status["not_evaluated"], n_status["unresolved"],
+                n_status["confirmed"], n_status["refined"],
+                n_dual, n_diverg, n_io, n_conf_mafft)
     return summary
 
 
