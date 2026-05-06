@@ -32,45 +32,59 @@ echo "=== 1a. dante_ltr_refine --no-mafft-fallback ==="
 ./dante_ltr_refine -g "$DATA/dante_ltr.gff3" -s "$DATA/genome.fasta" \
                    -o "$OUT/parasail/r" \
                    --threads "$NCPU" --workers "$NCPU" \
+                   --min_cluster_size 3 \
                    --no-mafft-fallback > "$OUT/parasail.log" 2>&1
 for f in r_refined.gff3 r_per_element.tsv r_clusters.tsv r_run.json; do
   [ -e "$OUT/parasail/$f" ] || { echo "FAIL: missing $f (parasail-only)"; exit 1; }
 done
 
-N_PARASAIL=$(awk -F'\t' 'NR>1 && $18=="parasail"' "$OUT/parasail/r_per_element.tsv" | wc -l)
+# v2 per_element TSV columns:
+#   1 chrom  2 start_orig  3 end_orig  ...  23 refinement_method  24 confidence
+N_PARASAIL=$(awk -F'\t' 'NR>1 && $23 ~ /^parasail/' \
+             "$OUT/parasail/r_per_element.tsv" | wc -l)
 [ "$N_PARASAIL" -ge 6 ] \
   || { echo "FAIL: expected >=6 parasail-refined LTRs, got $N_PARASAIL"; exit 1; }
 echo "  OK: $N_PARASAIL LTR features refined by parasail"
 
-N_VALIDATED=$(awk -F'\t' 'NR>1 && $18=="parasail" && $19!="low" && $19!="unrefined"' \
+# v2 confidence labels: dual / divergent / inner_only / unrefined
+N_VALIDATED=$(awk -F'\t' 'NR>1 && $23 ~ /^parasail/ && $24 != "unrefined"' \
               "$OUT/parasail/r_per_element.tsv" | wc -l)
 [ "$N_VALIDATED" -ge 1 ] \
-  || { echo "FAIL: no validated (high|medium) LTRs"; exit 1; }
-echo "  OK: $N_VALIDATED LTR features validated (high or medium confidence)"
+  || { echo "FAIL: no validated (dual|divergent|inner_only) LTRs"; exit 1; }
+echo "  OK: $N_VALIDATED LTR features validated (dual/divergent/inner_only)"
 
-# refined GFF3 must round-trip the schema
-grep -q 'Refinement_Method=parasail' "$OUT/parasail/r_refined.gff3" \
-  || { echo "FAIL: refined GFF3 missing Refinement_Method=parasail"; exit 1; }
+# refined GFF3 must round-trip the v2 schema
+grep -q 'Refinement_Method=parasail_inner' "$OUT/parasail/r_refined.gff3" \
+  || { echo "FAIL: refined GFF3 missing Refinement_Method=parasail_inner"; exit 1; }
 grep -q 'Original_Start=' "$OUT/parasail/r_refined.gff3" \
   || { echo "FAIL: refined GFF3 missing Original_Start"; exit 1; }
-grep -q 'TG_OK=' "$OUT/parasail/r_refined.gff3" \
-  || { echo "FAIL: refined GFF3 missing TG_OK (motif=TG/CA default)"; exit 1; }
+grep -qE 'Motif_New=(TG|CA|TG/CA|TG/none|none/CA)' \
+     "$OUT/parasail/r_refined.gff3" \
+  || { echo "FAIL: refined GFF3 missing Motif_New attribute"; exit 1; }
 
-# Refined GFF3 row count must match input row count -- pass-through unchanged
-N_IN=$(grep -cE '^[^#]' "$DATA/dante_ltr.gff3")
-N_OUT=$(grep -cE '^[^#]' "$OUT/parasail/r_refined.gff3")
-[ "$N_IN" = "$N_OUT" ] \
-  || { echo "FAIL: refined GFF3 row count $N_OUT != input $N_IN"; exit 1; }
-echo "  OK: refined GFF3 preserves all $N_IN feature rows"
+# v2: TSD-loss revert rule must eliminate any 'lost' outcomes by default
+N_TSD_LOST=$(grep -c 'TSD_Outcome=lost' "$OUT/parasail/r_refined.gff3" || true)
+[ "$N_TSD_LOST" = "0" ] \
+  || { echo "FAIL: $N_TSD_LOST TSD_Outcome=lost rows survived the revert gate"; exit 1; }
+echo "  OK: 0 TSD_Outcome=lost rows (revert gate working)"
+
+# Refined GFF3 row count must be >= input rows minus original target_site_duplication
+# rows (we drop and rebuild them; rebuilt count may differ).
+N_IN_NON_TSD=$(awk '$3 != "target_site_duplication" && /^[^#]/' "$DATA/dante_ltr.gff3" | wc -l)
+N_OUT_NON_TSD=$(awk '$3 != "target_site_duplication" && /^[^#]/' "$OUT/parasail/r_refined.gff3" | wc -l)
+[ "$N_IN_NON_TSD" = "$N_OUT_NON_TSD" ] \
+  || { echo "FAIL: non-TSD row count drift: in=$N_IN_NON_TSD out=$N_OUT_NON_TSD"; exit 1; }
+echo "  OK: refined GFF3 preserves all $N_IN_NON_TSD non-TSD feature rows"
 
 # ---- 1b. hybrid (parasail + MAFFT fallback) ----
 echo
 echo "=== 1b. dante_ltr_refine (hybrid: parasail + MAFFT fallback) ==="
 ./dante_ltr_refine -g "$DATA/dante_ltr.gff3" -s "$DATA/genome.fasta" \
                    -o "$OUT/hybrid/r" \
-                   --threads "$NCPU" --workers "$NCPU" > "$OUT/hybrid.log" 2>&1
+                   --threads "$NCPU" --workers "$NCPU" \
+                   --min_cluster_size 3 > "$OUT/hybrid.log" 2>&1
 
-N_HYB=$(awk -F'\t' 'NR>1 && $18=="parasail"' "$OUT/hybrid/r_per_element.tsv" | wc -l)
+N_HYB=$(awk -F'\t' 'NR>1 && $23 ~ /^parasail/' "$OUT/hybrid/r_per_element.tsv" | wc -l)
 [ "$N_HYB" -ge "$N_PARASAIL" ] \
   || { echo "FAIL: hybrid parasail count $N_HYB < parasail-only $N_PARASAIL"; exit 1; }
 echo "  OK: hybrid produced $N_HYB parasail refinements"
@@ -81,26 +95,31 @@ import json, sys
 with open(sys.argv[1]) as f:
     d = json.load(f)
 assert d["params"]["mafft_fallback"] is True, "expected mafft_fallback=true"
+assert d["policy"] == "inner_primary", f"expected policy=inner_primary, got {d.get('policy')}"
 assert d["counts"]["n_ltr_features"] >= 90, f"expected >= 90 LTR features, got {d['counts']['n_ltr_features']}"
 assert d["timing_s"]["total"] < 600, f"runtime exceeded 600s: {d['timing_s']['total']}"
-print(f"  OK: run.json sane (n_ltr_features={d['counts']['n_ltr_features']}, total={d['timing_s']['total']:.1f}s)")
+print(f"  OK: run.json sane (policy={d['policy']}, n_ltr_features={d['counts']['n_ltr_features']}, total={d['timing_s']['total']:.1f}s)")
 PY
 
-# ---- 1c. parasail-only with motif=none ----
+# ---- 1c. --no_tsd_revert diagnostic mode ----
 echo
-echo "=== 1c. dante_ltr_refine --boundary_motif=none ==="
+echo "=== 1c. dante_ltr_refine --no_tsd_revert ==="
 ./dante_ltr_refine -g "$DATA/dante_ltr.gff3" -s "$DATA/genome.fasta" \
-                   -o "$OUT/none/r" \
+                   -o "$OUT/no_revert/r" \
                    --threads "$NCPU" --workers "$NCPU" \
-                   --boundary_motif none --no-mafft-fallback \
-                   > "$OUT/none.log" 2>&1
-
-# motif=none -> no TG_OK / CA_OK attributes in the refined GFF3
-grep -q 'TG_OK=' "$OUT/none/r_refined.gff3" \
-  && { echo "FAIL: TG_OK present despite --boundary_motif=none"; exit 1; } || true
-grep -q 'Refinement_Method=parasail' "$OUT/none/r_refined.gff3" \
-  || { echo "FAIL: motif=none refined GFF3 missing Refinement_Method=parasail"; exit 1; }
-echo "  OK: motif=none refined GFF3 has no TG_OK / CA_OK columns"
+                   --min_cluster_size 3 \
+                   --no_tsd_revert --no-mafft-fallback \
+                   > "$OUT/no_revert.log" 2>&1
+# In diagnostic mode tsd_outcome can be "lost"; just verify the run produced
+# the expected files and the policy field is set.
+[ -e "$OUT/no_revert/r_refined.gff3" ] \
+  || { echo "FAIL: --no_tsd_revert run produced no GFF3"; exit 1; }
+python3 - "$OUT/no_revert/r_run.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d["params"]["no_tsd_revert"] is True
+print("  OK: --no_tsd_revert recorded in run.json")
+PY
 
 # ---- 2. build_ltr_library.R --refined_gff3 ----
 echo

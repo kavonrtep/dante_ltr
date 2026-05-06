@@ -590,18 +590,18 @@ ltr_rank[is.na(ltr_rank)] <- "DL"
 # unrefined mode we treat every member as validated so the existing
 # behaviour is preserved.
 #
-# Definition of "validated" in refined mode:
-#   - Refinement_Confidence in {"high", "medium"} -> validated
-#   - everything else (low / unrefined / missing)  -> not validated
-# This consolidates both the TG/CA-strict path and the motif=none path
-# (where Confidence is set by parasail evidence alone) into a single
-# rule.
+# Definition of "validated" in refined mode (refine v2 schema):
+#   - Refinement_Confidence in {"dual", "divergent", "inner_only"} -> validated
+#   - everything else ("unrefined" / missing)                       -> not validated
+# Legacy v1 keywords ("high", "medium") are also accepted for
+# backwards-compat with older refined GFF3 files.
 if (USE_REFINED) {
   conf_attr <- if (!is.null(ltr_feat$Refinement_Confidence))
                  as.character(ltr_feat$Refinement_Confidence)
                else rep(NA_character_, length(ltr_feat))
-  ltr_validated <- conf_attr %in% c("high", "medium")
-  cat(sprintf("Refined-mode validation: %d / %d LTRs validated (high+medium confidence)\n",
+  ltr_validated <- conf_attr %in% c("dual", "divergent", "inner_only",
+                                     "high", "medium")
+  cat(sprintf("Refined-mode validation: %d / %d LTRs validated (dual/divergent/inner_only)\n",
               sum(ltr_validated), length(ltr_validated)))
 } else {
   ltr_validated <- rep(TRUE, length(ltr_feat))
