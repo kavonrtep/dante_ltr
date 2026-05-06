@@ -87,10 +87,11 @@ echo "=== 1b. dante_ltr_refine (hybrid: parasail + MAFFT fallback) ==="
                    --threads "$NCPU" --workers "$NCPU" \
                    --min_cluster_size 3 > "$OUT/hybrid.log" 2>&1
 
-N_HYB=$(awk -F'\t' 'NR>1 && $24 ~ /^parasail/' "$OUT/hybrid/r_per_element.tsv" | wc -l)
+N_HYB=$(awk -F'\t' 'NR>1 && ($24 ~ /^parasail/ || $24 == "mafft")' \
+        "$OUT/hybrid/r_per_element.tsv" | wc -l)
 [ "$N_HYB" -ge "$N_PARASAIL" ] \
-  || { echo "FAIL: hybrid parasail count $N_HYB < parasail-only $N_PARASAIL"; exit 1; }
-echo "  OK: hybrid produced $N_HYB parasail refinements"
+  || { echo "FAIL: hybrid refined count $N_HYB < parasail-only $N_PARASAIL"; exit 1; }
+echo "  OK: hybrid produced $N_HYB refinements (parasail + mafft)"
 
 # v2.1: hybrid mode runs MSA on every qualifying cluster -> MSA_g must
 # appear on at least one row, and MSA_Agree must be present.

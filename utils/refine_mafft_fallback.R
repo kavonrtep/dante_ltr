@@ -241,10 +241,14 @@ motif_at_raw <- function(seq_chr, raw_pos, side) {
   if (is.na(raw_pos)) return(NA_character_)
   if (side == "5") {
     if (raw_pos < 1L || raw_pos + 1L > L) return(NA_character_)
-    return(substr(seq_chr, raw_pos, raw_pos + 1L))
+    # unname() strips any names attribute that came in via
+    # as.character(DNAStringSet) — without this the snap_raw equality
+    # check (`identical(m0, tgt)`) returns FALSE for "TG" == "TG"
+    # because the LHS has a name attribute and tgt does not.
+    return(unname(substr(seq_chr, raw_pos, raw_pos + 1L)))
   }
   if (raw_pos - 1L < 1L || raw_pos > L) return(NA_character_)
-  substr(seq_chr, raw_pos - 1L, raw_pos)
+  unname(substr(seq_chr, raw_pos - 1L, raw_pos))
 }
 
 # Empirically the MSA change-point lands 5–15 bp inside the conserved
