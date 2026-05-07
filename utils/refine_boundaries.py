@@ -761,11 +761,17 @@ def compute_msa_agreement(records: List[RefRecord], window: int = 5) -> None:
         rec.msa_agree_with_final = abs(rec.msa_corrected_g - rec.final_corrected_g) <= window
 
 
-def compute_evaluation_status(records: List[RefRecord]) -> None:
+def compute_evaluation_status(records: List[RefRecord],
+                              evaluated_cluster_ids: Optional[set] = None
+                              ) -> None:
     """Set rec.evaluation_status per side (4 buckets):
 
       not_evaluated : the side wasn't in a qualifying cluster — no
-                      analysis was run on it (cluster_id is empty).
+                      analysis was run on it (its cluster_id is not in
+                      `evaluated_cluster_ids`).  Records whose Cluster_ID
+                      is empty (i.e. they weren't clustered at all,
+                      typically because the lineage was empty) also fall
+                      here.
       unresolved    : analysis ran but no method validated a coord;
                       the original DANTE_LTR boundary is kept.  This
                       includes sides that got reverted by the TSD-loss
@@ -777,6 +783,12 @@ def compute_evaluation_status(records: List[RefRecord]) -> None:
       refined       : analysis ran and the boundary MOVED to a new
                       coord.
 
+    `evaluated_cluster_ids` is the set of cluster IDs that
+    refine_one_cluster() actually processed (the qualifying clusters).
+    If None, the function falls back to the old "non-empty cluster_id
+    ⇒ evaluated" heuristic (kept for compatibility with callers that
+    don't yet know the qualifying set).
+
     See docs/refine_v2_analysis.md / docs/refine_msa_rescue_plan.md
     for the design rationale.  This axis is independent of (and lives
     alongside) `confidence`, which describes WHICH method/pool gave
@@ -784,6 +796,10 @@ def compute_evaluation_status(records: List[RefRecord]) -> None:
     """
     for rec in records:
         if not rec.cluster_id:
+            rec.evaluation_status = "not_evaluated"
+            continue
+        if (evaluated_cluster_ids is not None
+                and rec.cluster_id not in evaluated_cluster_ids):
             rec.evaluation_status = "not_evaluated"
             continue
         if rec.final_corrected_g is None:
@@ -1372,14 +1388,29 @@ def refine_all(args: argparse.Namespace) -> Dict:
         for r in recs:
             all_records.append(r)
             refined_keys.add((r.chrom, r.start_orig, r.end_orig, r.role))
+
+    # Reverse map so non-qualifying members carry their cluster identity
+    # too (they exist in build_clusters' output, just below the per-role
+    # --min_cluster_size threshold).  Downstream tools (notably the solo
+    # LTR library builder) group library members by Cluster_ID and need
+    # this attribute on every LTR feature.
+    member_to_cluster: Dict[Tuple[str, int, int, str], Tuple[str, int]] = {}
+    for ci, mems in enumerate(cluster_members):
+        cid = f"clu_{ci:06d}_{cluster_rep[ci][:80]}"
+        csize = len(mems)
+        for m in mems:
+            member_to_cluster[(m.chrom, m.start, m.end, m.role)] = (cid, csize)
+
     for m in members:
-        if (m.chrom, m.start, m.end, m.role) in refined_keys:
+        key_m = (m.chrom, m.start, m.end, m.role)
+        if key_m in refined_keys:
             continue
+        cid, csize = member_to_cluster.get(key_m, ("", 0))
         all_records.append(RefRecord(
             chrom=m.chrom, start_orig=m.start, end_orig=m.end,
             strand=m.strand, role=m.role, parent=m.parent,
             lineage=m.lineage,
-            cluster_id="", cluster_size=0,
+            cluster_id=cid, cluster_size=csize,
             refinement_side="5" if m.role == "5LTR" else "3",
         ))
 
@@ -1401,7 +1432,8 @@ def refine_all(args: argparse.Namespace) -> Dict:
     # refined.  This is the user-facing "what happened to this side?"
     # label, distinct from the confidence (which records *which method*
     # gave the call).  Computed last, after all gates have settled.
-    compute_evaluation_status(all_records)
+    compute_evaluation_status(all_records,
+                              evaluated_cluster_ids=set(cluster_records.keys()))
 
     # Outputs
     refined_gff = out_prefix + "_refined.gff3"
