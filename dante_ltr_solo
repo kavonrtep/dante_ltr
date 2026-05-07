@@ -94,21 +94,32 @@ def get_arguments():
                         help='Minimum alignment coverage of query LTR (default: %(default)s)')
     parser.add_argument('-S', '--max_chunk_size', default=100_000_000, type=int,
                         help='Max genome chunk size in bp (default: %(default)s)')
-    parser.add_argument('--refined_gff3', default=None,
-                        help='Optional refined GFF3 (output of dante_ltr_refine). '
-                             'When supplied, the LTR library is built from '
-                             'validated members only (per --boundary_motif), '
-                             'and downstream solo-LTR detection runs against '
-                             'that cleaner library.  --gff3 is still required '
-                             'to provide the full DANTE_LTR annotation that '
-                             'is used as overlap mask during detection.')
-    parser.add_argument('--min_validated_members', default=4, type=int,
-                        help='Minimum validated cluster members required to '
-                             'build a high-confidence consensus when '
-                             '--refined_gff3 is given (default: %(default)s)')
     parser.add_argument('-v', '--version', action='version',
                         version='%(prog)s ' + __version__)
     return parser.parse_args()
+
+
+def is_refined_gff3(path):
+    """Return True if the GFF3 already carries refinement attributes.
+
+    Looks for ``Refinement_Status=`` on at least one ``long_terminal_repeat``
+    feature (lenient: a partial refined GFF3 still triggers True, since
+    refinement may emit the attribute only on evaluated LTRs while small
+    clusters get not_evaluated stubs).
+    """
+    try:
+        with open(path) as fh:
+            for line in fh:
+                if not line.strip() or line.startswith('#'):
+                    continue
+                parts = line.rstrip('\n').split('\t')
+                if len(parts) < 9 or parts[2] != 'long_terminal_repeat':
+                    continue
+                if 'Refinement_Status=' in parts[8]:
+                    return True
+        return False
+    except OSError:
+        return False
 
 
 def setup_logging(log_path):
@@ -281,24 +292,25 @@ def merge_solo_stats(files):
 # Pipeline steps
 # ============================================================
 
-def build_ltr_library(tool_path, gff3, fasta, lib_dir, cpu,
-                      refined_gff3=None, min_validated_members=4):
-    """Call build_ltr_library.R; returns a dict of produced paths."""
+def build_ltr_library(tool_path, refined_gff3, fasta, lib_dir, cpu):
+    """Call build_ltr_library.R; returns a dict of produced paths.
+
+    Input must be a refined GFF3 (output of dante_ltr_refine).  The
+    wrapper guarantees this — if the user supplied a plain DANTE_LTR
+    GFF3, run_refinement_if_needed() runs refinement first.
+    """
     lib_prefix = os.path.join(lib_dir, 'ltr_lib')
     aln_dir = os.path.join(lib_dir, 'mafft_alignments')
     os.makedirs(aln_dir, exist_ok=True)
 
     cmd = [
         f'{tool_path}/utils/build_ltr_library.R',
-        '-g', gff3,
+        '-g', refined_gff3,
         '-s', fasta,
         '-o', lib_prefix,
         '-t', str(cpu),
         '--alignments_dir', aln_dir,
     ]
-    if refined_gff3:
-        cmd += ['--refined_gff3', refined_gff3,
-                '--min_validated_members', str(min_validated_members)]
     run_subprocess(cmd, "Building LTR reference library")
 
     return {
@@ -308,6 +320,44 @@ def build_ltr_library(tool_path, gff3, fasta, lib_dir, cpu,
         'ppt_db':      f'{lib_prefix}_PPT_tags.fasta',
         'tsd_map':     f'{lib_prefix}_tsd_length_map.tsv',
     }
+
+
+def run_refinement_if_needed(tool_path, gff3, fasta, refined_dir, cpu):
+    """Ensure a refined GFF3 exists at <refined_dir>/sample_refined.gff3.
+
+    If `gff3` already carries Refinement_Status attributes, copy it into
+    the refined dir as-is.  Otherwise invoke dante_ltr_refine with
+    hard-coded defaults (matching its CLI defaults) so the library
+    builder always sees Cluster_ID + Refinement_Status.
+
+    Returns the path to the refined GFF3.
+    """
+    os.makedirs(refined_dir, exist_ok=True)
+    refined_out = os.path.join(refined_dir, 'sample_refined.gff3')
+
+    if is_refined_gff3(gff3):
+        logger.info("Input GFF3 already refined; copying into %s",
+                    os.path.basename(refined_dir))
+        shutil.copy(gff3, refined_out)
+        return refined_out
+
+    logger.info("Input GFF3 is not refined; running dante_ltr_refine "
+                "(this may take a few minutes on large genomes)")
+    out_prefix = os.path.join(refined_dir, 'sample')
+    cmd = [
+        f'{tool_path}/dante_ltr_refine',
+        '-g', gff3,
+        '-s', fasta,
+        '-o', out_prefix,
+        '--threads', str(cpu),
+        '--workers', str(cpu),
+    ]
+    run_subprocess(cmd, "Refining LTR boundaries")
+
+    if not os.path.exists(refined_out) or os.path.getsize(refined_out) == 0:
+        raise RuntimeError(
+            f"dante_ltr_refine completed but did not produce {refined_out}")
+    return refined_out
 
 
 def select_representatives(tool_path, in_gff, out_gff, annotation_gff, stats_out):
@@ -406,23 +456,17 @@ def main():
 
 
 def _run(args, tool_path, out_dir, lib_dir, chunks_dir, ref_norm, gff3_input):
-    # If --refined_gff3 was supplied, validate and copy it into the outdir
-    # alongside the original GFF3.
-    refined_copy = None
-    if args.refined_gff3:
-        if not os.path.exists(args.refined_gff3):
-            logger.error("Refined GFF3 not found: %s", args.refined_gff3)
-            sys.exit(1)
-        refined_copy = os.path.join(out_dir, 'reference_input_refined.gff3')
-        shutil.copy(args.refined_gff3, refined_copy)
-        logger.info("Refined GFF3 supplied; library will be built from "
-                    "validated members of %s", args.refined_gff3)
+    # ---- Step 0: ensure a refined GFF3 exists (auto-run dante_ltr_refine
+    # when the input is not already refined).  The refined GFF3 is the
+    # canonical input for both library construction (Cluster_ID grouping +
+    # filter-then-rank ordering) and overlap masking during detection.
+    refined_dir = os.path.join(out_dir, 'refined')
+    refined_gff3 = run_refinement_if_needed(tool_path, gff3_input, ref_norm,
+                                            refined_dir, args.cpu)
 
     # ---- Step 1: build LTR library (once, on the full normalized genome) ----
     lib = build_ltr_library(
-        tool_path, gff3_input, ref_norm, lib_dir, args.cpu,
-        refined_gff3=refined_copy,
-        min_validated_members=args.min_validated_members,
+        tool_path, refined_gff3, ref_norm, lib_dir, args.cpu,
     )
 
     if not os.path.exists(lib['ltr_library']) or os.path.getsize(lib['ltr_library']) == 0:
@@ -453,10 +497,10 @@ def _run(args, tool_path, out_dir, lib_dir, chunks_dir, ref_norm, gff3_input):
     use_chunking = total_size > args.max_chunk_size and n_seqs > 1
 
     if not use_chunking:
-        _run_no_chunking(args, tool_path, chunks_dir, ref_norm, gff3_input,
+        _run_no_chunking(args, tool_path, chunks_dir, ref_norm, refined_gff3,
                          lib, trna_db, raw_gff3, raw_stats)
     else:
-        _run_chunked(args, tool_path, chunks_dir, ref_norm, gff3_input,
+        _run_chunked(args, tool_path, chunks_dir, ref_norm, refined_gff3,
                      lib, trna_db, raw_gff3, raw_stats, total_size, n_seqs)
 
     # Add version header to raw GFF3
@@ -466,7 +510,7 @@ def _run(args, tool_path, out_dir, lib_dir, chunks_dir, ref_norm, gff3_input):
     # Collapse raw hits to one representative per locus
     if os.path.exists(raw_gff3) and os.path.getsize(raw_gff3) > 0:
         select_representatives(tool_path, raw_gff3, final_gff3,
-                               annotation_gff=gff3_input,
+                               annotation_gff=refined_gff3,
                                stats_out=final_stats)
         if os.path.exists(final_gff3) and os.path.getsize(final_gff3) > 0:
             add_version_to_gff3(final_gff3, __version__)

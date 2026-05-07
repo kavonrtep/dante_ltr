@@ -15,56 +15,44 @@ suppressPackageStartupMessages(library(optparse))
 
 option_list <- list(
   make_option(c("-g", "--gff3"), type = "character", default = NULL,
-              help = "DANTE_LTR GFF3 annotation file"),
+              help = paste("Refined DANTE_LTR GFF3 (output of dante_ltr_refine).",
+                           "Cluster_ID, Cluster_Size and Refinement_Status",
+                           "attributes drive library member grouping and",
+                           "filter-then-rank ordering.")),
   make_option(c("-s", "--reference_sequence"), type = "character", default = NULL,
               help = "Reference genome FASTA"),
   make_option(c("-o", "--output"), type = "character", default = NULL,
               help = "Output file prefix"),
   make_option(c("-t", "--threads"), type = "integer", default = 1L,
-              help = "Threads for MMseqs2 and MAFFT [default %default]"),
+              help = "Threads for MAFFT [default %default]"),
   make_option(c("-f", "--flank"), type = "integer", default = 50L,
-              help = "Flanking bp added each side for MSA and change-point boundary detection [default %default]"),
+              help = paste("Flanking bp added each side for the not_evaluated",
+                           "fallback consensus path (change-point boundary",
+                           "detection on small clusters refinement could not",
+                           "evaluate). [default %default]")),
   make_option(c("--wide_flank"), type = "integer", default = 1000L,
-              help = paste("Maximum retry-flank size when the default scan cannot",
-                           "locate a boundary within +-flank bp.  The actual flank",
-                           "used per cluster is",
-                           "min(--wide_flank, max(500, median_annotated_body_length))",
-                           "— so it is proportional to the cluster's annotated LTR",
-                           "length but capped above by --wide_flank.",
-                           "Set to 0 to disable the retry. [default %default]")),
+              help = paste("Maximum retry-flank size for the not_evaluated",
+                           "fallback path when the default scan cannot locate",
+                           "a boundary within +-flank bp.  Proportional to the",
+                           "cluster's annotated LTR length but capped above",
+                           "by --wide_flank.  Set to 0 to disable the retry.",
+                           "[default %default]")),
   make_option(c("-d", "--min_cluster_size"), type = "integer", default = 6L,
-              help = paste("Min cluster members required for MAFFT consensus and",
-                           "boundary correction. Below this, the highest-rank",
-                           "single annotated LTR is used instead [default %default]")),
+              help = paste("Min cluster members required for MAFFT consensus.",
+                           "Below this, the highest-rank single annotated LTR",
+                           "is used instead. [default %default]")),
   make_option(c("--alignments_dir"), type = "character", default = NULL,
-              help = "Optional directory in which to save per-cluster MAFFT alignments (for debugging)"),
-  make_option(c("--refined_gff3"), type = "character", default = NULL,
-              help = paste("Optional refined GFF3 produced by dante_ltr_refine.",
-                           "When supplied, this script uses the refined LTR",
-                           "coordinates directly and filters cluster members to",
-                           "validated ones (TG_OK and CA_OK both TRUE on the",
-                           "appropriate side), skipping the per-cluster MAFFT",
-                           "change-point boundary correction.  The MAFFT step",
-                           "is still used to build the per-cluster consensus.")),
-  make_option(c("--min_validated_members"), type = "integer", default = 4L,
-              help = paste("With --refined_gff3: minimum number of validated",
-                           "members required to build a high-confidence cluster",
-                           "consensus.  Below this threshold the script falls",
-                           "back to all cluster members and flags the cluster",
-                           "low_confidence in the map TSV. [default %default]"))
+              help = "Optional directory in which to save per-cluster MAFFT alignments (for debugging)")
 )
 
 parser <- OptionParser(option_list = option_list,
-                       usage = "usage: %prog -g GFF3 -s FASTA -o OUTPUT [OPTIONS]")
+                       usage = "usage: %prog -g REFINED_GFF3 -s FASTA -o OUTPUT [OPTIONS]")
 opt <- parse_args(parser)
 
-# Allow either --gff3 or --refined_gff3 as the GFF3 input.
-USE_REFINED <- !is.null(opt$refined_gff3) && nzchar(opt$refined_gff3)
-GFF_INPUT   <- if (USE_REFINED) opt$refined_gff3 else opt$gff3
-
-if (is.null(GFF_INPUT) || !nzchar(GFF_INPUT)) {
+if (is.null(opt$gff3) || !nzchar(opt$gff3)) {
   print_help(parser)
-  stop("One of --gff3 or --refined_gff3 must be given", call. = FALSE)
+  stop("Mandatory argument missing: -g / --gff3 (refined DANTE_LTR GFF3)",
+       call. = FALSE)
 }
 for (arg in c("reference_sequence", "output")) {
   if (is.null(opt[[arg]])) {
@@ -72,6 +60,7 @@ for (arg in c("reference_sequence", "output")) {
     stop("Mandatory argument missing: --", arg, call. = FALSE)
   }
 }
+GFF_INPUT <- opt$gff3
 
 suppressPackageStartupMessages({
   library(rtracklayer)
@@ -177,114 +166,29 @@ majority_from_counts <- function(bc, col_from, col_to) {
   paste(chars[!is.na(chars)], collapse = "")
 }
 
-# ---- Boundary-validation helpers (TG/CA + TSD, report-only) ----
-# Both are evaluated at the annotated and the corrected column pair inside
-# mafft_boundary_consensus() so the four values can be written into the QC TSV.
-
-# Fraction of cluster rows whose bases at (c5, c5+1, c3-1, c3) form TG...CA.
-# Rows that have a gap at any of the four positions are excluded from the
-# denominator, keeping the metric comparable across column choices.
-tgca_frac_at <- function(mat, c5, c3) {
-  n <- ncol(mat)
-  if (is.na(c5) || is.na(c3)) return(NA_real_)
-  if (c5 < 1L || c5 + 1L > n || c3 > n || c3 - 1L < 1L) return(NA_real_)
-  if (c3 - 1L < c5 + 1L) return(NA_real_)
-  b1 <- mat[, c5];       b2 <- mat[, c5 + 1L]
-  b3 <- mat[, c3 - 1L];  b4 <- mat[, c3]
-  keep <- b1 != "-" & b2 != "-" & b3 != "-" & b4 != "-"
-  if (!any(keep)) return(NA_real_)
-  mean(b1[keep] == "T" & b2[keep] == "G" &
-       b3[keep] == "C" & b4[keep] == "A")
-}
-
-# Single-pair TSD check at two raw positions.  Two-pass (exact then
-# 1-mismatch for L >= 4), longest first.  Mirrors check_tsd() in
-# solo_ltr_utils.R but works off a pair of character sequences + raw
-# 1-based positions rather than BLAST/GRanges input.
-check_tsd_pair <- function(seq5_chr, p5, seq3_chr, p3, tsd_length = NULL) {
-  scan_lengths <- if (!is.null(tsd_length) && !is.na(tsd_length) &&
-                      length(tsd_length) == 1L) {
-    L <- as.integer(tsd_length)
-    seq.int(max(3L, L - 1L), min(8L, L + 1L))
-  } else 4L:6L
-  scan_lengths <- sort(unique(scan_lengths), decreasing = TRUE)
-  max_len <- max(scan_lengths)
-
-  L5 <- nchar(seq5_chr); L3 <- nchar(seq3_chr)
-  l_end   <- p5 - 1L
-  l_start <- max(1L, l_end - max_len + 1L)
-  r_start <- p3 + 1L
-  r_end   <- min(L3, r_start + max_len - 1L)
-  if (l_end < l_start || r_end < r_start) return(FALSE)
-
-  l_full <- substr(seq5_chr, l_start, l_end)
-  r_full <- substr(seq3_chr, r_start, r_end)
-
-  for (len in scan_lengths) {
-    if (nchar(l_full) < len || nchar(r_full) < len) next
-    l <- substr(l_full, nchar(l_full) - len + 1L, nchar(l_full))
-    r <- substr(r_full, 1L, len)
-    if (l == r) return(TRUE)
-  }
-  for (len in scan_lengths) {
-    if (len < 4L) next
-    if (nchar(l_full) < len || nchar(r_full) < len) next
-    l <- substr(l_full, nchar(l_full) - len + 1L, nchar(l_full))
-    r <- substr(r_full, 1L, len)
-    if (sum(strsplit(l, "")[[1L]] != strsplit(r, "")[[1L]]) <= 1L) return(TRUE)
-  }
-  FALSE
-}
-
-# Fraction of sibling (5'LTR, 3'LTR) pairs in the cluster with a confirmed
-# TSD at the given MSA column pair.  MSA columns are mapped to raw
-# per-row positions through cum_mat (# non-gap bases up to column c).
-tsd_frac_at <- function(c5, c3, ext_chars, is_5_vec, sibling_pairs,
-                        non_gap_mat, cum_mat, tsd_length = NULL) {
-  if (is.null(sibling_pairs)) return(NA_real_)
-  if (is.na(c5) || is.na(c3)) return(NA_real_)
-  n_cols <- ncol(cum_mat)
-  if (c5 < 1L || c5 > n_cols || c3 < 1L || c3 > n_cols) return(NA_real_)
-  r5_idxs <- which(is_5_vec)
-  ok <- 0L; denom <- 0L
-  for (r5 in r5_idxs) {
-    r3 <- sibling_pairs[r5]
-    if (is.na(r3)) next
-    if (!non_gap_mat[r5, c5]) next
-    if (!non_gap_mat[r3, c3]) next
-    p5 <- cum_mat[r5, c5]
-    p3 <- cum_mat[r3, c3]
-    denom <- denom + 1L
-    if (check_tsd_pair(ext_chars[r5], p5, ext_chars[r3], p3,
-                       tsd_length = tsd_length)) ok <- ok + 1L
-  }
-  if (denom == 0L) NA_real_ else ok / denom
-}
-
-# ---- Flank-aware boundary-detecting consensus ----
+# ---- Flank-aware boundary-detecting consensus (not_evaluated fallback) ----
+# Used ONLY for clusters refinement could not evaluate (Refinement_Status =
+# not_evaluated for all members — typically because the cluster was too
+# small to qualify for refinement).  All other clusters use refinement's
+# validated coords directly via mafft_simple_consensus().
+#
 # extended_seqs : DNAStringSet of LTR ± flank (biological orientation)
 # body_starts_raw, body_ends_raw : per-member 1-based positions in the raw extended
 #   sequence marking the annotated LTR body (inclusive).
-# sibling_pairs : integer vector aligned with the MSA rows. For each 5'LTR
-#   row, gives the MSA row index of its paired 3'LTR (or NA); entries
-#   for 3'LTR rows are NA.  Used only for the TSD validation signal.
-# tsd_length : lineage-modal TSD length (or NULL for the 4:6 fallback).
 # Returns list(consensus = DNAStringSet | NULL, qc = data.frame_row, status = "ok"|"fallback").
-mafft_boundary_consensus <- function(extended_seqs, body_starts_raw, body_ends_raw,
-                                     flank, threads = 1L,
-                                     save_aln_path = NULL,
-                                     ltr_id = "LTR_unknown",
-                                     lineage = NA_character_,
-                                     conservation_window = 7L,
-                                     T_high = 0.7, T_low = 0.4,
-                                     high_sustain = 2L,
-                                     min_consensus_len = 50L,
-                                     max_length_shrink = 0.5,
-                                     max_length_grow   = 2.0,
-                                     roles = NULL,
-                                     sibling_pairs = NULL,
-                                     tsd_length = NULL,
-                                     timing_env = NULL) {
+mafft_changepoint_consensus <- function(extended_seqs, body_starts_raw, body_ends_raw,
+                                        flank, threads = 1L,
+                                        save_aln_path = NULL,
+                                        ltr_id = "LTR_unknown",
+                                        lineage = NA_character_,
+                                        conservation_window = 7L,
+                                        T_high = 0.7, T_low = 0.4,
+                                        high_sustain = 2L,
+                                        min_consensus_len = 50L,
+                                        max_length_shrink = 0.5,
+                                        max_length_grow   = 2.0,
+                                        roles = NULL,
+                                        timing_env = NULL) {
 
   add_time <- function(slot, dt) {
     if (!is.null(timing_env)) {
@@ -317,8 +221,7 @@ mafft_boundary_consensus <- function(extended_seqs, body_starts_raw, body_ends_r
     shift_3 = NA_integer_, detected_3 = FALSE,
     consensus_length = NA_integer_,
     median_annot_body_len = as.integer(median(body_ends_raw - body_starts_raw + 1L)),
-    tgca_frac_annotated = NA_real_, tgca_frac_corrected = NA_real_,
-    tsd_frac_annotated  = NA_real_, tsd_frac_corrected  = NA_real_,
+    LibraryConfidence = "unrefined",
     stringsAsFactors = FALSE
   )
 
@@ -415,26 +318,6 @@ mafft_boundary_consensus <- function(extended_seqs, body_starts_raw, body_ends_r
   }
   add_time("change_point", proc.time()[["elapsed"]] - t0)
 
-  # ---- Report-only boundary-validation signals (TG/CA + TSD) ----
-  # Measure at both the annotated and the final corrected column pair,
-  # so the caller can compare.  When the grow-cap reverted the
-  # correction, annotated == corrected and the two values will match.
-  t0 <- proc.time()[["elapsed"]]
-  tgca_ann  <- tgca_frac_at(mat, ann_5_col, ann_3_col)
-  tgca_corr <- tgca_frac_at(mat, corrected_5, corrected_3)
-  if (!is.null(sibling_pairs) && any(is_3)) {
-    ext_chars <- as.character(extended_seqs)
-    tsd_ann  <- tsd_frac_at(ann_5_col, ann_3_col, ext_chars, is_5,
-                            sibling_pairs, non_gap_mat, cum_mat,
-                            tsd_length = tsd_length)
-    tsd_corr <- tsd_frac_at(corrected_5, corrected_3, ext_chars, is_5,
-                            sibling_pairs, non_gap_mat, cum_mat,
-                            tsd_length = tsd_length)
-  } else {
-    tsd_ann <- NA_real_; tsd_corr <- NA_real_
-  }
-  add_time("boundary_validation", proc.time()[["elapsed"]] - t0)
-
   t0 <- proc.time()[["elapsed"]]
   consensus <- majority_from_counts(bc_all, corrected_5, corrected_3)
   add_time("consensus_build", proc.time()[["elapsed"]] - t0)
@@ -454,10 +337,7 @@ mafft_boundary_consensus <- function(extended_seqs, body_starts_raw, body_ends_r
     detected_3 = if (!is.null(cw_3)) !is.na(corrected_3_raw) else FALSE,
     consensus_length = as.integer(nchar(consensus)),
     median_annot_body_len = median_body_len,
-    tgca_frac_annotated = tgca_ann,
-    tgca_frac_corrected = tgca_corr,
-    tsd_frac_annotated  = tsd_ann,
-    tsd_frac_corrected  = tsd_corr,
+    LibraryConfidence = "unrefined",
     stringsAsFactors = FALSE
   )
 
@@ -510,42 +390,6 @@ mafft_simple_consensus <- function(body_seqs, threads = 1L,
        status    = "ok")
 }
 
-# ---- MMseqs2 clustering (returns named vector: member -> representative) ----
-mmseqs_cluster <- function(seqs, identity = 0.9, threads = 1L) {
-  if (length(seqs) < 2L) return(setNames(names(seqs), names(seqs)))
-
-  tmp_dir <- tempfile()
-  dir.create(tmp_dir)
-  on.exit(unlink(tmp_dir, recursive = TRUE), add = TRUE)
-
-  fa_in  <- file.path(tmp_dir, "input.fasta")
-  cl_pfx <- file.path(tmp_dir, "cluster")
-  tmp_mm <- file.path(tmp_dir, "tmp")
-  dir.create(tmp_mm)
-
-  writeXStringSet(seqs, fa_in)
-  ret <- system(paste(
-    "mmseqs easy-cluster", fa_in, cl_pfx, tmp_mm,
-    "--min-seq-id", identity,
-    "-c 0.8 --cov-mode 0",
-    "--threads", threads,
-    "-v 0 2>/dev/null"
-  ))
-
-  tsv <- paste0(cl_pfx, "_cluster.tsv")
-  if (ret != 0L || !file.exists(tsv) || file.size(tsv) == 0L) {
-    return(setNames(names(seqs), names(seqs)))  # fallback: each is its own cluster
-  }
-
-  cls <- read.table(tsv, as.is = TRUE, sep = "\t", col.names = c("rep", "member"))
-  # MMseqs2 uses the first-space-truncated name; match back to full names
-  name_map <- setNames(names(seqs), gsub(" .*", "", names(seqs)))
-  rep_full    <- name_map[cls$rep]
-  member_full <- name_map[cls$member]
-  valid <- !is.na(rep_full) & !is.na(member_full)
-  setNames(rep_full[valid], member_full[valid])
-}
-
 # ============================================================
 # MAIN
 # ============================================================
@@ -554,11 +398,8 @@ if (!is.null(opt$alignments_dir)) {
   dir.create(opt$alignments_dir, recursive = TRUE, showWarnings = FALSE)
 }
 
-cat("Reading GFF3 ...\n")
+cat(sprintf("Reading refined GFF3: %s\n", GFF_INPUT))
 gff <- import(GFF_INPUT, format = "gff3")
-if (USE_REFINED) {
-  cat(sprintf("  using refined GFF3: %s\n", GFF_INPUT))
-}
 
 cat("Reading genome ...\n")
 s        <- readDNAStringSet(opt$reference_sequence)
@@ -586,50 +427,40 @@ ltr_class  <- te_class[ltr_parent]
 ltr_ltr    <- as.character(ltr_feat$LTR)   # "5LTR" or "3LTR"
 ltr_rank[is.na(ltr_rank)] <- "DL"
 
-# Per-LTR validation flags (only meaningful in refined mode).  In
-# unrefined mode we treat every member as validated so the existing
-# behaviour is preserved.
-#
-# Validation in refined mode prefers the new Refinement_Status axis
-# (refine v2.1+) and falls back to Refinement_Confidence for older
-# refined GFF3s:
-#
-#   Refinement_Status   in {"confirmed", "refined"}              -> validated
-#   Refinement_Confidence in {"dual", "divergent", "inner_only",
-#                             "mafft", "high", "medium",
-#                             "confirmed", "msa_rescue"}          -> validated (legacy)
-#
-# Anything else (not_evaluated / unresolved / unrefined / missing)
-# is treated as not-validated.
-if (USE_REFINED) {
-  status_attr <- if (!is.null(ltr_feat$Refinement_Status))
-                   as.character(ltr_feat$Refinement_Status)
-                 else rep(NA_character_, length(ltr_feat))
-  conf_attr   <- if (!is.null(ltr_feat$Refinement_Confidence))
-                   as.character(ltr_feat$Refinement_Confidence)
-                 else rep(NA_character_, length(ltr_feat))
-  status_ok <- status_attr %in% c("confirmed", "refined")
-  conf_ok   <- conf_attr %in% c("dual", "divergent", "inner_only",
-                                 "mafft", "high", "medium",
-                                 "confirmed", "msa_rescue")
-  # If the v2.1 status attribute is present anywhere, it takes
-  # precedence; otherwise fall back to confidence-based validation.
-  if (any(!is.na(status_attr))) {
-    ltr_validated <- status_ok
-    cat(sprintf("Refined-mode validation (Refinement_Status): %d / %d LTRs validated (confirmed/refined)\n",
-                sum(ltr_validated), length(ltr_validated)))
-  } else {
-    ltr_validated <- conf_ok
-    cat(sprintf("Refined-mode validation (Refinement_Confidence, legacy): %d / %d LTRs validated\n",
-                sum(ltr_validated), length(ltr_validated)))
-  }
+# Per-LTR refinement attributes — required.  The script assumes the input
+# GFF3 came from dante_ltr_refine, so every LTR feature should carry
+# Refinement_Status and Cluster_ID.  Members of small clusters that
+# refinement could not evaluate carry Refinement_Status=not_evaluated and
+# still have a Cluster_ID; they go to the change-point fallback path.
+ltr_status <- if (!is.null(ltr_feat$Refinement_Status)) {
+  as.character(ltr_feat$Refinement_Status)
 } else {
-  ltr_validated <- rep(TRUE, length(ltr_feat))
+  rep(NA_character_, length(ltr_feat))
+}
+ltr_cluster_id <- if (!is.null(ltr_feat$Cluster_ID)) {
+  as.character(ltr_feat$Cluster_ID)
+} else {
+  rep(NA_character_, length(ltr_feat))
 }
 
+if (all(is.na(ltr_status) | ltr_status == "")) {
+  stop("Input GFF3 has no Refinement_Status attributes — run ",
+       "dante_ltr_refine first (or call dante_ltr_solo, which auto-",
+       "refines if needed).", call. = FALSE)
+}
+
+# Refinement_Status values:
+#   confirmed | refined     -> validated (Pool A)
+#   unresolved              -> evaluated but not validated (Pool B inside
+#                              evaluated cluster)
+#   not_evaluated | <empty> -> cluster was too small for refinement
+#                              (fallback path: change-point consensus)
+ltr_validated <- ltr_status %in% c("confirmed", "refined")
+
 # ---- Extract body + extended sequences for ALL LTRs (5' and 3') ----
-# Clustering still uses 5'LTR bodies only, but the MAFFT step now also
-# includes sibling 3'LTRs so the 3' boundary can be change-point-corrected.
+# Refinement assigns the same Cluster_ID to a 5'LTR and its sibling
+# 3'LTR (both LTRs of the same element), so grouping by Cluster_ID
+# naturally pulls in both roles per cluster.
 seqlengths(ltr_feat) <- sl_vec[seqlevels(ltr_feat)]
 
 ltr5_mask <- ltr_ltr == "5LTR" & !is.na(ltr_ltr)
@@ -640,10 +471,13 @@ if (!any(ltr5_mask)) {
 ltr_priority_all <- RANK_PRIORITY[ltr_rank]
 ltr_priority_all[is.na(ltr_priority_all)] <- 0L
 
-cat(sprintf("Using %d 5'LTRs for clustering; %d 3'LTR siblings will join the MSA\n",
-            sum(ltr5_mask), sum(ltr_ltr == "3LTR" & !is.na(ltr_ltr))))
+cat(sprintf("Found %d 5'LTRs and %d 3'LTRs; refinement assigned Cluster_ID to %d / %d LTRs\n",
+            sum(ltr5_mask), sum(ltr_ltr == "3LTR" & !is.na(ltr_ltr)),
+            sum(!is.na(ltr_cluster_id) & ltr_cluster_id != ""),
+            length(ltr_feat)))
 
-# Body-only sequences (for MMseqs2 clustering and small-cluster fallback)
+# Body-only sequences (used for MAFFT consensus building and the
+# single-member fallback when MAFFT cannot run on a cluster)
 ltr_body_seqs_all <- getSeq(s, ltr_feat)
 
 # Extended ranges with ± flank, strand-aware via getSeq
@@ -671,18 +505,8 @@ safe_coords <- paste0(seqnames(ltr_feat), "_", start(ltr_feat), "_", end(ltr_fea
 names(ltr_body_seqs_all) <- safe_coords
 names(ltr_ext_seqs_all)  <- safe_coords
 
-# Parent -> index lookup for sibling resolution
 idx_5 <- which(ltr_ltr == "5LTR" & !is.na(ltr_ltr))
 idx_3 <- which(ltr_ltr == "3LTR" & !is.na(ltr_ltr))
-by_parent_3 <- setNames(as.list(idx_3), ltr_parent[idx_3])
-
-# 5'LTR views used for clustering (clustering sees bodies only)
-ltr_body_seqs   <- ltr_body_seqs_all[idx_5]
-ltr_class_5     <- ltr_class[idx_5]
-ltr_priority_5  <- ltr_priority_all[idx_5]
-ltr_parent_5    <- ltr_parent[idx_5]
-# Map cluster-local (5'LTR) index back into the all-LTR frame
-all_idx_of_5    <- idx_5
 
 # ---- TSD length map ----
 cat("Computing TSD length map ...\n")
@@ -723,267 +547,243 @@ extract_extended <- function(indices, flank_bp) {
   )
 }
 
-# ---- Per-lineage clustering and boundary-aware consensus ----
-cat("Clustering and building LTR consensus sequences ...\n")
+# ---- Build per-cluster consensus from refinement's clusters ----
+# Members are grouped by Cluster_ID assigned by dante_ltr_refine.
+# The path each cluster takes depends on the mix of Refinement_Status
+# values among its members:
+#
+#   Pool A  : Refinement_Status in {confirmed, refined}  -> validated
+#   Pool B  : Refinement_Status == "unresolved"          -> evaluated but
+#                                                           not validated
+#   None    : all Refinement_Status == "not_evaluated"   -> cluster was
+#                                                           too small for
+#                                                           refinement
+#
+#   Pool A non-empty               -> mafft_simple_consensus on Pool A
+#                                     LibraryConfidence = "validated"
+#   Pool A empty, Pool B non-empty -> mafft_simple_consensus on Pool B
+#                                     LibraryConfidence = "mixed"
+#   All not_evaluated              -> mafft_changepoint_consensus on all
+#                                     members (with flank/wide_flank
+#                                     boundary detection)
+#                                     LibraryConfidence = "unrefined"
+#
+# Within Pool A or Pool B, members are kept in lineage order (as they
+# appear in the GFF3); MAFFT then builds the consensus by majority vote.
+# Single-member clusters fall back to the body sequence directly.
 
-lineages <- unique(ltr_class_5[!is.na(ltr_class_5)])
+# Identify clusters and their member indices (into the all-LTR vectors)
+cluster_keys <- ifelse(is.na(ltr_cluster_id) | ltr_cluster_id == "",
+                       paste0("__nocluster__", seq_along(ltr_feat)),
+                       ltr_cluster_id)
+cluster_member_idx <- split(seq_along(ltr_feat), cluster_keys)
+
+cat(sprintf("Building consensus for %d clusters ...\n",
+            length(cluster_member_idx)))
+
 all_consensus <- DNAStringSet()
-id_to_lineage <- character(0L)    # maps FASTA ID -> Final_Classification
-id_low_conf   <- logical(0L)      # one entry per consensus; TRUE = low_confidence
-id_built_from <- character(0L)    # "validated" | "all_members" | "fallback"
-id_n_validated <- integer(0L)
+id_to_lineage <- character(0L)
+id_lib_conf   <- character(0L)    # validated | mixed | unrefined
 id_n_total    <- integer(0L)
+id_cluster    <- character(0L)    # original Cluster_ID (or empty for unclustered)
 ltr_counter   <- 0L
 qc_rows       <- list()
 
 # Accumulate per-step wall-clock times across all clusters for profiling.
 timing_env <- new.env(parent = emptyenv())
-for (slot in c("mmseqs", "mafft", "parse_aln", "position_map",
-               "conservation", "change_point", "boundary_validation",
-               "consensus_build")) {
+for (slot in c("mafft", "parse_aln", "position_map",
+               "conservation", "change_point", "consensus_build")) {
   timing_env[[slot]] <- 0
 }
 t_main_start <- proc.time()[["elapsed"]]
 
-for (lin in lineages) {
-  idx <- which(ltr_class_5 == lin & !is.na(ltr_class_5))
-  if (length(idx) == 0L) next
+# Per-cluster lineage (inherited from any member; all members share it
+# unless the GFF3 is malformed).
+for (cluster_key in names(cluster_member_idx)) {
+  member_idx <- cluster_member_idx[[cluster_key]]
+  if (length(member_idx) == 0L) next
 
-  body_lin     <- ltr_body_seqs[idx]
-  parent_lin   <- ltr_parent_5[idx]
-  all_idx_lin  <- all_idx_of_5[idx]           # index in the all-LTR frame
-  priority_lin <- ltr_priority_5[idx]
+  ltr_counter <- ltr_counter + 1L
+  ltr_id <- sprintf("LTR_%06d", ltr_counter)
 
-  # Cluster on body-only sequences
-  t0 <- proc.time()[["elapsed"]]
-  if (length(body_lin) >= 2L) {
-    membership <- mmseqs_cluster(body_lin, identity = 0.9, threads = opt$threads)
+  # Lineage: take the modal lineage of the cluster's members.
+  cluster_lineages <- ltr_class[member_idx]
+  cluster_lineages <- cluster_lineages[!is.na(cluster_lineages)]
+  lin <- if (length(cluster_lineages) > 0L) {
+    names(sort(table(cluster_lineages), decreasing = TRUE))[1L]
+  } else NA_character_
+  if (is.na(lin)) next
+
+  # Pool partition by Refinement_Status
+  status_in_cluster <- ltr_status[member_idx]
+  is_pool_a <- status_in_cluster %in% c("confirmed", "refined")
+  is_pool_b <- status_in_cluster == "unresolved"
+  is_unrefined <- !(is_pool_a | is_pool_b)  # not_evaluated / NA / ""
+
+  cluster_lib_conf <- "unrefined"
+  use_simple   <- FALSE      # refinement-validated path (mafft_simple_consensus)
+  use_changept <- FALSE      # not_evaluated fallback (mafft_changepoint_consensus)
+  pool_idx     <- integer(0L)
+
+  if (any(is_pool_a)) {
+    cluster_lib_conf <- "validated"
+    pool_idx <- member_idx[is_pool_a]
+    use_simple <- TRUE
+  } else if (any(is_pool_b)) {
+    cluster_lib_conf <- "mixed"
+    pool_idx <- member_idx[is_pool_b]
+    use_simple <- TRUE
   } else {
-    membership <- setNames(names(body_lin), names(body_lin))
+    cluster_lib_conf <- "unrefined"
+    pool_idx <- member_idx
+    use_changept <- TRUE
   }
-  timing_env$mmseqs <- timing_env$mmseqs + (proc.time()[["elapsed"]] - t0)
 
-  reps <- unique(membership)
-  cat(sprintf("  %-60s : %d 5'LTRs -> %d clusters\n",
-              substr(lin, 1L, 60L), length(body_lin), length(reps)))
+  # Filter-then-rank ordering within the chosen pool: by Rank (DLTP > ...
+  # > D), with NA priorities pushed to the back.
+  pool_priority <- ltr_priority_all[pool_idx]
+  pool_priority[is.na(pool_priority)] <- 0L
+  pool_idx <- pool_idx[order(-pool_priority)]
 
-  for (rep_name in reps) {
-    ltr_counter <- ltr_counter + 1L
-    members     <- names(membership)[membership == rep_name]
-    midx        <- match(members, names(body_lin))
-    midx        <- midx[!is.na(midx)]
-    if (length(midx) == 0L) next
+  cons_done <- FALSE
+  cons      <- NULL
+  qc_row    <- NULL
 
-    ltr_id <- sprintf("LTR_%06d", ltr_counter)
-
-    use_mafft <- length(midx) >= opt$min_cluster_size
-    cons_done <- FALSE
-    cluster_low_conf  <- FALSE
-    cluster_built_from <- "fallback"
-    cluster_n_validated <- 0L
-    cluster_n_total     <- length(midx)
-
-    if (USE_REFINED) {
-      # Refined-mode path: skip change-point; pick validated bodies and
-      # build a simple majority consensus over a MAFFT alignment.
-      members_5 <- all_idx_lin[midx]
-      sib_3     <- unlist(lapply(parent_lin[midx], function(p) {
-        s <- by_parent_3[[p]]
-        if (is.null(s) || length(s) == 0L) NA_integer_ else s[1L]
-      }))
-      members_3   <- sib_3[!is.na(sib_3)]
-      joint_idx   <- c(members_5, members_3)
-      cluster_n_total <- length(joint_idx)
-
-      validated_mask <- ltr_validated[joint_idx]
-      n_val <- sum(validated_mask, na.rm = TRUE)
-      cluster_n_validated <- as.integer(n_val)
-
-      if (n_val >= opt$min_validated_members) {
-        keep_idx <- joint_idx[validated_mask]
-        cluster_built_from <- "validated"
-      } else {
-        keep_idx <- joint_idx
-        cluster_built_from <- if (length(joint_idx) > 0L) "all_members" else "fallback"
-        cluster_low_conf <- TRUE
-      }
-
-      # Cluster-size gating: small clusters skip MAFFT entirely and use
-      # the highest-rank single annotated body (mirrors legacy behaviour).
-      if (length(keep_idx) >= opt$min_cluster_size) {
-        aln_path <- if (!is.null(opt$alignments_dir)) {
-          file.path(opt$alignments_dir, paste0(ltr_id, ".aln.fasta"))
-        } else NULL
-        body_seqs <- ltr_body_seqs_all[keep_idx]
-        names(body_seqs) <- safe_coords[keep_idx]
-        t0 <- proc.time()[["elapsed"]]
-        res <- mafft_simple_consensus(
-          body_seqs     = body_seqs,
-          threads       = opt$threads,
-          ltr_id        = ltr_id,
-          save_aln_path = aln_path
-        )
-        timing_env$mafft <- timing_env$mafft + (proc.time()[["elapsed"]] - t0)
-        if (res$status == "ok" && !is.null(res$consensus)) {
-          cons      <- res$consensus
-          cons_done <- TRUE
+  if (use_simple && length(pool_idx) >= opt$min_cluster_size) {
+    aln_path <- if (!is.null(opt$alignments_dir)) {
+      file.path(opt$alignments_dir, paste0(ltr_id, ".aln.fasta"))
+    } else NULL
+    body_seqs <- ltr_body_seqs_all[pool_idx]
+    names(body_seqs) <- safe_coords[pool_idx]
+    t0 <- proc.time()[["elapsed"]]
+    res <- mafft_simple_consensus(
+      body_seqs     = body_seqs,
+      threads       = opt$threads,
+      ltr_id        = ltr_id,
+      save_aln_path = aln_path
+    )
+    timing_env$mafft <- timing_env$mafft + (proc.time()[["elapsed"]] - t0)
+    if (res$status == "ok" && !is.null(res$consensus)) {
+      cons      <- res$consensus
+      cons_done <- TRUE
+    }
+    qc_row <- data.frame(
+      ltr_id = ltr_id, Final_Classification = lin,
+      n_members = length(pool_idx),
+      n_5ltr = sum(ltr_ltr[pool_idx] == "5LTR", na.rm = TRUE),
+      n_3ltr = sum(ltr_ltr[pool_idx] == "3LTR", na.rm = TRUE),
+      flank = NA_integer_,
+      annotated_5_col = NA_integer_, corrected_5_col = NA_integer_,
+      shift_5 = NA_integer_, detected_5 = FALSE,
+      annotated_3_col = NA_integer_, corrected_3_col = NA_integer_,
+      shift_3 = NA_integer_, detected_3 = FALSE,
+      consensus_length = if (cons_done) as.integer(width(cons)[1L]) else NA_integer_,
+      median_annot_body_len = as.integer(median(width(ltr_body_seqs_all[pool_idx]))),
+      LibraryConfidence = cluster_lib_conf,
+      stringsAsFactors = FALSE
+    )
+  } else if (use_changept && length(pool_idx) >= opt$min_cluster_size) {
+    aln_path <- if (!is.null(opt$alignments_dir)) {
+      file.path(opt$alignments_dir, paste0(ltr_id, ".aln.fasta"))
+    } else NULL
+    joint_roles <- ltr_ltr[pool_idx]
+    res <- mafft_changepoint_consensus(
+      extended_seqs    = ltr_ext_seqs_all[pool_idx],
+      body_starts_raw  = ann_5_pos_raw[pool_idx],
+      body_ends_raw    = ann_3_pos_raw[pool_idx],
+      flank            = F_flank,
+      threads          = opt$threads,
+      save_aln_path    = aln_path,
+      ltr_id           = ltr_id,
+      lineage          = lin,
+      roles            = joint_roles,
+      timing_env       = timing_env
+    )
+    if (res$status == "ok" &&
+        opt$wide_flank > F_flank &&
+        (!res$qc$detected_5 || !res$qc$detected_3)) {
+      body_len <- as.integer(res$qc$median_annot_body_len)
+      wide_flank_used <- min(opt$wide_flank, max(500L, body_len))
+      ext <- extract_extended(pool_idx, wide_flank_used)
+      names(ext$seqs) <- names(ltr_ext_seqs_all[pool_idx])
+      res2 <- mafft_changepoint_consensus(
+        extended_seqs   = ext$seqs,
+        body_starts_raw = ext$b5,
+        body_ends_raw   = ext$b3,
+        flank           = wide_flank_used,
+        threads         = opt$threads,
+        save_aln_path   = aln_path,
+        ltr_id          = ltr_id,
+        lineage         = lin,
+        roles           = joint_roles,
+        timing_env      = timing_env
+      )
+      if (res2$status == "ok") {
+        old_det <- sum(res$qc$detected_5, res$qc$detected_3, na.rm = TRUE)
+        new_det <- sum(res2$qc$detected_5, res2$qc$detected_3, na.rm = TRUE)
+        if (new_det > old_det) {
+          cat(sprintf("    %s: wide-flank retry detected %d -> %d sides\n",
+                      ltr_id, old_det, new_det))
+          res <- res2
         }
       }
+    }
+    qc_row <- res$qc
+    qc_row$LibraryConfidence <- cluster_lib_conf
+    if (res$status == "ok" && !is.null(res$consensus)) {
+      cons      <- res$consensus
+      cons_done <- TRUE
+    }
+  }
 
-      # Refined-mode QC row (compact; cols match unrefined schema where possible)
-      qc_rows[[length(qc_rows) + 1L]] <- data.frame(
+  if (!cons_done) {
+    # Single-member fallback: highest-rank annotated body in the pool.
+    pool_ranks <- ltr_priority_all[pool_idx]
+    pool_ranks[is.na(pool_ranks)] <- 0L
+    best <- pool_idx[which.max(pool_ranks)]
+    cons <- ltr_body_seqs_all[best]
+    if (is.null(qc_row)) {
+      qc_row <- data.frame(
         ltr_id = ltr_id, Final_Classification = lin,
-        n_members = length(joint_idx),
-        n_5ltr = length(members_5), n_3ltr = length(members_3),
+        n_members = length(pool_idx),
+        n_5ltr = sum(ltr_ltr[pool_idx] == "5LTR", na.rm = TRUE),
+        n_3ltr = sum(ltr_ltr[pool_idx] == "3LTR", na.rm = TRUE),
         flank = NA_integer_,
         annotated_5_col = NA_integer_, corrected_5_col = NA_integer_,
         shift_5 = NA_integer_, detected_5 = FALSE,
         annotated_3_col = NA_integer_, corrected_3_col = NA_integer_,
         shift_3 = NA_integer_, detected_3 = FALSE,
-        consensus_length = if (cons_done) as.integer(width(cons)[1L]) else NA_integer_,
-        median_annot_body_len = as.integer(median(width(ltr_body_seqs_all[joint_idx]))),
-        tgca_frac_annotated = NA_real_, tgca_frac_corrected = NA_real_,
-        tsd_frac_annotated  = NA_real_, tsd_frac_corrected  = NA_real_,
+        consensus_length = as.integer(width(cons)[1L]),
+        median_annot_body_len = as.integer(median(width(ltr_body_seqs_all[pool_idx]))),
+        LibraryConfidence = cluster_lib_conf,
         stringsAsFactors = FALSE
       )
-    } else if (use_mafft) {
-      aln_path <- if (!is.null(opt$alignments_dir)) {
-        file.path(opt$alignments_dir, paste0(ltr_id, ".aln.fasta"))
-      } else NULL
-
-      # Build joint 5'+3' input. For each 5'LTR in the cluster, pull its
-      # sibling 3'LTR (same Parent TE id) if one exists.
-      members_5 <- all_idx_lin[midx]
-      sib_3     <- unlist(lapply(parent_lin[midx], function(p) {
-        s <- by_parent_3[[p]]
-        if (is.null(s) || length(s) == 0L) NA_integer_ else s[1L]
-      }))
-      members_3   <- sib_3[!is.na(sib_3)]
-      joint_idx   <- c(members_5, members_3)
-      joint_roles <- c(rep("5LTR", length(members_5)),
-                       rep("3LTR", length(members_3)))
-
-      # For each MSA row that is a 5'LTR, record the MSA row index of its
-      # 3'LTR sibling (or NA).  Entries for 3'LTR rows are NA.  Used only
-      # by the TSD boundary-validation signal.
-      K <- length(members_5); M <- length(members_3)
-      sibling_pairs <- rep(NA_integer_, K + M)
-      pos3 <- which(!is.na(sib_3))
-      if (length(pos3) > 0L) {
-        sibling_pairs[pos3] <- K + seq_along(pos3)
-      }
-      tsd_len_for_cluster <- if (!is.null(tsd_map) && lin %in% names(tsd_map))
-        tsd_map[[lin]] else NULL
-
-      res <- mafft_boundary_consensus(
-        extended_seqs    = ltr_ext_seqs_all[joint_idx],
-        body_starts_raw  = ann_5_pos_raw[joint_idx],
-        body_ends_raw    = ann_3_pos_raw[joint_idx],
-        flank            = F_flank,
-        threads          = opt$threads,
-        save_aln_path    = aln_path,
-        ltr_id           = ltr_id,
-        lineage          = lin,
-        roles            = joint_roles,
-        sibling_pairs    = sibling_pairs,
-        tsd_length       = tsd_len_for_cluster,
-        timing_env       = timing_env
-      )
-
-      # Wide-flank retry: the default ±F_flank window may be too narrow
-      # when the real boundary is > F_flank bp from the annotated column
-      # (flank over-conserved, scan can't see a low column to anchor
-      # against). Re-extract only this cluster's members with a wider
-      # flank and rescan.  The retry flank is proportional to the
-      # cluster's annotated LTR length: min(--wide_flank, max(500, body_len)).
-      # Only triggered when at least one boundary wasn't detected.
-      if (res$status == "ok" &&
-          opt$wide_flank > F_flank &&
-          (!res$qc$detected_5 || !res$qc$detected_3)) {
-        body_len <- as.integer(res$qc$median_annot_body_len)
-        wide_flank_used <- min(opt$wide_flank, max(500L, body_len))
-        ext <- extract_extended(joint_idx, wide_flank_used)
-        names(ext$seqs) <- names(ltr_ext_seqs_all[joint_idx])
-        res2 <- mafft_boundary_consensus(
-          extended_seqs   = ext$seqs,
-          body_starts_raw = ext$b5,
-          body_ends_raw   = ext$b3,
-          flank           = wide_flank_used,
-          threads         = opt$threads,
-          save_aln_path   = aln_path,   # overwrite — wider version is the one used
-          ltr_id          = ltr_id,
-          lineage         = lin,
-          roles           = joint_roles,
-          sibling_pairs   = sibling_pairs,
-          tsd_length      = tsd_len_for_cluster,
-          timing_env      = timing_env
-        )
-        if (res2$status == "ok") {
-          old_det <- sum(res$qc$detected_5, res$qc$detected_3, na.rm = TRUE)
-          new_det <- sum(res2$qc$detected_5, res2$qc$detected_3, na.rm = TRUE)
-          if (new_det > old_det) {
-            cat(sprintf("    %s: wide-flank retry detected %d -> %d sides\n",
-                        ltr_id, old_det, new_det))
-            res <- res2
-          }
-        }
-      }
-
-      qc_rows[[length(qc_rows) + 1L]] <- res$qc
-
-      if (res$status == "ok" && !is.null(res$consensus)) {
-        cons      <- res$consensus
-        cons_done <- TRUE
-      }
     }
-
-    if (!cons_done) {
-      # Fallback: use highest-rank single annotated LTR body
-      best <- midx[which.max(priority_lin[midx])]
-      cons <- body_lin[best]
-      # In refined mode the QC row was already appended above; only emit
-      # the legacy single-fallback row when neither MAFFT nor the
-      # refined-mode path produced one.
-      if (!use_mafft && !USE_REFINED) {
-        qc_rows[[length(qc_rows) + 1L]] <- data.frame(
-          ltr_id = ltr_id, Final_Classification = lin,
-          n_members = length(midx),
-          n_5ltr = length(midx), n_3ltr = 0L,
-          flank = NA_integer_,
-          annotated_5_col = NA_integer_, corrected_5_col = NA_integer_,
-          shift_5 = NA_integer_, detected_5 = FALSE,
-          annotated_3_col = NA_integer_, corrected_3_col = NA_integer_,
-          shift_3 = NA_integer_, detected_3 = FALSE,
-          consensus_length = as.integer(width(cons)[1L]),
-          median_annot_body_len = as.integer(median(width(body_lin[midx]))),
-          tgca_frac_annotated = NA_real_, tgca_frac_corrected = NA_real_,
-          tsd_frac_annotated  = NA_real_, tsd_frac_corrected  = NA_real_,
-          stringsAsFactors = FALSE
-        )
-      }
-    }
-
-    names(cons)   <- ltr_id
-    all_consensus <- c(all_consensus, cons)
-    id_to_lineage[ltr_id] <- lin
-    id_low_conf    <- c(id_low_conf, cluster_low_conf)
-    id_built_from  <- c(id_built_from, cluster_built_from)
-    id_n_validated <- c(id_n_validated, cluster_n_validated)
-    id_n_total     <- c(id_n_total, cluster_n_total)
   }
+
+  qc_rows[[length(qc_rows) + 1L]] <- qc_row
+  names(cons)   <- ltr_id
+  all_consensus <- c(all_consensus, cons)
+  id_to_lineage[ltr_id] <- lin
+  id_lib_conf <- c(id_lib_conf, cluster_lib_conf)
+  id_n_total  <- c(id_n_total, length(member_idx))
+  id_cluster  <- c(id_cluster,
+                   if (startsWith(cluster_key, "__nocluster__")) "" else cluster_key)
 }
 
 t_main_total <- proc.time()[["elapsed"]] - t_main_start
 cat("\n[timing] consensus/cluster loop breakdown (wall-clock s):\n")
-cat(sprintf("  mmseqs2         : %6.2f\n",  timing_env$mmseqs))
 cat(sprintf("  mafft (extern)  : %6.2f\n",  timing_env$mafft))
 cat(sprintf("  parse alignment : %6.2f\n",  timing_env$parse_aln))
 cat(sprintf("  position map    : %6.2f\n",  timing_env$position_map))
 cat(sprintf("  conservation    : %6.2f\n",  timing_env$conservation))
 cat(sprintf("  change-point    : %6.2f\n",  timing_env$change_point))
-cat(sprintf("  validation      : %6.2f\n",  timing_env$boundary_validation))
 cat(sprintf("  consensus build : %6.2f\n",  timing_env$consensus_build))
 cat(sprintf("  --- total loop  : %6.2f\n",  t_main_total))
+cat(sprintf("LibraryConfidence summary : validated=%d  mixed=%d  unrefined=%d\n",
+            sum(id_lib_conf == "validated"),
+            sum(id_lib_conf == "mixed"),
+            sum(id_lib_conf == "unrefined")))
 
 if (length(all_consensus) == 0L) {
   stop("No LTR consensus sequences built. Check input GFF3.", call. = FALSE)
@@ -997,17 +797,11 @@ ltr_map_path <- paste0(opt$output, "_LTR_library_map.tsv")
 map_df <- data.frame(
   ltr_id               = names(id_to_lineage),
   Final_Classification = as.character(id_to_lineage),
+  LibraryConfidence    = as.character(id_lib_conf),
+  Cluster_ID           = as.character(id_cluster),
+  Cluster_Size         = as.integer(id_n_total),
   stringsAsFactors     = FALSE
 )
-if (USE_REFINED) {
-  # Augment with refinement-aware columns when available
-  if (length(id_n_validated) == nrow(map_df)) {
-    map_df$n_validated        <- as.integer(id_n_validated)
-    map_df$n_total            <- as.integer(id_n_total)
-    map_df$consensus_built_from <- as.character(id_built_from)
-    map_df$low_confidence     <- as.logical(id_low_conf)
-  }
-}
 write.table(map_df, ltr_map_path,
             sep = "\t", quote = FALSE, row.names = FALSE)
 
@@ -1026,8 +820,7 @@ if (length(qc_rows) > 0L) {
     annotated_3_col = integer(0L), corrected_3_col = integer(0L),
     shift_3 = integer(0L), detected_3 = logical(0L),
     consensus_length = integer(0L), median_annot_body_len = integer(0L),
-    tgca_frac_annotated = numeric(0L), tgca_frac_corrected = numeric(0L),
-    tsd_frac_annotated  = numeric(0L), tsd_frac_corrected  = numeric(0L)
+    LibraryConfidence = character(0L)
   ), qc_path, sep = "\t", quote = FALSE, row.names = FALSE)
 }
 
@@ -1045,24 +838,28 @@ if (length(qc_rows) > 0L) {
     labels = c("=1", "=2", "3-5", "6-10", "11-20", "21+"),
     right  = TRUE
   )
-  msa <- qc_summary[qc_summary$n_members >= opt$min_cluster_size &
-                    !is.na(qc_summary$corrected_5_col), ]
-  fallback <- qc_summary[qc_summary$n_members >= opt$min_cluster_size &
-                         is.na(qc_summary$corrected_5_col), ]
-  cat("\n[summary] cluster / boundary report\n")
+  cat("\n[summary] cluster / library report\n")
   cat(sprintf("  total clusters        : %d\n", total_clusters))
   cat("  size distribution     :\n")
   print(table(size_bins))
-  cat(sprintf("  clusters with MSA     : %d  (n_members >= %d, MAFFT ok)\n",
-              nrow(msa), opt$min_cluster_size))
-  cat(sprintf("  clusters fallen back  : %d  (MAFFT failed or consensus < %d bp)\n",
-              nrow(fallback), 50L))
+  if ("LibraryConfidence" %in% colnames(qc_summary)) {
+    lc_tab <- table(qc_summary$LibraryConfidence)
+    for (lvl in c("validated", "mixed", "unrefined")) {
+      n <- if (lvl %in% names(lc_tab)) as.integer(lc_tab[[lvl]]) else 0L
+      cat(sprintf("  LibraryConfidence %-9s : %d\n", lvl, n))
+    }
+  }
+  # Change-point boundary detection stats (only meaningful for the
+  # not_evaluated fallback path; LibraryConfidence == "unrefined")
+  msa <- qc_summary[!is.na(qc_summary$corrected_5_col), ]
   if (nrow(msa) > 0L) {
+    cat(sprintf("\n  not_evaluated fallback (change-point) clusters : %d\n",
+                nrow(msa)))
     n_det5 <- sum(msa$detected_5)
     n_det3 <- sum(msa$detected_3)
-    n_det_any <- sum(msa$detected_5 | msa$detected_3)
+    n_det_any  <- sum(msa$detected_5 | msa$detected_3)
     n_det_both <- sum(msa$detected_5 & msa$detected_3)
-    n_blocked <- sum(!msa$detected_5 | !msa$detected_3)
+    n_blocked  <- sum(!msa$detected_5 | !msa$detected_3)
     cat(sprintf("  boundary detected     : 5'=%d, 3'=%d, both=%d, either=%d\n",
                 n_det5, n_det3, n_det_both, n_det_any))
     cat(sprintf("  boundary blocked*     : %d  (* no transition found on at least one side)\n",
@@ -1077,29 +874,6 @@ if (length(qc_rows) > 0L) {
       cat(sprintf("  shift_3  min/med/max  : %d / %d / %d bp  (among %d detected)\n",
                   min(s3), as.integer(median(s3)), max(s3), length(s3)))
     }
-
-    # TG/CA and TSD rollups (report-only boundary validation)
-    report_delta <- function(x, label, unit_tol = 0.1) {
-      valid <- !is.na(x$ann) & !is.na(x$corr)
-      if (!any(valid)) return(invisible(NULL))
-      a <- x$ann[valid]; c <- x$corr[valid]; d <- c - a
-      lost      <- sum(d < -unit_tol)
-      gained    <- sum(d >  unit_tol)
-      unchanged <- sum(abs(d) <= unit_tol)
-      cat(sprintf("\n  %s at corrected vs annotated boundary (n = %d clusters):\n",
-                  label, length(a)))
-      cat(sprintf("    annotated frac   min/med/max : %.3f / %.3f / %.3f\n",
-                  min(a), median(a), max(a)))
-      cat(sprintf("    corrected frac   min/med/max : %.3f / %.3f / %.3f\n",
-                  min(c), median(c), max(c)))
-      cat(sprintf("    LOST   (delta < -%.2f)       : %d / %d\n", unit_tol, lost,      length(a)))
-      cat(sprintf("    GAINED (delta > +%.2f)       : %d / %d\n", unit_tol, gained,    length(a)))
-      cat(sprintf("    UNCHANGED (|delta| <= %.2f)  : %d / %d\n", unit_tol, unchanged, length(a)))
-    }
-    report_delta(list(ann = msa$tgca_frac_annotated,
-                      corr = msa$tgca_frac_corrected), "TG/CA")
-    report_delta(list(ann = msa$tsd_frac_annotated,
-                      corr = msa$tsd_frac_corrected), "TSD ")
   }
   if (!is.null(opt$alignments_dir) && dir.exists(opt$alignments_dir)) {
     cat(sprintf("  per-cluster MSAs      : %s  (%d .aln.fasta files)\n",
