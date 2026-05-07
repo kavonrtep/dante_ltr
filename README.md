@@ -242,7 +242,9 @@ For the full CLI option list, see `dante_ltr_solo --help` or
   cluster had different `Final_Classification`.
 - `UTR5_junction`, `PPT_junction`, `PBS_check` — for `SL_noTSD` rows:
   `positive` indicates the hit looks like a fragment of an unannotated
-  complete element on that side; `not_applicable` for `SL` rows.
+  complete element on that side; `not_applicable` for `SL` rows.  Any
+  representative with at least one `positive` is partitioned out of
+  `solo_ltr.gff3` and emitted in `solo_ltr_te_fragments.gff3` instead.
 
 ## Modifying LTR-RT search constraints
 
