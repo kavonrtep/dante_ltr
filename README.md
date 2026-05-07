@@ -5,12 +5,12 @@
   - [Installation](#installation)
   - [Quick start guide - How to use DANTE and DANTE_LTR on Galaxy server](#quick-start-guide---how-to-use-dante-and-dante_ltr-on-galaxy-server)
   - [Quick start guide - How to use command line version of DANTE and DANTE_LTR](#quick-start-guide---how-to-use-command-line-version-of-dante-and-dante_ltr)
-  - [Tools description](#tools-description)
   - [Boundary refinement](#boundary-refinement)
   - [Solo LTR detection](#solo-ltr-detection)
-  - [GFF3 DANTE_LTR output specification](#gff3-dante_ltr-output-specification)
-  - [Modifying LTR-RT search constrains](#modifying-ltr-rt-search-constrains)
+  - [Modifying LTR-RT search constraints](#modifying-ltr-rt-search-constraints)
   - [Fallback classification mode](#fallback-classification-mode)
+  - [CLI reference](#cli-reference)
+  - [GFF3 DANTE_LTR output specification](#gff3-dante_ltr-output-specification)
 
 
 
@@ -23,7 +23,7 @@ Novak, P., Hostakova, N., Neumann, P., Macas, J. (2024) – DANTE and DANTE_LTR:
 
 ## Principle of DANTE_LTR
 Complete retrotransposons are identified as clusters of protein domains recognized by the DANTE tool. The domains in the clusters must be assigned to a single retrotransposon lineage by DANTE. In addition, the orientation and order of the protein domains, as well as the distances between them, must conform to the characteristics of elements from REXdb database [Neumann et al. (2019)](https://mobilednajournal.biomedcentral.com/articles/10.1186/s13100-018-0144-1). 
-In the next step, the 5' and 3' regions of the putative retrotransposon  are examined for the presence of 5' and 3' long terminal repeats. If 5'- and 3'-long terminal repeats are detected, detection of target site duplication (TSD) and primer binding site (PSB) is performed. The detected LTR retrotranspsons are classified into 5 categories:
+In the next step, the 5' and 3' regions of the putative retrotransposon  are examined for the presence of 5' and 3' long terminal repeats. If 5'- and 3'-long terminal repeats are detected, detection of target site duplication (TSD) and primer binding site (PBS) is performed. The detected LTR retrotransposons are classified into 5 categories:
 - Elements with protein domains, 5'LTR, 3'LTR, TSD and PBS - rank **DLTP**.
 - Elements with protein domains, 5'LTR, 3'LTR, and PBS (TSD was not found) Rank **DLP**.
 - Elements with protein domains, 5' LTR, 3'LTR, TSD (PBS was not found) - rank **DLT**.
@@ -71,7 +71,7 @@ dante -q sample_genome.fasta -o DANTE_output.gff3 -c 10
 ```
 Output will contain annotation of individual protein domains identified by DANTE stored in GFF3 file named `DANTE_output.gff3`. Check DANTE documentation for more details (https://github.com/kavonrtep/dante)  
 
-#### Identify complete LTR retrotransposons  from DANTE ouput using DANTE_LTR
+#### Identify complete LTR retrotransposons  from DANTE output using DANTE_LTR
 ```shell
 dante_ltr -g DANTE_output.gff3 -s sample_genome.fasta -o DANTE_LTR_annotation -M 1
 ```
@@ -84,131 +84,31 @@ Output files will include:
 
 #### Create library of LTR RTs for similarity based annotation
 ```shell
-dante_ltr_to_library -g DANTE_LTR_annotation.gff3 -s sample_genome.fasta -o LTR_RT_library.fasta
+dante_ltr_to_library -g DANTE_LTR_annotation.gff3 -s sample_genome.fasta -o ltr_library
 ```
-This step will create non-redundant library of LTR-RT sequences suitable for similarity based annotation using RepeatMasker.
+This step will create a non-redundant library of LTR-RT sequences suitable for similarity-based annotation using RepeatMasker. The `-o` argument is an output **directory**. The RepeatMasker-formatted library is written to `ltr_library/mmseqs2/mmseqs_representative_seq_clean_rm_compatible.fasta`; other files in the directory are intermediate artifacts.
 
+#### Outputs you'll actually use
 
-## Tools description
+| File | What it is |
+|---|---|
+| `DANTE_LTR_annotation.gff3` | Annotation of all identified LTR-RT elements |
+| `DANTE_LTR_annotation_summary.html` | Graphical summary report |
+| `DANTE_LTR_annotation_DLTP.fasta` | Complete elements (highest-confidence rank) |
+| `ltr_library/mmseqs2/mmseqs_representative_seq_clean_rm_compatible.fasta` | RepeatMasker-formatted library |
 
-### Detection of complete LTR retrotransposons
-
-```
-usage: dante_ltr [-h] -g GFF3 -s REFERENCE_SEQUENCE -o OUTPUT [-c CPU]
-                 [-M MAX_MISSING_DOMAINS] [-L MIN_RELATIVE_LENGTH] [-S MAX_CHUNK_SIZE]
-                 [-v] [--te_constrains TE_CONSTRAINS] [--no_ambiguous_domains]
-                 [--fallback_mode {none,coarse3,coarse2}]
-
-        Tool for identifying complete LTR retrotransposons based on 
-        analysis of protein domains identified with the DANTE tool
-        
-
-options:
-  -h, --help            show this help message and exit
-  -g GFF3, --gff3 GFF3  gff3 file with full output from Domain Based Annotation of Transposable Elements (DANTE)
-  -s REFERENCE_SEQUENCE, --reference_sequence REFERENCE_SEQUENCE
-                        reference sequence as fasta file
-  -o OUTPUT, --output OUTPUT
-                        output file path and prefix
-  -c CPU, --cpu CPU     number of CPUs
-  -M MAX_MISSING_DOMAINS, --max_missing_domains MAX_MISSING_DOMAINS
-  -L MIN_RELATIVE_LENGTH, --min_relative_length MIN_RELATIVE_LENGTH
-                        Minimum relative length of protein domain to be considered for retrostransposon detection
-  -S MAX_CHUNK_SIZE, --max_chunk_size MAX_CHUNK_SIZE
-                        
-                                If size of reference sequence is greater than this value, reference is '
-                                'analyzed in chunks of this size. default is 100000000 '
-                                'Setting this value too small  will slow down the analysis
-                                
-  -v, --version         show program's version number and exit
-  --te_constrains TE_CONSTRAINS
-                        csv table specifying TE constraints for LTR search, template for this table 
-                        can be found in https://github.com/kavonrtep/dante_ltr/blob/main/databases/lineage_domain_order.csv
-  --no_ambiguous_domains
-                        Remove ambiguous domains from analysis
-  --fallback_mode {none,coarse3,coarse2}
-                        Classify at a reduced taxonomic depth and demote DANTE's
-                        lineage-level calls accordingly. Useful on species poorly
-                        covered by REXdb (see "Fallback classification" below).
-                        Default: none.
-```
-
-> ⚠️ `--fallback_mode` is experimental (0.4.0.13). See
-> [Fallback classification mode](#fallback-classification-mode) below.
-
-#### Example:
-
-```bash
-mkdir -p tmp
-./dante_ltr -g test_data/sample_DANTE.gff3 -s test_data/sample_genome.fasta -o tmp/ltr_annotation
-```
-
-####  Files in the output of `extract_putative_ltr.R`:
-
-- `prefix.gff3` - annotation of all identified elements
-- `prefix_D.fasta` - partial elements with protein **d**omains
-- `prefix_DL.fasta` - elements with protein **d**omains and **L**TR
-- `prefix_DLTP.fasta` - elements with **d**omains, **L**TR, **T**SD and **P**BS
-- `prefix_DLP.fasta` - elements with **d**omains, **L**TR and **P**BS
-- `prefix_DLT.fasta` - elements with **d**omains, **L**TR, **T**SD 
-- `prefix_statistics.csv` - number of elements in individual categories  
-- `prefix_summary.html` - graphical summary of the results
-- 
-
-
-### Making library of LTR RTs for  RepeatMasker
-
-If you want to annotate LTR RT elements with custom library using similarity based approach, you can use 
-`dante_ltr_to_library` script wich will create non-redundant library which is 
-formatted for RepeatMasker:
-
-``` 
-usage: dante_ltr_to_library [-h] -g GFF3 -s REFERENCE_SEQUENCE -o OUTPUT_DIR [-m MIN_COVERAGE] [-c CPU]
-
-Creation of repeat library from dante_ltr output. Extract sequences based on gff3 inpute and reference fasta file. Run mmseqs2 clustering to cluster similar sequences to reduce library size. Exclude
-clusters which have conflicting annotations and coverage below specified threshold.
-
-options:
-  -h, --help            show this help message and exit
-  -g GFF3, --gff3 GFF3  gff3 file
-  -s REFERENCE_SEQUENCE, --reference_sequence REFERENCE_SEQUENCE
-                        fasta file
-  -o OUTPUT_DIR, --output_dir OUTPUT_DIR
-                        output directory
-  -m MIN_COVERAGE, --min_coverage MIN_COVERAGE
-                        Minimum coverage of cluster to be included in repeat library (default: 3)
-  -c CPU, --cpu CPU     Number of cpus to use
-
-```
-
+For optional refinement of LTR boundaries, solo-LTR detection, custom
+constraints, and fallback classification, see the sections below. The
+full per-tool CLI reference is at the end of the document.
 
 ## Boundary refinement
 
 `dante_ltr_refine` revisits the LTR outer boundaries of a DANTE_LTR
-annotation using cross-element evidence and emits per-side
-confidence labels.
-
-### Background
-
-The boundary of one LTR can be informed by the corresponding
-boundaries of related copies in the genome — both same-role LTRs
-and opposite-role LTRs, the latter carrying the same terminal
-sequence by virtue of the 5'/3' direct-repeat structure.
-`dante_ltr_refine` exploits this redundancy.
-
-### Method
-
-Elements are grouped into per-lineage MMseqs2 clusters.  For each
-LTR boundary in a cluster member, two independent estimates of the
-LTR / non-LTR transition are computed by parasail anchored
-extension — one against same-role LTRs (e.g. other 5'LTRs when
-refining a 5'LTR) and one against opposite-role LTRs in the
-cluster (direct-repeat evidence).  Where parasail does not validate
-the TG/CA terminus, a MAFFT multiple-sequence alignment of the
-cluster's LTRs provides a change-point estimate.  Every accepted
-refinement is verified by re-detecting the target site duplication
-(TSD) at the proposed coordinates; proposals that would destroy an
-originally-annotated TSD are reverted to the DANTE_LTR original.
+annotation using cross-element evidence (MMseqs2 clustering of related
+elements + parasail anchored extension, with MAFFT change-point fallback)
+and emits per-side confidence labels. See
+[`docs/refine_v2_analysis.md`](./docs/refine_v2_analysis.md) for the
+algorithm, validation data, and term definitions.
 
 ### Output labels
 
@@ -233,44 +133,21 @@ Two attributes describe each LTR boundary in the refined GFF3.
 | `mafft`      | the MAFFT change-point detector validated TG/CA. |
 | `unrefined`  | no method validated; the original boundary is retained. |
 
+The refined GFF3 also carries diagnostic attributes that are not required
+for downstream filtering: `Refinement_Method` (which signal produced the
+call), `Original_Start` / `Original_End` (DANTE_LTR's original coordinates,
+present only when refinement moved the boundary), and `Cluster_ID` /
+`Cluster_Size` (the MMseqs2 cluster the element was analysed in).
+
 ### Downstream use
 
-Elements with `Refinement_Status ∈ {confirmed, refined}` constitute
-the recommended high-confidence subset.  `dante_ltr_to_library
---refined_gff3` and `dante_ltr_solo --refined_gff3` apply this
-filter by default.  Per-side `target_site_duplication` child
-features and the TE `TSD=` attribute are recomputed at the refined
-coordinates.
+Elements with `Refinement_Status ∈ {confirmed, refined}` constitute the
+recommended high-confidence subset. `dante_ltr_to_library --refined_gff3`
+and `dante_ltr_solo --refined_gff3` apply this filter by default. Per-side
+`target_site_duplication` child features and the TE `TSD=` attribute are
+recomputed at the refined coordinates.
 
-### CLI
-
-```
-usage: dante_ltr_refine -g GFF3 -s GENOME -o OUTPUT [OPTIONS]
-
-options:
-  -g GFF3                       DANTE_LTR GFF3 input.
-  -s GENOME                     Reference genome FASTA.
-  -o OUTPUT                     Output prefix (4 files: refined GFF3, per-
-                                element TSV, cluster TSV, run JSON).
-  --identity 0.9                MMseqs2 cluster identity.
-  --min_cluster_size 6          Minimum members per role (5'LTR and 3'LTR
-                                must each have >= N).
-  --anchor_len 50               Anchor length inside LTR (bp).
-  --flank_len 1000              Flank length scanned outside LTR (bp).
-  --no_tsd_revert               Disable per-element TSD-loss revert
-                                rule (diagnostic).
-  --no_msa_rescue               Disable per-side MAFFT MSA rescue;
-                                fall back to threshold-gated MAFFT.
-  --mafft_fallback_threshold 0.5
-                                Inner-pool validation rate below which
-                                MAFFT change-point fallback fires
-                                (only used with --no_msa_rescue).
-  --no-mafft-fallback           Disable MAFFT entirely (parasail-only).
-  --threads 4                   MMseqs2 / MAFFT threads.
-  --workers 4                   Parallel cluster workers.
-```
-
-#### Example
+### Example
 
 ```bash
 dante_ltr_refine -g DANTE_LTR_annotation.gff3 \
@@ -283,59 +160,22 @@ dante_ltr_solo -g DANTE_LTR_annotation.gff3 \
                -o solo_output -c 10
 ```
 
-See `docs/refine_v2_analysis.md` for the design rationale, validation
-data, and term definitions.
+For the full CLI option list, see `dante_ltr_refine --help` or
+[CLI reference](#cli-reference) below.
 
 ## Solo LTR detection
+
+> ⚠️ **Work in progress.** Solo LTR detection is under active
+> development; outputs and attribute names may still change between
+> releases.
 
 `dante_ltr_solo` identifies solo LTR retrotransposons (LTR/LTR recombination
 remnants that have lost their internal region) outside of the elements
 already annotated by `dante_ltr`. The tool reuses the complete-element
-annotation to build a per-lineage LTR reference library, then searches the
-genome and validates each candidate with target site duplication (TSD) and
-junction checks.
-
-```
-usage: dante_ltr_solo -g GFF3 -s REFERENCE_SEQUENCE -o OUTPUT_DIR [-c CPU]
-                      [-i MIN_IDENTITY] [-C MIN_COVERAGE] [-S MAX_CHUNK_SIZE]
-                      [--refined_gff3 PATH] [--min_validated_members N]
-
-options:
-  -g GFF3, --gff3 GFF3         DANTE_LTR annotation GFF3 (from dante_ltr).
-  -s REFERENCE_SEQUENCE        Reference genome FASTA.
-  -o OUTPUT_DIR                Output directory.
-  -c CPU                       Number of CPUs.
-  -i MIN_IDENTITY              Minimum BLAST % identity (default 80).
-  -C MIN_COVERAGE              Minimum alignment coverage of library LTR
-                               (default 0.8).
-  -S MAX_CHUNK_SIZE            Genome chunk size for parallel search
-                               (default 100000000).
-  --refined_gff3 PATH          Optional refined GFF3 from dante_ltr_refine.
-                               When supplied, the LTR library is built from
-                               validated members only (low-confidence
-                               clusters are flagged in the map TSV).
-  --min_validated_members 4    Minimum validated cluster members required
-                               for a high-confidence consensus (default 4).
-```
-
-#### Pipeline overview
-
-1. Build a non-redundant LTR library from all complete elements
-   (`utils/build_ltr_library.R`). MMseqs2 clusters 5'LTR bodies per
-   lineage; each cluster's MAFFT alignment includes both 5'LTRs and
-   their sibling 3'LTRs. The 5' and 3' boundaries of the consensus are
-   refined by change-point detection on the 5'LTR-subset and
-   3'LTR-subset conservation profiles respectively (the random genomic
-   flank of each subset reveals the boundary).
-2. BLAST the library against the genome.
-3. Discard hits overlapping annotated complete elements by > 20 bp.
-4. Validate TSDs around each surviving hit (scan ± 1 bp around the
-   lineage-modal TSD length; allow one mismatch for length ≥ 4).
-5. For hits without TSD, run three junction / PBS checks (UTR5, PPT, PBS)
-   in batched BLAST calls.
-6. Collapse overlapping hits into representatives (`≥ 50 %` reciprocal
-   overlap of the shorter member). SL (with TSD) wins over SL_noTSD;
-   otherwise the longest is picked.
+annotation to build a per-lineage LTR reference library, BLASTs it against
+the genome, and validates each candidate with target site duplication (TSD)
+and junction checks. Algorithm details are in
+[`docs/soloLTR.md`](./docs/soloLTR.md).
 
 #### Example
 
@@ -344,6 +184,9 @@ dante_ltr_solo -g DANTE_LTR_annotation.gff3 \
                -s sample_genome.fasta \
                -o solo_output -c 10
 ```
+
+For the full CLI option list, see `dante_ltr_solo --help` or
+[CLI reference](#cli-reference) below.
 
 #### Output files
 
@@ -380,44 +223,7 @@ dante_ltr_solo -g DANTE_LTR_annotation.gff3 \
   `positive` indicates the hit looks like a fragment of an unannotated
   complete element on that side; `not_applicable` for `SL` rows.
 
-## GFF3 DANTE_LTR output specification
-Types of features in GFF3:
-- **target_site_duplication**: This feature represents direct repeats around the insertion site of a transposable element.
-- **transposable_element**: This is the main feature representing the full extent of a 
-  transposable element within the genome.
-- **long_terminal_repeat** (LTR): These are the direct repeats at the element's termini. 
-- **protein_domain**: This feature indicates a specific polyprotein domain identified by DANTE.
-- **primer_binding_site**: This feature represents the site where a tRNA primer binds to 
-  initiate reverse transcription.
-
-Attributes of features in GFF3:
-- **Rank**: Rank of the elements (D, DL, DLT, DLP, DLTP) as described above
-- **Parent**: Indicates the parent feature of the current feature, here a 
-  transposable element ID.
-- **Ndomains**: The number of protein domains found within a transposable element.
-- **ID**: A unique identifier for the feature.
-- **LTR_Identity**: The percentage of sequence identity between 5' and 3' LTR sequences.
-- **LTR5_length** and **LTR3_length**: The lengths of the 5' and 3' LTRs, respectively.
-- **TSD (Target Site Duplication)**: The sequence of the target site duplication.
-- **Final_Classification**: A hierarchical classification of the transposable element 
-  based on REXdb classification system
-- **Name**: The attibute is part of DANTE output and correspod to name of protein 
-  domain (RT. RH, PROT, ...)
-- **trna_id**: The identifier for the tRNA related to the primer binding site.
-- **PBS_evalue**: The E-value associated with the primer binding site.
-- **Best_Hit**: Information about the best match of the protein domain to a known database entry.
-- **Best_Hit_DB_Pos**: Position of the best hit within the database sequence.
-- **DB_Seq**: The database sequence that corresponds to the best hit.
-- **Region_Seq**: The sequence of the region where the query sequence was aligned to the database sequence.
-- **Query_Seq**: The sequence of the query used to find the best hit.
-- **Identity**: The percentage identity of the best hit match.
-- **Similarity**: The similarity score of the best hit match.
-- **Relat_Length**: The relative length of the match compared to the database sequence.
-- **Relat_Interruptions**: Indicates the relative number of interruptions in the 
-  domain sequence.Interuption could be either stop codon or frameshift.
-- **Hit_to_DB_Length**: The length of the hit compared to the database sequence length.
-
-## Modifying LTR-RT search constrains
+## Modifying LTR-RT search constraints
 
 It is possible to modify constraints for LTR search by providing a csv table with constraints for individual lineages.
 
@@ -444,7 +250,7 @@ The table has the following format:
 
 Modify these constraints if you think that the default constraints lead to under-detection of elements whose structure deviates from the default constraints. Setting `offset5prime`, `offset3prime` or `domain_span`  too high can however lead to the detection of aberrant or chimeric elements. 
 - The `ltr_length` is the shortest LTR for given lineage in REXdb database. LTR must be at least 80% of this value. 
-To use modified constrains use `dante_ltr` with option `--te_constrains` and provide the path to the modified csv table.
+To use modified constraints use `dante_ltr` with option `--te_constrains` and provide the path to the modified csv table.
 
 The full table with default constraints can be found in  
 [databases/lineage_domain_order.csv](./databases/lineage_domain_order.csv).
@@ -469,9 +275,129 @@ constraints table. The pre-demotion value is kept on each feature as
 
 Full spec: [docs/fallback_classification_spec.md](./docs/fallback_classification_spec.md).
 
+## CLI reference
 
+Full option lists for each tool. Also available via `--help`.
 
+### `dante_ltr` — Detection of complete LTR retrotransposons
 
+```
+usage: dante_ltr [-h] -g GFF3 -s REFERENCE_SEQUENCE -o OUTPUT [-c CPU]
+                 [-M MAX_MISSING_DOMAINS] [-L MIN_RELATIVE_LENGTH] [-S MAX_CHUNK_SIZE]
+                 [-v] [--te_constrains TE_CONSTRAINS] [--no_ambiguous_domains]
+                 [--fallback_mode {none,coarse3,coarse2}]
+
+options:
+  -h, --help            show this help message and exit
+  -g GFF3, --gff3 GFF3  gff3 file with full output from Domain Based Annotation of Transposable Elements (DANTE)
+  -s REFERENCE_SEQUENCE, --reference_sequence REFERENCE_SEQUENCE
+                        reference sequence as fasta file
+  -o OUTPUT, --output OUTPUT
+                        output file path and prefix
+  -c CPU, --cpu CPU     number of CPUs
+  -M MAX_MISSING_DOMAINS, --max_missing_domains MAX_MISSING_DOMAINS
+  -L MIN_RELATIVE_LENGTH, --min_relative_length MIN_RELATIVE_LENGTH
+                        Minimum relative length of protein domain to be considered for retrotransposon detection
+  -S MAX_CHUNK_SIZE, --max_chunk_size MAX_CHUNK_SIZE
+                        If size of reference sequence is greater than this value,
+                        reference is analyzed in chunks of this size (default 100000000).
+                        Setting this value too small will slow down the analysis.
+  -v, --version         show program's version number and exit
+  --te_constrains TE_CONSTRAINS
+                        csv table specifying TE constraints for LTR search; template at
+                        https://github.com/kavonrtep/dante_ltr/blob/main/databases/lineage_domain_order.csv
+  --no_ambiguous_domains
+                        Remove ambiguous domains from analysis
+  --fallback_mode {none,coarse3,coarse2}
+                        Classify at a reduced taxonomic depth and demote DANTE's
+                        lineage-level calls accordingly (see "Fallback classification mode").
+```
+
+### `dante_ltr_to_library` — Build a non-redundant LTR-RT library
+
+```
+usage: dante_ltr_to_library [-h] -g GFF3 -s REFERENCE_SEQUENCE -o OUTPUT_DIR
+                            [-m MIN_COVERAGE] [-c CPU]
+
+options:
+  -g GFF3                gff3 file
+  -s REFERENCE_SEQUENCE  fasta file
+  -o OUTPUT_DIR          output directory
+  -m MIN_COVERAGE        minimum cluster coverage to include in library (default: 3)
+  -c CPU                 number of CPUs
+```
+
+### `dante_ltr_refine` — Boundary refinement
+
+```
+usage: dante_ltr_refine -g GFF3 -s GENOME -o OUTPUT [OPTIONS]
+
+options:
+  -g GFF3                       DANTE_LTR GFF3 input.
+  -s GENOME                     Reference genome FASTA.
+  -o OUTPUT                     Output prefix (4 files: refined GFF3, per-element TSV,
+                                cluster TSV, run JSON).
+  --identity 0.9                MMseqs2 cluster identity.
+  --min_cluster_size 6          Minimum members per role (5'LTR and 3'LTR
+                                must each have >= N).
+  --anchor_len 50               Anchor length inside LTR (bp).
+  --flank_len 1000              Flank length scanned outside LTR (bp).
+  --no_tsd_revert               Disable per-element TSD-loss revert rule (diagnostic).
+  --no_msa_rescue               Disable per-side MAFFT MSA rescue;
+                                fall back to threshold-gated MAFFT.
+  --mafft_fallback_threshold 0.5
+                                Inner-pool validation rate below which MAFFT change-point
+                                fallback fires (only used with --no_msa_rescue).
+  --no-mafft-fallback           Disable MAFFT entirely (parasail-only).
+  --threads 4                   MMseqs2 / MAFFT threads.
+  --workers 4                   Parallel cluster workers.
+```
+
+### `dante_ltr_solo` — Solo LTR detection
+
+```
+usage: dante_ltr_solo -g GFF3 -s REFERENCE_SEQUENCE -o OUTPUT_DIR [-c CPU]
+                      [-i MIN_IDENTITY] [-C MIN_COVERAGE] [-S MAX_CHUNK_SIZE]
+                      [--refined_gff3 PATH] [--min_validated_members N]
+
+options:
+  -g GFF3                      DANTE_LTR annotation GFF3 (from dante_ltr).
+  -s REFERENCE_SEQUENCE        Reference genome FASTA.
+  -o OUTPUT_DIR                Output directory.
+  -c CPU                       Number of CPUs.
+  -i MIN_IDENTITY              Minimum BLAST % identity (default 80).
+  -C MIN_COVERAGE              Minimum alignment coverage of library LTR (default 0.8).
+  -S MAX_CHUNK_SIZE            Genome chunk size for parallel search (default 100000000).
+  --refined_gff3 PATH          Optional refined GFF3 from dante_ltr_refine.
+                               When supplied, the LTR library is built from validated
+                               members only (low-confidence clusters are flagged in the
+                               map TSV).
+  --min_validated_members 4    Minimum validated cluster members required for a
+                               high-confidence consensus (default 4).
+```
+
+## GFF3 DANTE_LTR output specification
+
+Feature types in the output GFF3:
+
+- **target_site_duplication** — direct repeats around the insertion site.
+- **transposable_element** — the full extent of the LTR retrotransposon.
+- **long_terminal_repeat** (LTR) — direct repeats at the element's termini.
+- **protein_domain** — a polyprotein domain identified by DANTE.
+- **primer_binding_site** — site where a tRNA primer binds to initiate
+  reverse transcription.
+
+Core attributes you'll typically work with:
+
+- **Rank** — `D`, `DL`, `DLT`, `DLP`, or `DLTP` (see [Principle](#principle-of-dante_ltr)).
+- **ID** — unique feature identifier.
+- **Final_Classification** — hierarchical REXdb classification.
+- **LTR_Identity** — % identity between 5' and 3' LTRs.
+- **TSD** — the target site duplication sequence.
+
+For the full attribute list (DANTE protein-domain fields, PBS metadata,
+diagnostic fields), see
+[`docs/gff3_attributes.md`](./docs/gff3_attributes.md).
 
 
 
