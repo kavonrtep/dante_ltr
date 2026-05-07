@@ -25,7 +25,9 @@ option_list <- list(
   make_option(c("--overlap_frac"), type = "numeric", default = 0.5,
               help = "Reciprocal overlap threshold of the shorter member [default %default]"),
   make_option(c("--nest_frac"), type = "numeric", default = 0.8,
-              help = "SL-inside-SL_noTSD coverage threshold for boundary_uncertain [default %default]")
+              help = "SL-inside-SL_noTSD coverage threshold for boundary_uncertain [default %default]"),
+  make_option(c("--library_map"), type = "character", default = NULL,
+              help = "Library map TSV (output of build_ltr_library.R); when supplied, LibraryConfidence is propagated onto each solo_LTR via its LibraryID")
 )
 
 parser <- OptionParser(option_list = option_list,
@@ -224,6 +226,23 @@ rep_gr$SupportingHits <- sup_strs
 # Flags: NA when false so rtracklayer omits the attribute
 rep_gr$boundary_uncertain <- ifelse(flag_bound,    "true", NA_character_)
 rep_gr$class_conflict     <- ifelse(flag_conflict, "true", NA_character_)
+
+# LibraryConfidence: lookup from library map TSV (one of validated /
+# mixed / unrefined; reflects how the library entry was built upstream).
+if (!is.null(opt$library_map) && file.exists(opt$library_map) &&
+    file.size(opt$library_map) > 0L) {
+  map_df <- tryCatch(
+    read.table(opt$library_map, header = TRUE, sep = "\t",
+               stringsAsFactors = FALSE, quote = "", comment.char = ""),
+    error = function(e) NULL)
+  if (!is.null(map_df) && all(c("ltr_id", "LibraryConfidence") %in% colnames(map_df))) {
+    lib_conf_lookup <- setNames(map_df$LibraryConfidence, map_df$ltr_id)
+    rep_libid <- as.character(rep_gr$LibraryID)
+    rep_gr$LibraryConfidence <- unname(lib_conf_lookup[rep_libid])
+  } else {
+    cat("Warning: library_map TSV missing ltr_id/LibraryConfidence columns; skipping propagation\n")
+  }
+}
 
 # ---- Carry TSD children of representatives ----
 kept_ids <- as.character(rep_gr$ID)

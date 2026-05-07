@@ -177,6 +177,12 @@ the genome, and validates each candidate with target site duplication (TSD)
 and junction checks. Algorithm details are in
 [`docs/soloLTR.md`](./docs/soloLTR.md).
 
+The pipeline consumes a refined GFF3 (output of `dante_ltr_refine`) so
+that library members can be grouped by per-lineage clusters and ordered
+by refinement confidence.  If you pass a plain DANTE_LTR GFF3,
+`dante_ltr_solo` runs `dante_ltr_refine` internally and writes the
+refined output to `<output_dir>/refined/`.
+
 #### Example
 
 ```bash
@@ -202,6 +208,8 @@ For the full CLI option list, see `dante_ltr_solo --help` or
 - `library/` — the LTR library built from the input annotation, including
   the MAFFT per-cluster alignments and a per-cluster
   `*_LTR_library_boundary_qc.tsv` QC table.
+- `refined/` — the refined GFF3 used as input (either the supplied
+  refined GFF3 or the one produced by the auto-run of `dante_ltr_refine`).
 - `chunks/` — per-chunk intermediate outputs and raw BLAST tabular files.
 
 #### Additional `solo_LTR` attributes
@@ -211,6 +219,12 @@ For the full CLI option list, see `dante_ltr_solo --help` or
   `not_found`.
 - `LibraryID` — the library consensus id (`LTR_XXXXXX`) that produced the
   hit.
+- `LibraryConfidence` — provenance of the library entry that produced
+  this hit, one of `validated` (built from refinement-validated members
+  only), `mixed` (cluster was evaluated but no member reached
+  validated; built from `unresolved` members), or `unrefined` (cluster
+  was too small for refinement; built via change-point fallback on the
+  raw annotated boundaries).
 - `ClusterSize` — number of raw hits collapsed into this representative.
 - `SupportingHits` — comma-separated `LibraryID`s of the other raw hits
   in the cluster (omitted when `ClusterSize == 1`).
@@ -358,22 +372,18 @@ options:
 ```
 usage: dante_ltr_solo -g GFF3 -s REFERENCE_SEQUENCE -o OUTPUT_DIR [-c CPU]
                       [-i MIN_IDENTITY] [-C MIN_COVERAGE] [-S MAX_CHUNK_SIZE]
-                      [--refined_gff3 PATH] [--min_validated_members N]
 
 options:
-  -g GFF3                      DANTE_LTR annotation GFF3 (from dante_ltr).
-  -s REFERENCE_SEQUENCE        Reference genome FASTA.
-  -o OUTPUT_DIR                Output directory.
-  -c CPU                       Number of CPUs.
-  -i MIN_IDENTITY              Minimum BLAST % identity (default 80).
-  -C MIN_COVERAGE              Minimum alignment coverage of library LTR (default 0.8).
-  -S MAX_CHUNK_SIZE            Genome chunk size for parallel search (default 100000000).
-  --refined_gff3 PATH          Optional refined GFF3 from dante_ltr_refine.
-                               When supplied, the LTR library is built from validated
-                               members only (low-confidence clusters are flagged in the
-                               map TSV).
-  --min_validated_members 4    Minimum validated cluster members required for a
-                               high-confidence consensus (default 4).
+  -g GFF3                  DANTE_LTR annotation GFF3 (from dante_ltr).  May
+                           be either an unrefined or a refined GFF3; if
+                           unrefined, dante_ltr_refine is run automatically
+                           and the result is written to <OUTPUT_DIR>/refined/.
+  -s REFERENCE_SEQUENCE    Reference genome FASTA.
+  -o OUTPUT_DIR            Output directory.
+  -c CPU                   Number of CPUs.
+  -i MIN_IDENTITY          Minimum BLAST % identity (default 80).
+  -C MIN_COVERAGE          Minimum alignment coverage of library LTR (default 0.8).
+  -S MAX_CHUNK_SIZE        Genome chunk size for parallel search (default 100000000).
 ```
 
 ## GFF3 DANTE_LTR output specification

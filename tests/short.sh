@@ -61,6 +61,19 @@ N_MISSING_LIB=$(awk -F'\t' '$3=="solo_LTR" && $9 !~ /LibraryID=LTR_/' \
   || { echo "FAIL: $N_MISSING_LIB solo_LTR(s) missing LibraryID attribute"; exit 1; }
 echo "OK: all representatives carry LibraryID"
 
+# Auto-refinement: dante_ltr_solo should have produced a refined GFF3
+# under <out>/refined/ (since the input was an unrefined DANTE_LTR GFF3).
+[ -e "$OUT/solo/refined/sample_refined.gff3" ] \
+  || { echo "FAIL: dante_ltr_solo did not auto-produce refined/sample_refined.gff3"; exit 1; }
+echo "OK: dante_ltr_solo auto-refined the input"
+
+# LibraryConfidence propagation onto solo_LTR features
+N_LIBCONF=$(awk -F'\t' '$3=="solo_LTR" && $9 ~ /LibraryConfidence=/' \
+            "$OUT/solo/solo_ltr.gff3" | wc -l)
+[ "$N_LIBCONF" -ge 1 ] \
+  || { echo "FAIL: no solo_LTR features carry LibraryConfidence attribute"; exit 1; }
+echo "OK: $N_LIBCONF solo_LTR(s) carry LibraryConfidence"
+
 echo
 echo "=== dante_ltr_refine (parasail anchored extension) ==="
 ./dante_ltr_refine -g "$OUT/ltr.gff3" -s "$FASTA" \

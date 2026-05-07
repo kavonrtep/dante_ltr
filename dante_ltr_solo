@@ -360,8 +360,13 @@ def run_refinement_if_needed(tool_path, gff3, fasta, refined_dir, cpu):
     return refined_out
 
 
-def select_representatives(tool_path, in_gff, out_gff, annotation_gff, stats_out):
-    """Run select_solo_representatives.R: collapse overlapping hits to one rep per locus."""
+def select_representatives(tool_path, in_gff, out_gff, annotation_gff, stats_out,
+                           library_map=None):
+    """Run select_solo_representatives.R: collapse overlapping hits to one rep per locus.
+
+    When `library_map` is given, LibraryConfidence is propagated from the
+    library map TSV onto each emitted solo_LTR feature.
+    """
     cmd = [
         f'{tool_path}/utils/select_solo_representatives.R',
         '-i', in_gff,
@@ -369,6 +374,8 @@ def select_representatives(tool_path, in_gff, out_gff, annotation_gff, stats_out
         '-a', annotation_gff,
         '--stats_out', stats_out,
     ]
+    if library_map:
+        cmd += ['--library_map', library_map]
     run_subprocess(cmd, "Selecting representative solo LTR per locus")
 
 
@@ -511,7 +518,8 @@ def _run(args, tool_path, out_dir, lib_dir, chunks_dir, ref_norm, gff3_input):
     if os.path.exists(raw_gff3) and os.path.getsize(raw_gff3) > 0:
         select_representatives(tool_path, raw_gff3, final_gff3,
                                annotation_gff=refined_gff3,
-                               stats_out=final_stats)
+                               stats_out=final_stats,
+                               library_map=lib['ltr_map'])
         if os.path.exists(final_gff3) and os.path.getsize(final_gff3) > 0:
             add_version_to_gff3(final_gff3, __version__)
     else:
