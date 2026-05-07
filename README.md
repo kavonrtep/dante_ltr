@@ -196,13 +196,20 @@ For the full CLI option list, see `dante_ltr_solo --help` or
 
 #### Output files
 
-- `solo_ltr.gff3` — one representative per locus. This is the file to use
-  for downstream analysis.
+- `solo_ltr.gff3` — one representative per locus, **excluding** entries
+  that look like fragments of unannotated complete elements (see below).
+  This is the file to use for downstream analysis.
+- `solo_ltr_te_fragments.gff3` — `SL_noTSD` representatives with a
+  positive `UTR5_junction`, `PPT_junction`, or `PBS_check` signal.
+  These are unlikely to be solo LTRs; they typically point to regions
+  where the upstream `dante_ltr` annotation missed a complete element.
 - `solo_ltr_raw.gff3` — every BLAST hit (deduped by exact coordinates).
   Useful for QC / inspecting fragmentation.
 - `solo_ltr_statistics.csv` — per-lineage counts of SL, SL_noTSD,
   complete elements, and the `Rsf` ratio (solo / complete), computed on
-  the representative file.
+  the representative file (TE fragments excluded).
+- `solo_ltr_te_fragments_statistics.csv` — per-lineage TE-fragment
+  counts.
 - `solo_ltr_raw_statistics.csv` — the same counts computed on the raw
   file (inflated by duplicates, kept for comparison).
 - `library/` — the LTR library built from the input annotation, including

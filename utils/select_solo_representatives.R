@@ -27,7 +27,9 @@ option_list <- list(
   make_option(c("--nest_frac"), type = "numeric", default = 0.8,
               help = "SL-inside-SL_noTSD coverage threshold for boundary_uncertain [default %default]"),
   make_option(c("--library_map"), type = "character", default = NULL,
-              help = "Library map TSV (output of build_ltr_library.R); when supplied, LibraryConfidence is propagated onto each solo_LTR via its LibraryID")
+              help = "Library map TSV (output of build_ltr_library.R); when supplied, LibraryConfidence is propagated onto each solo_LTR via its LibraryID"),
+  make_option(c("--output_te_fragments"), type = "character", default = NULL,
+              help = "Optional path for a second GFF3 carrying SL_noTSD representatives that look like fragments of unannotated complete elements (UTR5_junction, PPT_junction, or PBS_check == positive).  These are removed from --output and emitted here instead.")
 )
 
 parser <- OptionParser(option_list = option_list,
@@ -244,8 +246,40 @@ if (!is.null(opt$library_map) && file.exists(opt$library_map) &&
   }
 }
 
-# ---- Carry TSD children of representatives ----
-kept_ids <- as.character(rep_gr$ID)
+# ---- Partition: TE fragments vs solo LTRs ----
+# A representative is treated as a likely TE fragment when it has no
+# confirmed TSD AND at least one of the upstream/downstream junction
+# checks looks like a complete-element signature.  These are excluded
+# from --output and emitted to --output_te_fragments instead, when
+# that path is given.
+#
+#   TE fragment <=> Rank == "SL_noTSD" AND
+#                  (UTR5_junction == "positive"
+#                   OR PPT_junction == "positive"
+#                   OR PBS_check    == "positive")
+#
+# UTR5/PPT/PBS attributes are "not_applicable" on SL rows, so SL is
+# never moved.  Missing attributes (NA / "") count as negative.
+emit_te_fragments <- !is.null(opt$output_te_fragments) && nzchar(opt$output_te_fragments)
+
+rank_v_rep   <- as.character(rep_gr$Rank)
+utr5_v_rep   <- as.character(rep_gr$UTR5_junction)
+ppt_v_rep    <- as.character(rep_gr$PPT_junction)
+pbs_v_rep    <- as.character(rep_gr$PBS_check)
+is_fragment  <- rank_v_rep == "SL_noTSD" &
+                (utr5_v_rep == "positive" |
+                 ppt_v_rep  == "positive" |
+                 pbs_v_rep  == "positive")
+is_fragment[is.na(is_fragment)] <- FALSE
+
+cat(sprintf("Likely TE fragments (SL_noTSD with positive junction): %d / %d\n",
+            sum(is_fragment), length(is_fragment)))
+
+solo_gr     <- rep_gr[!is_fragment]
+fragment_gr <- rep_gr[is_fragment]
+
+# ---- Carry TSD children of solo representatives ----
+kept_ids <- as.character(solo_gr$ID)
 if (length(tsd) > 0L) {
   parent_raw <- tsd$Parent
   parent_str <- if (is.list(parent_raw) || methods::is(parent_raw, "CompressedList")) {
@@ -259,9 +293,8 @@ if (length(tsd) > 0L) {
   tsd_keep <- GRanges()
 }
 
-# ---- Assemble + write ----
-out <- suppressWarnings(c(rep_gr, tsd_keep))
-# Stable sort by seqname then start
+# ---- Assemble + write solo (cleaner main file) ----
+out <- suppressWarnings(c(solo_gr, tsd_keep))
 o <- order(as.character(seqnames(out)), start(out))
 out <- out[o]
 
@@ -270,7 +303,19 @@ export(out, con = opt$output, format = "gff3")
 t_export <- proc.time()[["elapsed"]] - t0
 
 cat(sprintf("Wrote %d solo_LTR + %d TSD to %s\n",
-            length(rep_gr), length(tsd_keep), opt$output))
+            length(solo_gr), length(tsd_keep), opt$output))
+
+# ---- Write TE fragments GFF3 ----
+if (emit_te_fragments) {
+  if (length(fragment_gr) > 0L) {
+    o2 <- order(as.character(seqnames(fragment_gr)), start(fragment_gr))
+    export(fragment_gr[o2], con = opt$output_te_fragments, format = "gff3")
+  } else {
+    writeLines("##gff-version 3", opt$output_te_fragments)
+  }
+  cat(sprintf("Wrote %d TE fragment(s) to %s\n",
+              length(fragment_gr), opt$output_te_fragments))
+}
 
 cat("\n[timing] select_solo_representatives breakdown (wall-clock s):\n")
 cat(sprintf("  read GFF3          : %6.2f\n", t_read))
@@ -290,11 +335,28 @@ if (!is.null(opt$annotation_gff3)) {
 
   ann <- tryCatch(import(opt$annotation_gff3, format = "gff3"),
                   error = function(e) GRanges())
+  # Main stats: computed on the cleaner solo set (TE fragments excluded)
   stats <- get_solo_ltr_statistics(out, ann)
-
   stats_path <- if (!is.null(opt$stats_out)) opt$stats_out
                 else sub("\\.gff3?$", "_statistics.csv", opt$output, ignore.case = TRUE)
   write.table(stats, file = stats_path, sep = "\t",
               quote = FALSE, row.names = FALSE)
   cat(sprintf("Stats (representative-based): %s\n", stats_path))
+
+  # Per-lineage TE-fragment counts.  Reuses the same statistics helper
+  # over the fragment GFF3, then trims to a focused 2-column TSV.
+  if (emit_te_fragments && length(fragment_gr) > 0L) {
+    frag_stats <- get_solo_ltr_statistics(fragment_gr, ann)
+    frag_out <- data.frame(
+      Classification    = frag_stats$Classification,
+      TE_fragments      = frag_stats$SL_noTSD,
+      Complete_elements = frag_stats$Complete_elements,
+      stringsAsFactors  = FALSE
+    )
+    frag_stats_path <- sub("\\.gff3?$", "_statistics.csv",
+                           opt$output_te_fragments, ignore.case = TRUE)
+    write.table(frag_out, file = frag_stats_path, sep = "\t",
+                quote = FALSE, row.names = FALSE)
+    cat(sprintf("Stats (TE fragments): %s\n", frag_stats_path))
+  }
 }

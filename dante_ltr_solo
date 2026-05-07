@@ -361,11 +361,16 @@ def run_refinement_if_needed(tool_path, gff3, fasta, refined_dir, cpu):
 
 
 def select_representatives(tool_path, in_gff, out_gff, annotation_gff, stats_out,
-                           library_map=None):
+                           library_map=None, output_te_fragments=None):
     """Run select_solo_representatives.R: collapse overlapping hits to one rep per locus.
 
     When `library_map` is given, LibraryConfidence is propagated from the
     library map TSV onto each emitted solo_LTR feature.
+
+    When `output_te_fragments` is given, SL_noTSD representatives that
+    look like fragments of unannotated complete elements (positive
+    UTR5/PPT/PBS junction signal) are removed from `out_gff` and emitted
+    to that path instead.
     """
     cmd = [
         f'{tool_path}/utils/select_solo_representatives.R',
@@ -376,6 +381,8 @@ def select_representatives(tool_path, in_gff, out_gff, annotation_gff, stats_out
     ]
     if library_map:
         cmd += ['--library_map', library_map]
+    if output_te_fragments:
+        cmd += ['--output_te_fragments', output_te_fragments]
     run_subprocess(cmd, "Selecting representative solo LTR per locus")
 
 
@@ -491,10 +498,11 @@ def _run(args, tool_path, out_dir, lib_dir, chunks_dir, ref_norm, gff3_input):
                        trna_db)
         trna_db = None
 
-    raw_gff3    = os.path.join(out_dir, 'solo_ltr_raw.gff3')
-    raw_stats   = os.path.join(out_dir, 'solo_ltr_raw_statistics.csv')
-    final_gff3  = os.path.join(out_dir, 'solo_ltr.gff3')
-    final_stats = os.path.join(out_dir, 'solo_ltr_statistics.csv')
+    raw_gff3       = os.path.join(out_dir, 'solo_ltr_raw.gff3')
+    raw_stats      = os.path.join(out_dir, 'solo_ltr_raw_statistics.csv')
+    final_gff3     = os.path.join(out_dir, 'solo_ltr.gff3')
+    final_stats    = os.path.join(out_dir, 'solo_ltr_statistics.csv')
+    fragments_gff3 = os.path.join(out_dir, 'solo_ltr_te_fragments.gff3')
 
     fasta_seq_sizes = read_fasta_sequence_size(ref_norm)
     total_size = sum(fasta_seq_sizes.values())
@@ -519,18 +527,24 @@ def _run(args, tool_path, out_dir, lib_dir, chunks_dir, ref_norm, gff3_input):
         select_representatives(tool_path, raw_gff3, final_gff3,
                                annotation_gff=refined_gff3,
                                stats_out=final_stats,
-                               library_map=lib['ltr_map'])
+                               library_map=lib['ltr_map'],
+                               output_te_fragments=fragments_gff3)
         if os.path.exists(final_gff3) and os.path.getsize(final_gff3) > 0:
             add_version_to_gff3(final_gff3, __version__)
+        if os.path.exists(fragments_gff3) and os.path.getsize(fragments_gff3) > 0:
+            add_version_to_gff3(fragments_gff3, __version__)
     else:
         # No raw output to collapse; write empty final files so downstream is predictable.
         with open(final_gff3, 'w') as f:
             f.write('##gff-version 3\n')
         with open(final_stats, 'w') as f:
             f.write('Classification\tSL\tSL_noTSD\tComplete_elements\tRsf\n')
+        with open(fragments_gff3, 'w') as f:
+            f.write('##gff-version 3\n')
 
     logger.info("Done. Representative GFF3: %s", final_gff3)
     logger.info("      Representative stats: %s", final_stats)
+    logger.info("      TE-fragment GFF3    : %s", fragments_gff3)
     logger.info("      Raw GFF3            : %s", raw_gff3)
     logger.info("      Raw stats           : %s", raw_stats)
 

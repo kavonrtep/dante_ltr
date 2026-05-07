@@ -45,12 +45,10 @@ for f in solo_ltr.gff3 solo_ltr_raw.gff3 solo_ltr_statistics.csv; do
   [ -e "$OUT/solo/$f" ] || { echo "FAIL: missing $f"; exit 1; }
 done
 
-# Count representatives
+# Count representatives (after collapse + TE-fragment partition)
 N_REP=$(awk -F'\t' '$3=="solo_LTR"' "$OUT/solo/solo_ltr.gff3" | wc -l)
 N_RAW=$(awk -F'\t' '$3=="solo_LTR"' "$OUT/solo/solo_ltr_raw.gff3" | wc -l)
-echo "OK: $N_RAW raw solo_LTRs collapsed to $N_REP representatives"
-[ "$N_REP" -ge 1 ] \
-  || { echo "FAIL: expected >=1 solo representative, got $N_REP"; exit 1; }
+echo "OK: $N_RAW raw solo_LTRs -> $N_REP solo representatives (TE fragments split off separately)"
 [ "$N_RAW" -ge "$N_REP" ] \
   || { echo "FAIL: raw ($N_RAW) < representative ($N_REP) is impossible"; exit 1; }
 
@@ -73,6 +71,26 @@ N_LIBCONF=$(awk -F'\t' '$3=="solo_LTR" && $9 ~ /LibraryConfidence=/' \
 [ "$N_LIBCONF" -ge 1 ] \
   || { echo "FAIL: no solo_LTR features carry LibraryConfidence attribute"; exit 1; }
 echo "OK: $N_LIBCONF solo_LTR(s) carry LibraryConfidence"
+
+# TE-fragment split: solo_ltr_te_fragments.gff3 must exist; every entry
+# must be SL_noTSD with at least one positive junction; the main file
+# must be free of such entries.
+[ -e "$OUT/solo/solo_ltr_te_fragments.gff3" ] \
+  || { echo "FAIL: missing solo_ltr_te_fragments.gff3"; exit 1; }
+N_FRAG=$(awk -F'\t' '$3=="solo_LTR"' "$OUT/solo/solo_ltr_te_fragments.gff3" | wc -l)
+N_BAD_FRAG=$(awk -F'\t' '$3=="solo_LTR" && ($9 !~ /Rank=SL_noTSD/ || \
+              ($9 !~ /UTR5_junction=positive/ && \
+               $9 !~ /PPT_junction=positive/  && \
+               $9 !~ /PBS_check=positive/))' \
+              "$OUT/solo/solo_ltr_te_fragments.gff3" | wc -l)
+[ "$N_BAD_FRAG" = "0" ] \
+  || { echo "FAIL: $N_BAD_FRAG entry/ies in te_fragments don't match the rule"; exit 1; }
+N_LEAK=$(awk -F'\t' '$3=="solo_LTR" && /Rank=SL_noTSD/ && \
+              (/UTR5_junction=positive/ || /PPT_junction=positive/ || /PBS_check=positive/)' \
+         "$OUT/solo/solo_ltr.gff3" | wc -l)
+[ "$N_LEAK" = "0" ] \
+  || { echo "FAIL: $N_LEAK probable TE fragment(s) leaked into main solo_ltr.gff3"; exit 1; }
+echo "OK: $N_FRAG TE fragment(s) partitioned cleanly out of main solo file"
 
 echo
 echo "=== dante_ltr_refine (parasail anchored extension) ==="
