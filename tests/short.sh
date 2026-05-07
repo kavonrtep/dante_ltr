@@ -78,8 +78,8 @@ N_REFINED_ATTR=$(grep -c 'Refinement_Method=' "$OUT/refined/sample_refined.gff3"
 echo "OK: refined GFF3 has $N_REFINED_ATTR Refinement_Method attributes"
 
 # per-element TSV header sanity
-head -1 "$OUT/refined/sample_per_element.tsv" | grep -q final_method \
-  || { echo "FAIL: per_element.tsv missing final_method header"; exit 1; }
+head -1 "$OUT/refined/sample_per_element.tsv" | grep -q refinement_method \
+  || { echo "FAIL: per_element.tsv missing refinement_method header"; exit 1; }
 
 echo
 echo "short PASSED"
