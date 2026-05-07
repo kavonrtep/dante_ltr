@@ -184,25 +184,65 @@ options:
 
 ## Boundary refinement
 
-`dante_ltr_refine` improves per-element LTR boundaries on a DANTE_LTR
-annotation by parasail anchored extension across MMseqs2-clustered
-members.  Each side is refined using two independent anchor pools and
-the *inner-primary policy* gates the result on TG/CA preservation and
-TSD survival, so refinement never destroys an originally-detected TSD.
+`dante_ltr_refine` revisits the LTR outer boundaries of a DANTE_LTR
+annotation using cross-element evidence and emits per-side
+confidence labels.
 
-| attribute on the refined GFF3 | values |
+### Background
+
+The boundary of one LTR can be informed by the corresponding
+boundaries of related copies in the genome — both same-role LTRs
+and opposite-role LTRs, the latter carrying the same terminal
+sequence by virtue of the 5'/3' direct-repeat structure.
+`dante_ltr_refine` exploits this redundancy.
+
+### Method
+
+Elements are grouped into per-lineage MMseqs2 clusters.  For each
+LTR boundary in a cluster member, two independent estimates of the
+LTR / non-LTR transition are computed by parasail anchored
+extension — one against same-role LTRs (e.g. other 5'LTRs when
+refining a 5'LTR) and one against opposite-role LTRs in the
+cluster (direct-repeat evidence).  Where parasail does not validate
+the TG/CA terminus, a MAFFT multiple-sequence alignment of the
+cluster's LTRs provides a change-point estimate.  Every accepted
+refinement is verified by re-detecting the target site duplication
+(TSD) at the proposed coordinates; proposals that would destroy an
+originally-annotated TSD are reverted to the DANTE_LTR original.
+
+### Output labels
+
+Two attributes describe each LTR boundary in the refined GFF3.
+
+**`Refinement_Status`** — outcome of the analysis:
+
+| status | description |
 |---|---|
-| `Refinement_Method`     | `parasail_inner` / `parasail_outer` / `mafft` / `none` |
-| `Refinement_Confidence` | `dual` / `divergent` / `inner_only` / `unrefined` |
-| `TSD_Outcome`           | `kept_exact` / `kept_fuzzy` / `shifted` / `gained` / `both_none` |
-| `Motif_Orig`, `Motif_New` | TG/CA dinucleotide at orig vs new outer boundary |
-| `Outer_Pool_g`, `Inner_Pool_g` | per-pool boundary calls (diagnostic) |
+| `not_evaluated` | the element's family was too small for cross-element analysis; the original boundary is retained. |
+| `unresolved`    | the analysis was applied but no method produced a validated coordinate; the original boundary is retained. |
+| `confirmed`     | the analysis validated the original DANTE_LTR boundary at the same coordinate (two independent signals support the position). |
+| `refined`       | the analysis moved the boundary to a new coordinate. |
 
-`target_site_duplication` child rows are re-emitted at refined
-coordinates and inherit the parent TE's `Refinement_Confidence`.
-Downstream `dante_ltr_solo` consumes the refined GFF3 via
-`--refined_gff3` to build a cleaner LTR library from validated
-members.
+**`Refinement_Confidence`** — the evidence supporting the call:
+
+| confidence | description |
+|---|---|
+| `dual`       | the same-role and direct-repeat estimates agree within 5 bp; both validate TG/CA. |
+| `divergent`  | both estimates validate TG/CA but disagree by more than 5 bp. |
+| `inner_only` | only the direct-repeat estimate validated TG/CA. |
+| `mafft`      | the MAFFT change-point detector validated TG/CA. |
+| `unrefined`  | no method validated; the original boundary is retained. |
+
+### Downstream use
+
+Elements with `Refinement_Status ∈ {confirmed, refined}` constitute
+the recommended high-confidence subset.  `dante_ltr_to_library
+--refined_gff3` and `dante_ltr_solo --refined_gff3` apply this
+filter by default.  Per-side `target_site_duplication` child
+features and the TE `TSD=` attribute are recomputed at the refined
+coordinates.
+
+### CLI
 
 ```
 usage: dante_ltr_refine -g GFF3 -s GENOME -o OUTPUT [OPTIONS]
@@ -219,10 +259,13 @@ options:
   --flank_len 1000              Flank length scanned outside LTR (bp).
   --no_tsd_revert               Disable per-element TSD-loss revert
                                 rule (diagnostic).
+  --no_msa_rescue               Disable per-side MAFFT MSA rescue;
+                                fall back to threshold-gated MAFFT.
   --mafft_fallback_threshold 0.5
                                 Inner-pool validation rate below which
-                                MAFFT change-point fallback fires.
-  --no-mafft-fallback           Disable MAFFT fallback (parasail-only).
+                                MAFFT change-point fallback fires
+                                (only used with --no_msa_rescue).
+  --no-mafft-fallback           Disable MAFFT entirely (parasail-only).
   --threads 4                   MMseqs2 / MAFFT threads.
   --workers 4                   Parallel cluster workers.
 ```
