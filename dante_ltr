@@ -8,6 +8,7 @@ directly
 
 import argparse
 import os
+import resource
 import shutil
 import sys
 import tempfile
@@ -213,6 +214,48 @@ def make_temp_files(number_of_files):
         temp_files.append(tempfile.NamedTemporaryFile(delete=False).name)
         os.remove(temp_files[-1])
     return temp_files
+
+
+def _limit_chunks_to_fd_budget(number_of_temp_files, fd_headroom=64):
+    """Ensure the chunk split can open one handle per chunk without hitting the
+    open-file limit.
+
+    The chunk split opens all ``number_of_temp_files`` handles at once, so that
+    count must stay below ``RLIMIT_NOFILE``. This raises the soft limit toward the
+    hard limit and, if the chunk count still does not fit, returns a reduced count
+    (fewer, larger chunks) so the run degrades gracefully instead of crashing with
+    "Too many open files". ``fd_headroom`` reserves descriptors for stdio and the
+    detect_putative_ltr.R subprocess.
+
+    :param number_of_temp_files: desired number of chunk files
+    :param fd_headroom: descriptors to keep free
+    :return: a chunk count guaranteed to fit the (possibly raised) fd limit
+    """
+    try:
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    except (ValueError, OSError):
+        return number_of_temp_files
+    want = number_of_temp_files + fd_headroom
+    if soft != resource.RLIM_INFINITY and soft < want:
+        new_soft = want if hard == resource.RLIM_INFINITY else min(hard, want)
+        try:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (new_soft, hard))
+            soft = new_soft
+        except (ValueError, OSError):
+            pass
+    if soft == resource.RLIM_INFINITY:
+        return number_of_temp_files
+    max_chunks = max(1, soft - fd_headroom)
+    if number_of_temp_files > max_chunks:
+        sys.stderr.write(
+            'WARNING: reducing number of chunks from {} to {} to stay within the '
+            'open-file limit ({}); chunks will be larger and use more memory. '
+            'Raise "ulimit -n" to keep smaller chunks.\n'.format(
+                number_of_temp_files, max_chunks, soft
+                )
+            )
+        return max_chunks
+    return number_of_temp_files
 
 
 def sum_up_stats_files(files):
@@ -973,6 +1016,17 @@ def main():
         number_of_temp_files = int(total_size / args.max_chunk_size) + 1
         if number_of_temp_files > number_of_sequences:
             number_of_temp_files = number_of_sequences
+
+        # The FASTA/GFF split below opens one handle per chunk *simultaneously*
+        # (see the `[open(f) for f in temp_files]` further down). number_of_temp_files
+        # grows with genome size (total_size / max_chunk_size), so on large genomes
+        # it exceeds the open-file soft limit and the split aborts with
+        # "OSError: [Errno 24] Too many open files" (e.g. ~1800 handles for a 90 Gbp
+        # genome at -S 50000000, vs a default soft limit of 1024).
+        # Fix: raise the soft limit toward the hard limit, and, only if the chunk
+        # count still cannot fit, reduce it to the available budget (fewer, larger
+        # chunks). The common case is a no-op change in chunking — just more headroom.
+        number_of_temp_files = _limit_chunks_to_fd_budget(number_of_temp_files)
 
         temp_files_fasta = make_temp_files(number_of_temp_files)
         file_handles = [open(temp_file, 'w') for temp_file in temp_files_fasta]
