@@ -6,9 +6,9 @@
 #   1. dante_ltr_refine on a 1 Mb DANTE_LTR slice (78 TEs across 4
 #      lineages) -- both parasail-only and hybrid (parasail + MAFFT
 #      fallback) modes.
-#   2. utils/build_ltr_library.R --refined_gff3 -- verifies the
+#   2. utils/build_ltr_library.R -g <refined GFF3> -- verifies the
 #      refined-mode path produces a library and the augmented map TSV.
-#   3. dante_ltr_solo --refined_gff3 -- verifies the end-to-end path
+#   3. dante_ltr_solo -g <refined GFF3> -- verifies the end-to-end path
 #      (refine -> library -> solo detection) produces all expected
 #      output files.
 #
@@ -146,54 +146,48 @@ assert d["params"]["no_tsd_revert"] is True
 print("  OK: --no_tsd_revert recorded in run.json")
 PY
 
-# ---- 2. build_ltr_library.R --refined_gff3 ----
+# ---- 2. build_ltr_library.R -g <refined GFF3> ----
 echo
-echo "=== 2. build_ltr_library.R --refined_gff3 ==="
+echo "=== 2. build_ltr_library.R -g <refined GFF3> ==="
 mkdir -p "$OUT/library"
 "$ROOT/utils/build_ltr_library.R" \
-    --refined_gff3 "$OUT/parasail/r_refined.gff3" \
+    -g "$OUT/parasail/r_refined.gff3" \
     -s "$DATA/genome.fasta" \
     -o "$OUT/library/lib" \
-    -t "$NCPU" \
-    --min_validated_members 4 > "$OUT/library.log" 2>&1
+    -t "$NCPU" > "$OUT/library.log" 2>&1
 
 [ -s "$OUT/library/lib_LTR_library.fasta" ] \
   || { echo "FAIL: library FASTA empty"; exit 1; }
 [ -s "$OUT/library/lib_LTR_library_map.tsv" ] \
   || { echo "FAIL: library map TSV empty"; exit 1; }
 
-# Map TSV must carry the augmented columns in refined mode
+# Map TSV must carry the LibraryConfidence axis in refined mode
+# (validated | mixed | unrefined; column 3 of the map).
 HEAD=$(head -1 "$OUT/library/lib_LTR_library_map.tsv")
-echo "$HEAD" | grep -q 'low_confidence' \
-  || { echo "FAIL: refined map TSV missing low_confidence column"; exit 1; }
-echo "$HEAD" | grep -q 'consensus_built_from' \
-  || { echo "FAIL: refined map TSV missing consensus_built_from column"; exit 1; }
-echo "$HEAD" | grep -q 'n_validated' \
-  || { echo "FAIL: refined map TSV missing n_validated column"; exit 1; }
-echo "  OK: map TSV has refined-mode columns"
+echo "$HEAD" | grep -q 'LibraryConfidence' \
+  || { echo "FAIL: refined map TSV missing LibraryConfidence column"; exit 1; }
+echo "  OK: map TSV has the LibraryConfidence column"
 
-N_VALIDATED_CL=$(awk -F'\t' 'NR>1 && $5=="validated"' \
+N_VALIDATED_CL=$(awk -F'\t' 'NR>1 && $3=="validated"' \
                  "$OUT/library/lib_LTR_library_map.tsv" | wc -l)
-echo "  OK: $N_VALIDATED_CL cluster(s) built consensus from validated subset"
+echo "  OK: $N_VALIDATED_CL entry(ies) built consensus from validated subset"
 
-# ---- 3. dante_ltr_solo --refined_gff3 (end-to-end) ----
+# ---- 3. dante_ltr_solo -g <refined GFF3> (end-to-end) ----
 echo
-echo "=== 3. dante_ltr_solo --refined_gff3 ==="
-./dante_ltr_solo -g "$DATA/dante_ltr.gff3" \
-                 --refined_gff3 "$OUT/parasail/r_refined.gff3" \
+echo "=== 3. dante_ltr_solo -g <refined GFF3> ==="
+./dante_ltr_solo -g "$OUT/parasail/r_refined.gff3" \
                  -s "$DATA/genome.fasta" \
-                 -o "$OUT/solo" -c "$NCPU" \
-                 --min_validated_members 4 > "$OUT/solo.log" 2>&1
+                 -o "$OUT/solo" -c "$NCPU" > "$OUT/solo.log" 2>&1
 
 for f in solo_ltr.gff3 solo_ltr_raw.gff3 solo_ltr_statistics.csv \
-         reference_input_refined.gff3; do
+         refined/sample_refined.gff3; do
   [ -e "$OUT/solo/$f" ] || { echo "FAIL: missing solo output $f"; exit 1; }
 done
 [ -s "$OUT/solo/library/ltr_lib_LTR_library_map.tsv" ] \
   || { echo "FAIL: missing solo library map"; exit 1; }
-head -1 "$OUT/solo/library/ltr_lib_LTR_library_map.tsv" | grep -q 'low_confidence' \
-  || { echo "FAIL: solo library map missing refined-mode columns"; exit 1; }
-echo "  OK: dante_ltr_solo --refined_gff3 produced refined library + solo outputs"
+head -1 "$OUT/solo/library/ltr_lib_LTR_library_map.tsv" | grep -q 'LibraryConfidence' \
+  || { echo "FAIL: solo library map missing LibraryConfidence column"; exit 1; }
+echo "  OK: dante_ltr_solo -g <refined GFF3> produced refined library + solo outputs"
 
 echo
 echo "refine PASSED"
