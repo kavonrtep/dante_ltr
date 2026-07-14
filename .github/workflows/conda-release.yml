@@ -42,8 +42,10 @@ jobs:
           # the upstream-recommended workaround). Drop the pin once
           # anaconda-client migrates to packaging.version.
           mamba install -y conda-build boa anaconda-client "setuptools<81"
-          # Install the runtime deps so we can also run the long test
-          mamba install -y --file requirements.txt
+          # Install the runtime deps so we can also run the long test.
+          # File is named conda-deps.txt (not requirements.txt) so GitHub's
+          # dependency-graph / Dependabot pip detector skips it.
+          mamba install -y --file conda-deps.txt
 
       - name: Long test (release gate)
         run: ./tests.sh long
