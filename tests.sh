@@ -40,16 +40,18 @@ case "$LEVEL" in
   short)    bash "$ROOT/tests/short.sh" ;;
   fallback) bash "$ROOT/tests/fallback.sh" ;;
   refine)   bash "$ROOT/tests/refine.sh" ;;
+  fd)       bash "$ROOT/tests/fd.sh" ;;
   long)     bash "$ROOT/tests/long.sh"  ;;
   all)
     bash "$ROOT/tests/smoke.sh"
     bash "$ROOT/tests/short.sh"
     bash "$ROOT/tests/fallback.sh"
     bash "$ROOT/tests/refine.sh"
+    bash "$ROOT/tests/fd.sh"
     bash "$ROOT/tests/long.sh"
     ;;
   *)
-    echo "usage: $0 {smoke|short|fallback|refine|long|all|<NCPU>}" >&2
+    echo "usage: $0 {smoke|short|fallback|refine|fd|long|all|<NCPU>}" >&2
     exit 2
     ;;
 esac
