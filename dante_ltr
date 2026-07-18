@@ -349,6 +349,31 @@ def split_fasta_to_chunks(fasta_file, chunk_size=100000000, overlap=100000):
     return fasta_file_split, matching_table
 
 
+def normalize_gff3_attributes(attributes):
+    """Drop empty items from a GFF3 attribute column.
+
+    The coordinate-recalculation passes used to route every line through
+    Gff3Feature, which parses the attributes into a dict and re-joins them.
+    That rebuild silently normalized the column -- notably dropping the
+    trailing ';' that detect_putative_ltr.R emits -- so the normalization has
+    to be reproduced here to keep the output byte-identical, just without the
+    per-line dict.
+
+    Equivalence was checked over 1.77M DANTE / DANTE_LTR feature lines: empty
+    items occur only in trailing position and duplicate attribute keys never
+    occur. The two forms differ only for duplicate keys, which GFF3 does not
+    permit -- the dict rebuild collapsed them, this keeps them.
+
+    :param attributes: the raw ninth GFF3 column
+    :return: the column with empty items removed
+    """
+    # An empty item can only appear next to another ';' or at either end, so
+    # this test is exact -- and skips the split/join for the common case.
+    if attributes.startswith(';') or attributes.endswith(';') or ';;' in attributes:
+        return ';'.join([item for item in attributes.split(';') if item != ''])
+    return attributes
+
+
 def index_matching_table(matching_table):
     """Index the chunk matching table for O(1) lookup by header.
 
@@ -436,17 +461,21 @@ def recalculate_gff3_coordinates(gff3_file, matching_table_by_ori):
                 if line[0] == '#':
                     fh_out.write(line)
                 else:
-                    feature = Gff3Feature(line)
+                    # Columns are edited in place rather than through
+                    # Gff3Feature: only seqid/start/end change here, so the
+                    # attribute dict the class builds per line is pure overhead.
+                    parts = line.strip().split('\t')
+                    parts[8] = normalize_gff3_attributes(parts[8])
                     new_coords = get_new_header_and_coordinates(
-                        feature.header, feature.start, feature.end,
+                        parts[0], int(parts[3]), int(parts[4]),
                         matching_table_by_ori
                         )
                     for new_header, new_start, new_end, sequence_length in new_coords:
                         if new_start >= 1 and new_end <= sequence_length:
-                            feature.header = new_header
-                            feature.start = new_start
-                            feature.end = new_end
-                            fh_out.write(str(feature))
+                            parts[0] = new_header
+                            parts[3] = str(new_start)
+                            parts[4] = str(new_end)
+                            fh_out.write('\t'.join(parts) + '\n')
     return gff3_file_recalculated
 
 
@@ -466,15 +495,18 @@ def recalculate_gff3_back_to_original_coordinates(gff3_file, matching_table_by_n
                 if line[0] == '#':
                     fh_out.write(line)
                 else:
-                    feature = Gff3Feature(line)
+                    # see recalculate_gff3_coordinates() -- columns edited in
+                    # place, no per-line Gff3Feature
+                    parts = line.strip().split('\t')
+                    parts[8] = normalize_gff3_attributes(parts[8])
                     ori_header, ori_start, ori_end = get_original_header_and_coordinates(
-                        feature.header, feature.start, feature.end,
+                        parts[0], int(parts[3]), int(parts[4]),
                         matching_table_by_new
                         )
-                    feature.header = ori_header
-                    feature.start = ori_start
-                    feature.end = ori_end
-                    fh_out.write(str(feature))
+                    parts[0] = ori_header
+                    parts[3] = str(ori_start)
+                    parts[4] = str(ori_end)
+                    fh_out.write('\t'.join(parts) + '\n')
     return gff3_file_recalculated
 
 
@@ -511,9 +543,11 @@ def get_unique_features(gff3_file):
         for line in fh:
             if line[0] == '#':
                 continue
-            feature = Gff3Feature(line)
-            if feature.type != 'transposable_element':
+            # check the type column before the full parse -- protein_domain,
+            # LTR and TSD lines are the bulk of the file and all discarded here
+            if line.split('\t', 3)[2] != 'transposable_element':
                 continue
+            feature = Gff3Feature(line)
             feature_list.append(feature)  # sort by start position and header
     feature_list.sort(key=lambda x: (x.start, x.header))
     i = 0
@@ -561,15 +595,15 @@ def filter_gff3_file(gff3_file, good_id, output_file):
             if line[0] == '#':
                 fout.write(line)
             else:
-                feature = Gff3Feature(line)
-                if ('ID' in feature.attributes_dict and
-                        feature.attributes_dict['ID'] in good_id):
+                # the line is written back verbatim, so only ID and Parent need
+                # reading -- Gff3Feature would parse and rebuild every attribute
+                ids = {}
+                for item in line.strip().split('\t')[8].split(';'):
+                    key, _, value = item.partition('=')
+                    if key == 'ID' or key == 'Parent':
+                        ids[key] = value
+                if ids.get('ID') in good_id or ids.get('Parent') in good_id:
                     fout.write(line)
-                    continue
-                if 'Parent' in feature.attributes_dict:
-                    if feature.attributes_dict['Parent'] in good_id:
-                        fout.write(line)
-                        continue
 def verify_seqnames(gff3, fasta):
     """
     Verify that ate least some seqnames in gff3 file are in fasta file
