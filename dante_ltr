@@ -286,22 +286,104 @@ def sum_up_stats_files(files):
     return sorted_stat_with_header
 
 
-def read_single_fasta_to_dictionary(fh):
+def iter_fasta_records(fh):
+    """Yield (header, pieces) for every record, streaming.
+
+    ``pieces`` generates the record's sequence lines, stripped, without ever
+    holding the whole record. Each record has to be consumed before the next
+    one is requested; a consumer that stops early is drained here.
+
+    :param fh: open fasta file handle
     """
-    Read fasta file into dictionary
-    :param fh:
-    :return:
-    fasta_dict
-    """
-    fasta_dict = {}
-    for line in fh:
+    pending = {'header_line': None}
+
+    def pieces():
+        for line in fh:
+            if line[0] == '>':
+                pending['header_line'] = line
+                return
+            yield line.strip()
+
+    header_line = None
+    for line in fh:  # skip anything before the first record
         if line[0] == '>':
-            header = line.strip().split(' ')[0][1:]  # remove part of name after space
-            fasta_dict[header] = []
-        else:
-            fasta_dict[header] += [line.strip()]
-    fasta_dict = {k: ''.join(v) for k, v in fasta_dict.items()}
-    return fasta_dict
+            header_line = line
+            break
+    while header_line is not None:
+        # remove part of name after space, as read_fasta_sequence_size does
+        header = header_line.strip().split(' ')[0][1:]
+        pending['header_line'] = None
+        record_pieces = pieces()
+        yield header, record_pieces
+        for _ in record_pieces:  # drain, in case the consumer stopped early
+            pass
+        header_line = pending['header_line']
+
+
+def write_sequence_chunks(fh_out, chunk_ranges, pieces):
+    """Write one record's chunks to fh_out from a stream of sequence pieces.
+
+    ``chunk_ranges`` holds that record's (start, end, chunk_header) in output
+    order, ``pieces`` yields its stripped sequence lines. Consecutive chunks
+    overlap, and each chunk is written in full before the next one starts, so
+    the overlapping tail is buffered as it is read and replayed into the next
+    chunk. That buffer -- the overlap, 100 kb by default -- is the only
+    sequence data held in memory, which is what keeps peak memory flat
+    regardless of genome size or scaffold length.
+
+    :param fh_out: open handle of the split fasta being written
+    :param chunk_ranges: (start, end, chunk_header) tuples, ordered by start
+    :param pieces: iterable of the record's stripped sequence lines
+    """
+    n = len(chunk_ranges)
+    if n == 0:
+        return
+    fh_out.write('>' + chunk_ranges[0][2] + '\n')
+    ci = 0          # chunk currently being written
+    started = 0     # chunks [0, started) have had their start position reached
+    carry = {}      # chunk index -> pieces buffered for it, for chunks > ci
+    covered = {}    # chunk index -> position its data reaches
+    pos = 0         # bp of the record consumed so far
+    for piece in pieces:
+        p_start = pos
+        pos = p_end = pos + len(piece)
+        # chunks whose start this piece reaches begin buffering. Normally only
+        # the next one is ever open, but an overlap wider than a chunk (a small
+        # --max_chunk_size) can open several at once.
+        while started < n and chunk_ranges[started][0] < p_end:
+            carry[started] = []
+            covered[started] = chunk_ranges[started][0]
+            started += 1
+        for j in range(ci, started):
+            c_end = chunk_ranges[j][1]
+            lo = max(covered[j], p_start)
+            hi = min(c_end, p_end)
+            if hi > lo:
+                part = piece[lo - p_start:hi - p_start]
+                if j == ci:
+                    fh_out.write(part)  # current chunk streams straight out
+                else:
+                    carry[j].append(part)
+                covered[j] = hi
+        # close every chunk this piece completed, opening the next as we go
+        while ci < started and covered[ci] >= chunk_ranges[ci][1]:
+            fh_out.write('\n')
+            del carry[ci], covered[ci]
+            ci += 1
+            if ci < n:
+                fh_out.write('>' + chunk_ranges[ci][2] + '\n')
+                if ci < started and carry[ci]:
+                    fh_out.write(''.join(carry[ci]))
+                    carry[ci] = []
+        if ci >= n:
+            break
+    while ci < n:  # record ended before these chunks were full
+        if carry.get(ci):
+            fh_out.write(''.join(carry[ci]))
+        fh_out.write('\n')
+        ci += 1
+        if ci < n:
+            fh_out.write('>' + chunk_ranges[ci][2] + '\n')
 
 
 def split_fasta_to_chunks(fasta_file, chunk_size=100000000, overlap=100000):
@@ -336,16 +418,27 @@ def split_fasta_to_chunks(fasta_file, chunk_size=100000000, overlap=100000):
         else:
             new_header = header + '_0'
             matching_table.append([header, 0, 0, size, new_header])
-    # read sequences from fasta files and split them to chunks according to matching table
-    # open output and input files, use with statement to close files
-    fasta_dict = read_single_fasta_to_dictionary(open(fasta_file, 'r'))
+    # Write the chunks by streaming the reference a record at a time. This used
+    # to read the whole genome into a dict of strings, which costs ~2.9x its
+    # sequence content in RAM (~258 GB on a 90 Gbp assembly) -- see
+    # write_sequence_chunks() for what is held instead.
     matching_table_by_ori, _ = index_matching_table(matching_table)
-    with open(fasta_file_split, 'w') as fh_out:
-        for header in fasta_dict:
-            matching_table_part = matching_table_by_ori.get(header, ())
-            for header2, i, start, end, new_header in matching_table_part:
-                fh_out.write('>' + new_header + '\n')
-                fh_out.write(fasta_dict[header][start:end] + '\n')
+    seen = set()
+    with open(fasta_file, 'r') as fh_in, open(fasta_file_split, 'w') as fh_out:
+        for header, pieces in iter_fasta_records(fh_in):
+            if header in seen:
+                # the previous whole-genome load silently kept only the last
+                # record of a repeated name; streaming cannot, and emitting both
+                # would produce duplicate chunk names for detect_putative_ltr.R
+                sys.stderr.write(
+                    'ERROR: sequence name "{}" occurs more than once in {}. '
+                    'Sequence names must be unique.\n'.format(header, fasta_file)
+                    )
+                sys.exit(1)
+            seen.add(header)
+            chunk_ranges = [(row[2], row[3], row[4])
+                            for row in matching_table_by_ori.get(header, ())]
+            write_sequence_chunks(fh_out, chunk_ranges, pieces)
     return fasta_file_split, matching_table
 
 

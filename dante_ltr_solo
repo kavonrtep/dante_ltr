@@ -59,6 +59,7 @@ _dl = _load_dante_ltr()
 
 read_fasta_sequence_size                      = _dl.read_fasta_sequence_size
 split_fasta_to_chunks                         = _dl.split_fasta_to_chunks
+index_matching_table                          = _dl.index_matching_table
 recalculate_gff3_coordinates                  = _dl.recalculate_gff3_coordinates
 recalculate_gff3_back_to_original_coordinates = _dl.recalculate_gff3_back_to_original_coordinates
 add_version_to_gff3                           = _dl.add_version_to_gff3
@@ -594,7 +595,8 @@ def _run_chunked(args, tool_path, chunks_dir, ref_norm, gff3_input,
     fasta_split, matching_table = split_fasta_to_chunks(
         ref_norm, chunk_size=args.max_chunk_size
     )
-    gff3_remapped = recalculate_gff3_coordinates(gff3_input, matching_table)
+    matching_table_by_ori, matching_table_by_new = index_matching_table(matching_table)
+    gff3_remapped = recalculate_gff3_coordinates(gff3_input, matching_table_by_ori)
     split_sizes   = read_fasta_sequence_size(fasta_split)
 
     seq_sorted = [k for k, _ in sorted(split_sizes.items(),
@@ -662,7 +664,7 @@ def _run_chunked(args, tool_path, chunks_dir, ref_norm, gff3_input,
             if not os.path.exists(chunk_gff) or os.path.getsize(chunk_gff) == 0:
                 continue
             remapped = recalculate_gff3_back_to_original_coordinates(
-                chunk_gff, matching_table
+                chunk_gff, matching_table_by_new
             )
             with open(remapped) as fin:
                 for line in fin:
