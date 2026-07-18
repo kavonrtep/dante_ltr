@@ -113,4 +113,39 @@ head -1 "$OUT/refined/sample_per_element.tsv" | grep -q refinement_method \
   || { echo "FAIL: per_element.tsv missing refinement_method header"; exit 1; }
 
 echo
+echo "=== dante_ltr_solo chunked path ==="
+# Regression guard for the large-genome branch (_run_chunked). It is only
+# taken when the reference exceeds --max_chunk_size AND has >1 sequence, so
+# the run above (default -S 100 Mbp) never reaches it -- a break there once
+# went unnoticed by the whole suite. Forced here with a small -S on the same
+# 3-contig fixture. The already-refined GFF3 is reused so the run does not
+# pay for refinement a second time.
+./dante_ltr_solo -g "$OUT/solo/refined/sample_refined.gff3" -s "$FASTA" \
+                 -o "$OUT/solo_chunked" -c "$NCPU" -S 1000000 >/dev/null
+
+grep -q "Running analysis in chunks" "$OUT/solo_chunked/dante_ltr_solo.log" \
+  || { echo "FAIL: chunked path was not taken -- the test no longer guards it"; exit 1; }
+N_CHUNK_FILES=$(grep -c "Detecting solo LTRs on chunk_" \
+                "$OUT/solo_chunked/dante_ltr_solo.log" || true)
+[ "$N_CHUNK_FILES" -ge 2 ] \
+  || { echo "FAIL: expected >=2 chunks, got $N_CHUNK_FILES"; exit 1; }
+echo "OK: chunked path ran over $N_CHUNK_FILES chunks"
+
+# Chunking must not change the calls: coordinates have to survive the split
+# and the remap back. Only the feature IDs legitimately differ -- they carry
+# a per-chunk serial and the chunk name (ctg16_0) rather than the contig --
+# and the remap drops the trailing ';' that the unchunked path leaves in
+# place, so both are normalized away before comparing.
+norm_gff3() {
+  grep -v '^#' "$1" | sed -E 's/(ID|Parent)=[^;]*;?//g; s/;$//' | sort
+}
+for f in solo_ltr.gff3 solo_ltr_raw.gff3 solo_ltr_te_fragments.gff3; do
+  [ -e "$OUT/solo_chunked/$f" ] \
+    || { echo "FAIL: chunked run missing $f"; exit 1; }
+  diff <(norm_gff3 "$OUT/solo/$f") <(norm_gff3 "$OUT/solo_chunked/$f") >/dev/null \
+    || { echo "FAIL: chunked $f differs from unchunked beyond feature IDs"; exit 1; }
+done
+echo "OK: chunked output matches unchunked on all three GFF3s"
+
+echo
 echo "short PASSED"
