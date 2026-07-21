@@ -75,6 +75,20 @@ suppressPackageStartupMessages(library(rtracklayer))
 dir.create(opt$output_dir, showWarnings = FALSE)
 message("Reading fasta file")
 s <- readDNAStringSet(opt$fasta)
+
+# Canonical order for reproducible clustering. `mmseqs easy-cluster` is
+# order-sensitive: the same set of sequences in a different order elects a
+# different set of representatives and a different cluster count. TE_all.fasta
+# arrives in DANTE_LTR.gff3 row order, which is not canonical on the multi-chunk
+# path -- chunks are concatenated in chunk-index order and the chunk count
+# depends on genome size / open-file limit / machine -- so the library, and the
+# downstream RepeatMasker annotation, would otherwise vary run-to-run and
+# across machines. Sort by sequence content (then name, to break ties) to make
+# the library a deterministic function of the input SET, independent of record
+# order and robust to upstream coordinate jitter. method = "radix" sorts in the
+# C locale, so the order does not depend on the machine's LC_COLLATE.
+s <- s[order(as.character(s), names(s), method = "radix")]
+
 size_total <- sum(nchar(s))
 
 message("Partitioning sequences")

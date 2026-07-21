@@ -37,6 +37,28 @@ echo "=== dante_ltr_to_library ==="
   || { echo "FAIL: library/TE_all.fasta empty"; exit 1; }
 echo "OK: repeat library built"
 
+# Determinism guard. mmseqs easy-cluster is order-sensitive, so
+# mmseq_clustering.R sorts TE_all into a canonical order before clustering;
+# the representative library must therefore be independent of input record
+# order. Re-cluster the same sequences in reversed order and require a
+# byte-identical representative library. Without the sort these differ.
+REP="$OUT/library/mmseqs2/mmseqs_representative_seq_clean.fasta"
+[ -s "$REP" ] || { echo "FAIL: representative library not produced"; exit 1; }
+mkdir -p "$OUT/library_rev"
+awk '/^>/{n++} {rec[n]=rec[n] $0 "\n"} END{for(i=n;i>=1;i--) printf "%s", rec[i]}' \
+    "$OUT/library/TE_all.fasta" > "$OUT/library_rev/TE_all.fasta"
+if cmp -s "$OUT/library/TE_all.fasta" "$OUT/library_rev/TE_all.fasta"; then
+  echo "SKIP: reversal left record order unchanged (too few records to test)"
+else
+  ./utils/mmseq_clustering.R -f "$OUT/library_rev/TE_all.fasta" \
+      -o "$OUT/library_rev/mmseqs2" -m 3 -t "$NCPU" >/dev/null 2>&1
+  REP_REV="$OUT/library_rev/mmseqs2/mmseqs_representative_seq_clean.fasta"
+  [ -s "$REP_REV" ] || { echo "FAIL: reversed-order clustering produced no library"; exit 1; }
+  cmp -s "$REP" "$REP_REV" \
+    || { echo "FAIL: representative library changed with input order -- clustering is not deterministic"; exit 1; }
+  echo "OK: representative library identical across input orders ($(grep -c '^>' "$REP") reps)"
+fi
+
 echo
 echo "=== dante_ltr_solo ==="
 ./dante_ltr_solo -g "$OUT/ltr.gff3" -s "$FASTA" -o "$OUT/solo" -c "$NCPU"
