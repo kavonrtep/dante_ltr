@@ -322,9 +322,11 @@ options:
   -L MIN_RELATIVE_LENGTH, --min_relative_length MIN_RELATIVE_LENGTH
                         Minimum relative length of protein domain to be considered for retrotransposon detection
   -S MAX_CHUNK_SIZE, --max_chunk_size MAX_CHUNK_SIZE
-                        If size of reference sequence is greater than this value,
-                        reference is analyzed in chunks of this size (default 100000000).
-                        Setting this value too small will slow down the analysis.
+                        If the reference is larger than this, it is analyzed in chunks of
+                        roughly this size (default 100000000). Controls both per-chunk memory
+                        and pool granularity: chunks are the work items of the parallel
+                        detection pool (sized by -c and available RAM), so smaller chunks
+                        lower per-chunk memory but produce more, finer units of work.
   -v, --version         show program's version number and exit
   --te_constrains TE_CONSTRAINS
                         csv table specifying TE constraints for LTR search; template at

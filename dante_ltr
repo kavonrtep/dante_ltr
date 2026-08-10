@@ -10,9 +10,11 @@ import argparse
 import os
 import resource
 import shutil
+import signal
 import sys
 import tempfile
 from itertools import cycle
+from multiprocessing import Pool
 import subprocess
 from version import __version__
 
@@ -152,11 +154,11 @@ def get_arguments():
         )
     parser.add_argument(
         '-S', '--max_chunk_size', default=100000000, required=False, type=int,
-        help="""
-        If size of reference sequence is greater than this value, reference is '
-        'analyzed in chunks of this size. default is %(default)s '
-        'Setting this value too small  will slow down the analysis
-        """
+        help="If the reference is larger than this, it is analyzed in chunks of "
+             "roughly this size (default %(default)s). This controls both per-chunk "
+             "memory and pool granularity: chunks are the work items of the parallel "
+             "detection pool (sized by -c and available RAM), so smaller chunks lower "
+             "per-chunk memory but produce more, finer units of work."
         )
     parser.add_argument(
         '-v', '--version', action='version', version='%(prog)s ' + __version__
@@ -256,6 +258,51 @@ def _limit_chunks_to_fd_budget(number_of_temp_files, fd_headroom=64):
             )
         return max_chunks
     return number_of_temp_files
+
+
+def _detect_ltr_cmd(tool_path, fasta, gff, out, cpu, args, constrains_path):
+    """Build one detect_putative_ltr.R command line.
+
+    Kept in one place so the memory-probe run and the pooled runs are byte-for-byte
+    identical apart from the ``-c`` value.
+    """
+    cmd = [f'{tool_path}/utils/detect_putative_ltr.R', '-s', fasta, '-g', gff, '-o', out,
+           '-c', str(cpu), '-M', str(args.max_missing_domains),
+           '-L', str(args.min_relative_length)]
+    if constrains_path:
+        cmd += ['--te_constrains', constrains_path]
+    if args.no_ambiguous_domains:
+        cmd += ['--no_ambiguous_domains']
+    return cmd
+
+
+def _run_detect_ltr(cmd):
+    """Pool worker: run one detect_putative_ltr.R invocation.
+
+    Must be module-level so multiprocessing can pickle it. A failing chunk raises
+    CalledProcessError, which is picklable and therefore propagates out of the pool
+    (tearing it down via the ``with Pool(...)`` context) instead of being swallowed.
+    """
+    subprocess.check_call(cmd)
+
+
+def _pool_worker_init():
+    """Pool worker initializer: ignore SIGINT so Ctrl-C is handled once, in the parent,
+    which then terminates the pool -- otherwise each worker would race to kill its own
+    R child and leave orphans behind."""
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+
+def _mem_available_kb():
+    """Return MemAvailable from /proc/meminfo in kB, or None if it cannot be read."""
+    try:
+        with open('/proc/meminfo') as f:
+            for line in f:
+                if line.startswith('MemAvailable:'):
+                    return int(line.split()[1])
+    except (OSError, ValueError):
+        pass
+    return None
 
 
 def sum_up_stats_files(files):
@@ -1202,7 +1249,11 @@ def main():
         # Fix: raise the soft limit toward the hard limit, and, only if the chunk
         # count still cannot fit, reduce it to the available budget (fewer, larger
         # chunks). The common case is a no-op change in chunking — just more headroom.
-        number_of_temp_files = _limit_chunks_to_fd_budget(number_of_temp_files)
+        # The chunk loop below now runs up to args.cpu detect_putative_ltr.R children
+        # concurrently, each opening its own temp/BLAST handles, so reserve descriptors
+        # for that concurrency on top of the stdio baseline.
+        number_of_temp_files = _limit_chunks_to_fd_budget(
+            number_of_temp_files, fd_headroom=64 + args.cpu)
 
         temp_files_fasta = make_temp_files(number_of_temp_files)
         file_handles = [open(temp_file, 'w') for temp_file in temp_files_fasta]
@@ -1241,20 +1292,68 @@ def main():
             file_handle.close()
         os.remove(gff3_file_recalculated)
         # run retrotransposon detection on each temporary file
+        #
+        # The chunks are fully independent (own FASTA/GFF/output paths, no shared
+        # state) so they run in a process pool. Output stays byte-identical to a serial
+        # run because every downstream step (concatenation, gff back-remap, stats sum)
+        # walks range(number_of_temp_files) in index order, and get_unique_features
+        # re-sorts by (start, header) -- completion order is never observed.
+        #
+        # Children run single-threaded (-c 1): at this chunk size the R detector's
+        # mclapply parallelism is a small fraction of per-chunk work (Amdahl), so the
+        # outer 1-chunk-per-core parallelism is where the speed-up actually is. -c 1 is
+        # also what keeps per-child memory low enough to gate the pool below.
         output_files = make_temp_files(number_of_temp_files)
         print('number of chunks:": ' + str(number_of_temp_files))
-        for i in range(number_of_temp_files):
-            print('Running retrotransposon detection on file ' + str(i))
-            cmd = [f'{tool_path}/utils/detect_putative_ltr.R', '-s', temp_files_fasta[i],
-                 '-g',
-                 temp_files_gff[i], '-o', output_files[i], '-c', str(args.cpu), '-M',
-                 str(args.max_missing_domains), '-L', str(args.min_relative_length)]
 
-            if constrains_path:
-                cmd += ['--te_constrains', constrains_path]
-            if args.no_ambiguous_domains:
-                cmd += ['--no_ambiguous_domains']
-            subprocess.check_call(cmd)
+        # Dispatch largest-first: removes the straggler tail on assemblies with a few
+        # huge scaffolds, and gives us the biggest chunk as the memory probe for free.
+        order = sorted(
+            range(number_of_temp_files),
+            key=lambda i: os.path.getsize(temp_files_fasta[i]), reverse=True
+            )
+
+        def chunk_cmd(i):
+            return _detect_ltr_cmd(
+                tool_path, temp_files_fasta[i], temp_files_gff[i], output_files[i],
+                1, args, constrains_path
+                )
+
+        # Probe: run the largest chunk serially, then read its peak RSS. ru_maxrss for
+        # RUSAGE_CHILDREN is the largest single child's peak (kB on Linux), not a sum,
+        # so after one child it is exactly this chunk's footprint at -c 1.
+        probe = order[0]
+        print('Running retrotransposon detection on file ' + str(probe))
+        subprocess.check_call(chunk_cmd(probe))
+        peak_kb = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+
+        remaining = order[1:]
+        # Size the pool by cores AND memory: a pool sized purely from -c can OOM when
+        # per-chunk RSS is large. Cap at 80% of MemAvailable / per-chunk peak.
+        avail_kb = _mem_available_kb()
+        pool_size = min(args.cpu, len(remaining)) if remaining else 0
+        if remaining and avail_kb and peak_kb > 0:
+            mem_cap = max(1, int(avail_kb * 0.8) // peak_kb)
+            if mem_cap < pool_size:
+                print(
+                    'memory-gating chunk pool to {} concurrent chunks '
+                    '(~{} MB/chunk, {} MB available)'.format(
+                        mem_cap, peak_kb // 1024, avail_kb // 1024
+                        )
+                    )
+                pool_size = mem_cap
+
+        if remaining:
+            cmds = [chunk_cmd(i) for i in remaining]
+            print('running {} remaining chunks in a pool of {}'.format(
+                len(cmds), pool_size))
+            with Pool(pool_size, initializer=_pool_worker_init) as p:
+                try:
+                    for _ in p.imap_unordered(_run_detect_ltr, cmds):
+                        pass
+                except KeyboardInterrupt:
+                    p.terminate()
+                    raise
 
         #remove all temporary input files
         for temp_file in temp_files_fasta + temp_files_gff:
