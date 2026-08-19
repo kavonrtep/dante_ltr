@@ -1,4 +1,4 @@
-## unreleased
+## 0.5.4.0 (2026-08-19)
 
 Chunk-pool memory budget (issue #13).
 
@@ -22,9 +22,143 @@ Chunk-pool memory budget (issue #13).
   unchanged.  Where a new source applies the only effect is a smaller
   pool; per-chunk results are keyed by index, so the output stays
   byte-identical.
-* New test level `./tests.sh mem` (`tests/test_mem_budget.py`).
+* New test level `./tests.sh mem` (`tests/test_mem_budget.py`), also
+  wired into the CI tests workflow.
 
-Per-element LTR boundary refinement.
+## 0.5.3.0 (2026-08-10)
+
+Parallel per-chunk LTR detection.
+
+* The large-genome chunk loop in `dante_ltr` ran the independent
+  `detect_putative_ltr.R` invocations serially, so the stage used
+  ~1 core regardless of `-c`.  Chunks now run in a
+  `multiprocessing.Pool` of single-threaded (`-c 1`) children.
+* The pool is sized by cores **and** memory: the largest chunk runs
+  first as a probe, its peak RSS is read via
+  `getrusage(RUSAGE_CHILDREN)`, and the pool width is capped at
+  `0.8 * MemAvailable / peak` so a large `-c` cannot OOM the host.
+  (The budget term is corrected in 0.5.4.0.)
+* Chunks are dispatched largest-first to drop the straggler tail,
+  workers ignore `SIGINT` so Ctrl-C is handled once in the parent, and
+  the fd budget reserves descriptors for the concurrent children.
+* Output is unchanged — every downstream step walks the chunks in
+  index order, so completion order is never observed.
+
+## 0.5.2.0 (2026-07-21)
+
+Deterministic LTR-RT library clustering.
+
+* `mmseqs easy-cluster` is order-sensitive: the same sequence set in a
+  different order elects different representatives and a different
+  cluster count.  `TE_all.fasta` arrived in `DANTE_LTR.gff3` row order,
+  which is not canonical on the multi-chunk path, so the library — and
+  the downstream RepeatMasker annotation — varied run-to-run and across
+  machines (35 vs 36 representatives on a 223-sequence fixture).
+* `utils/mmseq_clustering.R` now sorts `TE_all` into a canonical order
+  by sequence content (then name, to break ties) before the partition
+  step that feeds mmseqs, making the library a deterministic function
+  of the input *set* regardless of record order, and robust to upstream
+  coordinate jitter.
+
+## 0.5.1.1 (2026-07-18)
+
+Large-genome performance in the Python wrapper.
+
+* Removed the quadratic scans from post-R GFF3 assembly, which
+  dominated runtime on large genomes (hours on a 90 Gbp assembly).
+  The matching table is indexed once by header instead of being
+  rescanned per feature line; `split_fasta_to_chunks()` uses the same
+  index in place of its O(contigs²) scan.
+* Dropped per-line `Gff3Feature` construction from the coordinate
+  recalculation and filtering passes (4 construction sites → 1).
+  `normalize_gff3_attributes()` reproduces the attribute normalisation
+  the old dict rebuild performed implicitly, so output is unchanged.
+* `split_fasta_to_chunks()` streams the reference a record at a time
+  instead of loading it into a dict of Python strings.  Peak RSS is now
+  flat at ~14 MB for 7.7 / 86 / 244 Mbp inputs (was 35 / 248 / 676 MB),
+  i.e. interpreter baseline, independent of genome size.
+* Tests cover the `dante_ltr_solo` chunked path.
+
+## 0.5.1.0 (2026-07-14)
+
+Refinement v2.1, the solo pipeline on refined GFF3, and the
+"Too many open files" fix.
+
+* **Boundary refinement v2.1**
+  * New tier-3 per-side MSA rescue (`--msa_rescue`, on by default):
+    MAFFT runs on every qualifying cluster, and per-side rescue applies
+    to any side still unresolved after the earlier tiers.  The TSD-loss
+    revert rule gates these proposals like the others.
+  * Confidence split into two axes.  `Refinement_Status`
+    (`not_evaluated` / `unresolved` / `confirmed` / `refined`) answers
+    "what happened to this side?"; `Refinement_Confidence`
+    (`dual` / `divergent` / `inner_only` / `mafft` / `unrefined`)
+    records the source and quality.
+  * MAFFT snap window widened 5 → 20 bp: the change-point detector
+    fires 5-15 bp inside the conserved region, so the old window failed
+    motif validation on ~10 % of MSA calls that were within ±20 bp of a
+    real TG/CA.
+  * Fixed MAFFT `motif_ok=FALSE` on genuinely matching motifs —
+    `as.character(DNAStringSet)` returns a *named* character vector and
+    `identical()` compares attributes, so every MAFFT-derived boundary
+    was rejected.  Restores `motif_ok=TRUE` on ~94 % of MAFFT calls.
+  * `Cluster_ID` / `Cluster_Size` are now emitted for **all** clustered
+    members, with `Refinement_Status=not_evaluated` on those below
+    `--min_cluster_size`, making refinement the single source of
+    clustering truth.
+* **Solo LTR pipeline**
+  * A refined GFF3 is now the universal input; an unrefined DANTE_LTR
+    GFF3 triggers `dante_ltr_refine` automatically, written to
+    `<output_dir>/refined/`.  This removes the `--refined_gff3` and
+    `--min_validated_members` flags added in 0.4.1.0.
+  * `utils/build_ltr_library.R` drops its own MMseqs2 clustering and
+    its cluster-wide TG/CA + TSD validation, grouping by `Cluster_ID`
+    and ranking within a cluster by `Refinement_Status` instead.
+  * `LibraryConfidence` (`validated` / `mixed` / `unrefined`) is
+    propagated onto every emitted `solo_LTR` feature.
+  * `SL_noTSD` representatives showing a positive `UTR5_junction`,
+    `PPT_junction` or `PBS_check` signal are reclassified as likely
+    fragments of complete elements and partitioned into
+    `solo_ltr_te_fragments.gff3` with a parallel statistics CSV.  On the
+    *A. lyrata* test run this moved 2100 features out of a
+    3587-feature `solo_ltr.gff3`.
+* **Fixed "Too many open files" on large genomes** (#12).  The chunk
+  split opened one handle per chunk at once — ~1800 for a 90 Gbp genome
+  at `-S 50000000`, against a default soft limit of 1024.
+  `_limit_chunks_to_fd_budget()` raises the soft limit toward the hard
+  limit and only then reduces the chunk count, so the run degrades
+  gracefully instead of aborting.  Adds `./tests.sh fd`.
+* **Docs**: README restructured — feature sections compressed, CLI
+  reference moved to the bottom.
+* **CI**: release workflow installs runtime deps from `conda-deps.txt`
+  and builds with `conda build` from the base env (drops boa).
+
+## 0.5.0.0 (2026-05-06)
+
+Refinement v2 — inner-primary policy.  (Not tagged; first published in
+0.5.1.0.)
+
+* Two parasail passes per query × side: an outer-edge pool (same role)
+  and an inner-edge pool (opposite role used at the inner edge).  The
+  inner pool's flank asymmetry sharpens the boundary, and same-role
+  drift is no longer the primary signal.
+* Inner-primary policy: take the inner coordinate when its TG/CA motif
+  validates, otherwise keep DANTE_LTR's original.
+* Per-element TSD recheck at the proposed coordinates, with a revert
+  rule — if applying a proposal destroys the originally detected TSD,
+  every changed side on that element reverts to the original.
+* New `utils/tsd_redetect.py`, a pure-Python port of the
+  `evaluate_ltr()` TSD logic from `utils/ltr_utils.R`, validated
+  bit-for-bit against the R implementation.
+* `utils/parasail_boundary.py` gains `extract_pool_for_side()`,
+  `aggregate_extension()` and `project_corrected_g()` so a caller can
+  pass an arbitrary anchor pool.
+* Design: `docs/refine_v2_analysis.md`.
+
+## 0.4.1.0 (2026-05-06)
+
+Per-element LTR boundary refinement.  (Not tagged; first published in
+0.5.1.0.)
 
 * New `dante_ltr_refine` command — parasail anchored extension across
   MMseqs2-clustered members, with optional MAFFT change-point fallback
@@ -47,6 +181,31 @@ Per-element LTR boundary refinement.
   per-side / per-strand boundary geometry.
 * See `docs/parasail_boundary_refinement_plan.md` for design and
   validation strategy.
+
+Also in this release:
+
+* **Fallback classification fix**: `demote_classification()` returned
+  early on level-4 input such as
+  `Class_I|LTR|Ty3/gypsy|chromovirus`, so those features were left
+  unchanged under `coarse2` and never reached the loose `Ty3/gypsy`
+  row.  Rewritten with branch-aware semantics (108 vs 83 TEs on the
+  `fallback_medium` fixture).  `--fallback_mode` is now documented in
+  the README, flagged experimental.
+* **`utils/build_ltr_library.R` boundary work**: tighter change-point
+  scan (`conservation_window` 5 → 7, new `high_sustain` requiring two
+  consecutive columns above threshold); `min_cluster_size` default
+  3 → 6; a wide-flank retry for clusters whose entire flank is
+  conserved, capped proportionally at
+  `min(--wide_flank, max(500, median_annot_body_len))` with
+  `--wide_flank` default 1000; report-only TSD and TG/CA validation of
+  each correction (four new QC TSV columns, measured at both the
+  annotated and corrected column pair); and a self-contained HTML
+  boundary report (`utils/boundary_report.R`, eight panels, PNGs
+  inlined as base64, no new R dependencies).
+* **Packaging**: `parasail-python` and `pyfaidx` added as run deps and
+  `dante_ltr_refine` exposed by the recipe; `requirements.txt` renamed
+  to `conda-deps.txt` so GitHub's Dependabot pip detector stops trying
+  to parse conda pin syntax.
 
 ## 0.4.0.13 (2026-04-20)
 
