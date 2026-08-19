@@ -52,3 +52,6 @@ jobs:
 
       - name: Refine test
         run: ./tests.sh refine
+
+      - name: Memory budget test
+        run: ./tests.sh mem

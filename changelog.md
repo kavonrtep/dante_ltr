@@ -1,5 +1,29 @@
 ## unreleased
 
+Chunk-pool memory budget (issue #13).
+
+* New `dante_ltr --max_memory <GB>` flag (alias `--max-memory`) giving
+  the memory allocation this run may use, for sizing the per-chunk
+  detection pool.  Matches TideCluster 1.20.0's flag name, units and
+  resolution chain.
+* Without the flag the budget is resolved from, first hit wins:
+  `AGENT_MEMORY`; the scheduler variables `PBS_RESC_MEM`,
+  `SLURM_MEM_PER_NODE`, `LSB_MAX_MEM_RUSAGE`, `SLURM_MEM_PER_CPU` x
+  `SLURM_CPUS_ON_NODE`; the cgroup v2/v1 memory limit, walking
+  `/proc/self/cgroup` leaf to root so a limit on an ancestor job scope
+  is found; and finally `/proc/meminfo` `MemAvailable` as before.
+  `MemAvailable` is not namespaced, so under a batch scheduler or in a
+  container it reports the whole node and the pool could be sized many
+  times too large and OOM-killed hours into a run.
+* The pool-sizing message now names the budget's source, and a warning
+  is printed when the budget is host-wide while a scheduler job is
+  detected (`PBS_JOBID`, `SLURM_JOB_ID`, `SLURM_JOBID`, `LSB_JOBID`).
+* Behaviour on a plain host with no scheduler or container is
+  unchanged.  Where a new source applies the only effect is a smaller
+  pool; per-chunk results are keyed by index, so the output stays
+  byte-identical.
+* New test level `./tests.sh mem` (`tests/test_mem_budget.py`).
+
 Per-element LTR boundary refinement.
 
 * New `dante_ltr_refine` command — parasail anchored extension across

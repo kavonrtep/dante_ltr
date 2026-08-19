@@ -298,6 +298,27 @@ constraints table. The pre-demotion value is kept on each feature as
 
 Full spec: [docs/fallback_classification_spec.md](./docs/fallback_classification_spec.md).
 
+## Running on a cluster or in a container
+
+`dante_ltr` runs the per-chunk detection in a process pool sized by `-c` **and** by a
+memory budget, so that a large `-c` cannot start more chunks than fit in RAM. The budget
+is read from `/proc/meminfo` by default, and that file is not namespaced: inside a
+container or under a batch scheduler it reports the whole node rather than the job's
+allocation, and the pool can be sized many times too large.
+
+Pass the allocation explicitly on such systems:
+
+```bash
+dante_ltr -g DANTE.gff3 -s genome.fasta -o output -c 96 --max_memory 128
+```
+
+Without the flag the budget is resolved from the first of these that is available:
+`AGENT_MEMORY`; the scheduler variables `PBS_RESC_MEM`, `SLURM_MEM_PER_NODE`,
+`LSB_MAX_MEM_RUSAGE`, `SLURM_MEM_PER_CPU` × `SLURM_CPUS_ON_NODE`; the cgroup memory
+limit; and finally `MemAvailable`. The source is named in the pool-sizing message, and a
+warning is printed if the budget is host-wide while a scheduler job is detected. On a
+plain workstation nothing changes.
+
 ## CLI reference
 
 Full option lists for each tool. Also available via `--help`.
@@ -306,9 +327,9 @@ Full option lists for each tool. Also available via `--help`.
 
 ```
 usage: dante_ltr [-h] -g GFF3 -s REFERENCE_SEQUENCE -o OUTPUT [-c CPU]
-                 [-M MAX_MISSING_DOMAINS] [-L MIN_RELATIVE_LENGTH] [-S MAX_CHUNK_SIZE]
-                 [-v] [--te_constrains TE_CONSTRAINS] [--no_ambiguous_domains]
-                 [--fallback_mode {none,coarse3,coarse2}]
+                 [--max_memory GB] [-M MAX_MISSING_DOMAINS] [-L MIN_RELATIVE_LENGTH]
+                 [-S MAX_CHUNK_SIZE] [-v] [--te_constrains TE_CONSTRAINS]
+                 [--no_ambiguous_domains] [--fallback_mode {none,coarse3,coarse2}]
 
 options:
   -h, --help            show this help message and exit
@@ -318,6 +339,13 @@ options:
   -o OUTPUT, --output OUTPUT
                         output file path and prefix
   -c CPU, --cpu CPU     number of CPUs
+  --max_memory GB, --max-memory GB
+                        Memory available to this run, in GB -- the allocation the
+                        scheduler granted. Used to size the chunk pool. Set this on a
+                        cluster or in a container: without it the budget falls back to
+                        the scheduler environment, then the cgroup limit, then
+                        /proc/meminfo MemAvailable, which reports the whole node rather
+                        than this job's limit.
   -M MAX_MISSING_DOMAINS, --max_missing_domains MAX_MISSING_DOMAINS
   -L MIN_RELATIVE_LENGTH, --min_relative_length MIN_RELATIVE_LENGTH
                         Minimum relative length of protein domain to be considered for retrotransposon detection
@@ -325,8 +353,9 @@ options:
                         If the reference is larger than this, it is analyzed in chunks of
                         roughly this size (default 100000000). Controls both per-chunk memory
                         and pool granularity: chunks are the work items of the parallel
-                        detection pool (sized by -c and available RAM), so smaller chunks
-                        lower per-chunk memory but produce more, finer units of work.
+                        detection pool (sized by -c and the resolved memory budget, see
+                        --max_memory), so smaller chunks lower per-chunk memory but
+                        produce more, finer units of work.
   -v, --version         show program's version number and exit
   --te_constrains TE_CONSTRAINS
                         csv table specifying TE constraints for LTR search; template at

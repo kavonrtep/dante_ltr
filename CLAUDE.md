@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The project uses a **Python wrapper + R core** pattern:
 
-- **Python** (`dante_ltr` script): Handles CLI, input validation, large genome chunking (splits FASTA/GFF3 into ≤100MB pieces), running the per-chunk R detector in a memory-gated process pool (single-threaded children, pool sized by `-c` and available RAM), and coordinate remapping after R processing
+- **Python** (`dante_ltr` script): Handles CLI, input validation, large genome chunking (splits FASTA/GFF3 into ≤100MB pieces), running the per-chunk R detector in a memory-gated process pool (single-threaded children, pool sized by `-c` and the memory budget from `--max_memory` / scheduler env / cgroup / `MemAvailable`), and coordinate remapping after R processing
 - **R** (`utils/detect_putative_ltr.R` + `utils/ltr_utils.R`): Core genomic analysis — domain clustering, LTR detection, TSD/PBS identification, classification. Uses Bioconductor (GenomicRanges, Biostrings, rtracklayer)
 
 ### Entry Points

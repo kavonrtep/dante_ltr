@@ -5,7 +5,7 @@
 #   ./tests.sh fallback      # ~1-2 min, runs on every PR
 #   ./tests.sh refine        # ~30-60 s, runs on every PR
 #   ./tests.sh long          # ~10-30 min, runs on release tags
-#   ./tests.sh all           # smoke + short + fallback + refine + long
+#   ./tests.sh all           # smoke + short + fallback + refine + fd + mem + long
 #
 # Backwards compat: if the first argument is a number, treat it as CPU
 # count and run the long test (old behaviour of ./tests.sh 4).
@@ -41,6 +41,7 @@ case "$LEVEL" in
   fallback) bash "$ROOT/tests/fallback.sh" ;;
   refine)   bash "$ROOT/tests/refine.sh" ;;
   fd)       bash "$ROOT/tests/fd.sh" ;;
+  mem)      bash "$ROOT/tests/mem.sh" ;;
   long)     bash "$ROOT/tests/long.sh"  ;;
   all)
     bash "$ROOT/tests/smoke.sh"
@@ -48,10 +49,11 @@ case "$LEVEL" in
     bash "$ROOT/tests/fallback.sh"
     bash "$ROOT/tests/refine.sh"
     bash "$ROOT/tests/fd.sh"
+    bash "$ROOT/tests/mem.sh"
     bash "$ROOT/tests/long.sh"
     ;;
   *)
-    echo "usage: $0 {smoke|short|fallback|refine|fd|long|all|<NCPU>}" >&2
+    echo "usage: $0 {smoke|short|fallback|refine|fd|mem|long|all|<NCPU>}" >&2
     exit 2
     ;;
 esac

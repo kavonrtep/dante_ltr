@@ -8,6 +8,7 @@ directly
 
 import argparse
 import os
+import re
 import resource
 import shutil
 import signal
@@ -145,6 +146,15 @@ def get_arguments():
         action='store'
         )
     parser.add_argument(
+        '--max_memory', '--max-memory', default=None, required=False, type=float,
+        metavar='GB', dest='max_memory',
+        help="Memory available to this run, in GB -- the allocation the scheduler "
+             "granted. Used to size the chunk pool. Set this on a cluster or in a "
+             "container: without it the budget falls back to the scheduler "
+             "environment, then the cgroup limit, then /proc/meminfo MemAvailable, "
+             "which reports the whole node rather than this job's limit."
+        )
+    parser.add_argument(
         '-M', '--max_missing_domains', default=0, required=False, type=int
         )
     parser.add_argument(
@@ -157,8 +167,9 @@ def get_arguments():
         help="If the reference is larger than this, it is analyzed in chunks of "
              "roughly this size (default %(default)s). This controls both per-chunk "
              "memory and pool granularity: chunks are the work items of the parallel "
-             "detection pool (sized by -c and available RAM), so smaller chunks lower "
-             "per-chunk memory but produce more, finer units of work."
+             "detection pool (sized by -c and the resolved memory budget, see "
+             "--max_memory), so smaller chunks lower per-chunk memory but produce "
+             "more, finer units of work."
         )
     parser.add_argument(
         '-v', '--version', action='version', version='%(prog)s ' + __version__
@@ -293,16 +304,181 @@ def _pool_worker_init():
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
-def _mem_available_kb():
-    """Return MemAvailable from /proc/meminfo in kB, or None if it cannot be read."""
+# Memory budget resolution. Mirrors TideCluster 1.20.0's ``tc_utils.memory_budget_mb``
+# so the two tools resolve the same budget from the same signals -- see issue #13.
+# Everything here is in kB, because the only consumer compares against ``ru_maxrss``.
+#
+# NOTE: unlike TideCluster's helper, ``_memory_budget_kb`` returns the *raw* budget.
+# The 0.8 headroom stays at the call site, where it already was; applying it in both
+# places would silently halve the pool.
+
+# Unit each scheduler variable is documented to use. Getting one wrong by 1024x
+# re-creates the very bug this chain exists to fix, so the unit lives next to the name.
+_SCHEDULER_MEM_VARS = (
+    ('PBS_RESC_MEM', 'b'),
+    ('SLURM_MEM_PER_NODE', 'm'),
+    ('LSB_MAX_MEM_RUSAGE', 'k'),
+    )
+_MEM_UNIT_KB = {
+    'b': 1.0 / 1024,
+    'k': 1.0, 'kb': 1.0,
+    'm': 1024.0, 'mb': 1024.0,
+    'g': 1024.0 * 1024, 'gb': 1024.0 * 1024,
+    't': 1024.0 * 1024 * 1024, 'tb': 1024.0 * 1024 * 1024,
+    }
+# cgroup v1 writes PAGE_COUNTER_MAX rather than a sentinel string for "no limit".
+_CGROUP_UNLIMITED = 1 << 62
+# Presence of any of these means a batch scheduler is managing this process, so a
+# host-wide budget is almost certainly wrong.
+_SCHEDULER_JOB_VARS = ('PBS_JOBID', 'SLURM_JOB_ID', 'SLURM_JOBID', 'LSB_JOBID')
+
+
+def _parse_mem_to_kb(raw, default_unit):
+    """Parse a scheduler memory string to kB, or None if unparseable.
+
+    Accepts a bare number -- read in ``default_unit``, which differs per variable
+    (PBS bytes, Slurm MB, LSF KB) -- or a number with an explicit ``k/m/g/t[b]``
+    suffix, which some sites do set.
+    """
+    if raw is None:
+        return None
+    m = re.fullmatch(r'(\d+(?:\.\d+)?)\s*([kmgt]?b?)', raw.strip().lower())
+    if not m:
+        return None
+    factor = _MEM_UNIT_KB.get(m.group(2) or default_unit)
+    if factor is None:
+        return None
+    return float(m.group(1)) * factor
+
+
+def _cgroup_limit_kb(sysfs_root='/sys/fs/cgroup', proc_cgroup='/proc/self/cgroup'):
+    """Effective cgroup memory limit in kB, or None if there is none.
+
+    The effective limit is the minimum over the whole cgroup chain, so every
+    resolvable candidate is read and the smallest finite value wins. Candidates are
+    the namespaced root (inside a container that *is* the container's own cgroup, and
+    is often the only path that resolves), then the path from ``/proc/self/cgroup``
+    and each of its ancestors -- a batch scheduler usually sets the limit on the job
+    scope, not on the leaf the process happens to sit in.
+    """
+    rel_v2, rel_v1 = '', ''
     try:
-        with open('/proc/meminfo') as f:
-            for line in f:
-                if line.startswith('MemAvailable:'):
-                    return int(line.split()[1])
-    except (OSError, ValueError):
+        with open(proc_cgroup) as fh:
+            for line in fh:
+                parts = line.strip().split(':', 2)
+                if len(parts) != 3:
+                    continue
+                if parts[0] == '0' and not rel_v2:  # v2 unified hierarchy
+                    rel_v2 = parts[2]
+                elif 'memory' in parts[1].split(',') and not rel_v1:  # v1 controller
+                    rel_v1 = parts[2]
+    except OSError:
         pass
-    return None
+
+    def _chain(base, rel):
+        paths, path = [base], rel
+        while path and path != '/':
+            paths.append(base + path)
+            path = os.path.dirname(path)
+        return paths
+
+    limits = []
+    for path in _chain(sysfs_root, rel_v2):
+        try:
+            with open(os.path.join(path, 'memory.max')) as fh:
+                value = fh.read().strip()
+        except OSError:
+            continue
+        if value.isdigit():  # v2 writes the string "max" when unlimited
+            limits.append(int(value) / 1024)
+
+    for path in _chain(os.path.join(sysfs_root, 'memory'), rel_v1):
+        try:
+            with open(os.path.join(path, 'memory.limit_in_bytes')) as fh:
+                value = int(fh.read().strip())
+        except (OSError, ValueError):
+            continue
+        if 0 < value < _CGROUP_UNLIMITED:
+            limits.append(value / 1024)
+
+    return min(limits) if limits else None
+
+
+def _memory_budget_kb(explicit_gb=None, environ=None, sysfs_root='/sys/fs/cgroup',
+                      proc_cgroup='/proc/self/cgroup', meminfo='/proc/meminfo'):
+    """Memory budget in kB for sizing the chunk pool, plus the source it came from.
+
+    Returns ``(budget_kb, source)``, or ``(None, 'none')`` if nothing is readable.
+    No headroom is applied -- that is the caller's job. Resolution order, first hit
+    wins:
+
+    1. ``--max_memory`` (GB) -- explicit
+    2. ``AGENT_MEMORY`` (GB) -- sandbox override
+    3. scheduler environment: ``PBS_RESC_MEM`` (bytes), ``SLURM_MEM_PER_NODE`` (MB),
+       ``LSB_MAX_MEM_RUSAGE`` (kB), ``SLURM_MEM_PER_CPU`` x ``SLURM_CPUS_ON_NODE`` (MB)
+    4. cgroup v2 ``memory.max`` / v1 ``memory.limit_in_bytes``
+    5. ``/proc/meminfo`` ``MemAvailable``
+
+    Rungs 3 and 4 exist because ``MemAvailable`` is **not namespaced**: inside a
+    container it reports the *host's* free memory, so under a batch scheduler the
+    pool gate silently sees a budget many times the real limit and the job gets
+    OOM-killed hours in (issue #13). The keyword paths are test hooks -- they let a
+    synthetic /sys/fs/cgroup tree stand in for the real one.
+    """
+    env = os.environ if environ is None else environ
+
+    if explicit_gb:
+        return int(float(explicit_gb) * 1024 * 1024), '--max_memory'
+
+    agent = _parse_mem_to_kb(env.get('AGENT_MEMORY'), 'g')
+    if agent:
+        return int(agent), 'AGENT_MEMORY'
+
+    for var, unit in _SCHEDULER_MEM_VARS:
+        kb = _parse_mem_to_kb(env.get(var), unit)
+        if kb:
+            return int(kb), var
+    per_cpu = _parse_mem_to_kb(env.get('SLURM_MEM_PER_CPU'), 'm')
+    ncpu = (env.get('SLURM_CPUS_ON_NODE') or '').strip()
+    if per_cpu and ncpu.isdigit() and int(ncpu) > 0:
+        return int(per_cpu * int(ncpu)), 'SLURM_MEM_PER_CPU'
+
+    cgroup_kb = _cgroup_limit_kb(sysfs_root=sysfs_root, proc_cgroup=proc_cgroup)
+    if cgroup_kb:
+        return int(cgroup_kb), 'cgroup'
+
+    try:
+        with open(meminfo) as fh:
+            for line in fh:
+                if line.startswith('MemAvailable:'):
+                    return int(line.split()[1]), 'MemAvailable'
+    except (OSError, ValueError, IndexError):
+        pass
+    return None, 'none'
+
+
+def _warn_if_host_wide_budget(source, environ=None):
+    """Warn once if the pool budget is host-wide while a batch scheduler is in charge.
+
+    ``MemAvailable`` under a job scheduler means every other rung missed, so the pool
+    is about to be sized from the node instead of from the allocation. Saying so at
+    startup turns an OOM kill hours later into a first-second diagnostic. Returns
+    whether the warning fired, so it can be tested.
+    """
+    env = os.environ if environ is None else environ
+    if source != 'MemAvailable':
+        return False
+    jobs = [v for v in _SCHEDULER_JOB_VARS if env.get(v)]
+    if not jobs:
+        return False
+    sys.stderr.write(
+        'WARNING: sizing the chunk pool from /proc/meminfo MemAvailable, which is not '
+        'namespaced and reports the whole node -- but this looks like a batch job '
+        '({}). If the job has a memory allocation, the pool may be sized several times '
+        'too large and be OOM-killed. Pass --max_memory <GB> with the allocation.\n'
+        .format(', '.join(jobs))
+        )
+    return True
 
 
 def sum_up_stats_files(files):
@@ -1329,16 +1505,20 @@ def main():
 
         remaining = order[1:]
         # Size the pool by cores AND memory: a pool sized purely from -c can OOM when
-        # per-chunk RSS is large. Cap at 80% of MemAvailable / per-chunk peak.
-        avail_kb = _mem_available_kb()
+        # per-chunk RSS is large. Cap at 80% of the budget / per-chunk peak. The budget
+        # is resolved from --max_memory / the scheduler environment / the cgroup limit
+        # before falling back to MemAvailable, which reports the node rather than this
+        # job (issue #13). The 0.8 headroom is applied here, not in the helper.
+        avail_kb, mem_source = _memory_budget_kb(args.max_memory)
+        _warn_if_host_wide_budget(mem_source)
         pool_size = min(args.cpu, len(remaining)) if remaining else 0
         if remaining and avail_kb and peak_kb > 0:
             mem_cap = max(1, int(avail_kb * 0.8) // peak_kb)
             if mem_cap < pool_size:
                 print(
                     'memory-gating chunk pool to {} concurrent chunks '
-                    '(~{} MB/chunk, {} MB available)'.format(
-                        mem_cap, peak_kb // 1024, avail_kb // 1024
+                    '(~{} MB/chunk, {} MB available from {})'.format(
+                        mem_cap, peak_kb // 1024, avail_kb // 1024, mem_source
                         )
                     )
                 pool_size = mem_cap
