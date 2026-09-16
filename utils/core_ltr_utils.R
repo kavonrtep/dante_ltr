@@ -781,3 +781,38 @@ lineage_domain_map <- function(lineage_info) {
              gsub("_", "/", gsub("/", "|", lineage_info$Lineage)))
   setNames(lineage_info$Domains.order, nm)
 }
+
+
+#' Per-rank element counts, same shape as get_te_statistics().
+#'
+#' get_te_statistics() (ltr_utils.R:988) takes its row labels from the RT
+#' domains' classifications.  In lineage mode an element's classification
+#' is by construction one of those, so nothing is lost.  Core mode
+#' computes the element's classification instead (design 7), and a
+#' demoted or conflict-resolved label need not appear among the RT
+#' domains at all -- such elements would silently vanish from the table
+#' and from its Total row.
+#'
+#' Columns are identical (D, DL, DLT, DLP, DLTP, RT_domain) so the
+#' Python sum_up_stats_files() merges chunk outputs unchanged.
+get_core_te_statistics <- function(gr, RT) {
+  ranks <- c("D", "DL", "DLT", "DLP", "DLTP")
+  te <- gr[gr$type == "transposable_element"]
+  rt_class <- as.character(RT$Final_Classification)
+  te_class <- as.character(te$Final_Classification)
+
+  rt_tab <- sort(table(rt_class), decreasing = TRUE)
+  te_tab <- sort(table(te_class), decreasing = TRUE)
+  all_class <- unique(c(names(rt_tab), names(te_tab)))
+
+  rank_table <- lapply(ranks, function(r) {
+    as.integer(table(factor(te_class[te$Rank == r], levels = all_class)))
+  })
+  names(rank_table) <- ranks
+  out <- cbind(do.call(cbind, rank_table),
+               RT_domain = as.integer(table(factor(rt_class,
+                                                   levels = all_class))))
+  out <- rbind(out, Total = colSums(out))
+  rownames(out) <- c(all_class, "Total")
+  out
+}
