@@ -180,7 +180,54 @@ def get_arguments():
                               'template for this table \n'
                               'can be found in '
                               'https://github.com/kavonrtep/dante_ltr/blob/main/databases/lineage_domain_order.csv'
+                              '\nIn --mode core this is read as the superfamily-level '
+                              'table instead (databases/core_domain_order.csv).'
                         )
+    parser.add_argument('--mode', default='lineage', required=False,
+                        choices=['lineage', 'core'],
+                        help='Detection strategy.\n'
+                             '  lineage  default; match a full lineage-keyed '
+                                        'domain complement\n'
+                             '  core     seed on the ordered RT/RH/INT core, whose '
+                                        'order gives the superfamily, and classify '
+                                        'afterwards.  For genomes poorly covered by '
+                                        'REXdb, where the accessory domains are often '
+                                        'undetectable.\n'
+                             'See docs/core_domain_mode_design.md.'
+                        )
+    core = parser.add_argument_group(
+        'core mode options', 'Only used with --mode core.'
+        )
+    core.add_argument('--min_relative_length_core', default=0.3, type=float,
+                      help='Relaxed minimum relative domain length for RT/RH/INT '
+                           'when seeding. The ordered triplet is strong joint '
+                           'evidence, so individually weak core domains are '
+                           'admitted (default %(default)s)'
+                      )
+    core.add_argument('--min_similarity', default=0.4, type=float,
+                      help='Minimum domain similarity (default %(default)s)'
+                      )
+    core.add_argument('--core_max_gap', default=None, type=int,
+                      help='Max bp between consecutive core domains; overrides '
+                           'the constraints table'
+                      )
+    core.add_argument('--core_max_span', default=None, type=int,
+                      help='Max bp from first to last core domain; overrides '
+                           'the constraints table'
+                      )
+    core.add_argument('--min_ltr_length', default=100, type=int,
+                      help='Minimum LTR length (default %(default)s)'
+                      )
+    core.add_argument('--max_te_length', default=35000, type=int,
+                      help='Maximum element length (default %(default)s)'
+                      )
+    core.add_argument('--split_max_gap', default=50, type=int,
+                      help='Max bp between two annotations of one frameshifted '
+                           'domain (default %(default)s)'
+                      )
+    core.add_argument('--core_require_tsd', default=False, action='store_true',
+                      help='Reject elements without a target site duplication'
+                      )
     parser.add_argument('--fallback_mode', default='none', required=False,
                         choices=['none', 'coarse3', 'coarse2'],
                         help='Classify at reduced taxonomic depth and demote '
@@ -272,18 +319,32 @@ def _limit_chunks_to_fd_budget(number_of_temp_files, fd_headroom=64):
 
 
 def _detect_ltr_cmd(tool_path, fasta, gff, out, cpu, args, constrains_path):
-    """Build one detect_putative_ltr.R command line.
+    """Build one per-chunk detector command line.
 
     Kept in one place so the memory-probe run and the pooled runs are byte-for-byte
-    identical apart from the ``-c`` value.
+    identical apart from the ``-c`` value, and so --mode is honoured everywhere.
     """
-    cmd = [f'{tool_path}/utils/detect_putative_ltr.R', '-s', fasta, '-g', gff, '-o', out,
+    script = ('detect_core_ltr.R' if getattr(args, 'mode', 'lineage') == 'core'
+              else 'detect_putative_ltr.R')
+    cmd = [f'{tool_path}/utils/{script}', '-s', fasta, '-g', gff, '-o', out,
            '-c', str(cpu), '-M', str(args.max_missing_domains),
            '-L', str(args.min_relative_length)]
     if constrains_path:
         cmd += ['--te_constrains', constrains_path]
     if args.no_ambiguous_domains:
         cmd += ['--no_ambiguous_domains']
+    if getattr(args, 'mode', 'lineage') == 'core':
+        cmd += ['--min_relative_length_core', str(args.min_relative_length_core),
+                '--min_similarity', str(args.min_similarity),
+                '--min_ltr_length', str(args.min_ltr_length),
+                '--max_te_length', str(args.max_te_length),
+                '--split_max_gap', str(args.split_max_gap)]
+        if args.core_max_gap is not None:
+            cmd += ['--core_max_gap', str(args.core_max_gap)]
+        if args.core_max_span is not None:
+            cmd += ['--core_max_span', str(args.core_max_span)]
+        if args.core_require_tsd:
+            cmd += ['--core_require_tsd']
     return cmd
 
 
@@ -1316,7 +1377,13 @@ def main():
     stats = ltr_resolution_stats(
         args.gff3, min_relative_length=args.min_relative_length
     )
-    emit_fallback_recommendation(stats, args.fallback_mode)
+    if args.mode == 'core':
+        # the recommendation points at --fallback_mode, which is not the
+        # right advice for someone already using the structural detector
+        print('mode=core: seeding on the ordered RT/RH/INT core; '
+              'the superfamily comes from domain order, not classification')
+    else:
+        emit_fallback_recommendation(stats, args.fallback_mode)
 
     # Fallback mode: demote LTR classifications in the input GFF3 and
     # (unless --te_constrains is set) use the matching loose constraints
@@ -1340,7 +1407,16 @@ def main():
             )
         )
         gff3_input = demoted_gff3
-        if constrains_path is None:
+        if args.mode == 'core':
+            # The coarse tables are lineage-keyed; core mode reads
+            # --te_constrains as the superfamily table instead, so
+            # substituting one here would be a parse error. Core mode
+            # does not need it: it takes the superfamily from domain
+            # order, not from the classification the demotion rewrites.
+            print('note: --mode core ignores the coarse constraints table; '
+                  '--fallback_mode only affects the demoted input it reads, '
+                  'and core-mode classification governs the output')
+        elif constrains_path is None:
             constrains_path = os.path.join(
                 tool_path, 'databases',
                 'lineage_domain_order_' + args.fallback_mode + '.csv'
@@ -1353,7 +1429,7 @@ def main():
         # clustered non-chromovirus LTR groups, rewrite that row's
         # Domains order to include aRH.  Only applies to coarse3.
         ARH_FRACTION_THRESHOLD = 0.20
-        if (args.fallback_mode == 'coarse3'
+        if (args.mode != 'core' and args.fallback_mode == 'coarse3'
                 and args.te_constrains is None):
             # domain_span used as clustering gap — take from constraints row
             domain_span = 9000  # fallback default; gets overwritten below
@@ -1390,7 +1466,8 @@ def main():
                     )
                     constrains_path = rewritten_csv
                     print('using modified constraints table: ' + constrains_path)
-        elif args.fallback_mode == 'coarse3' and args.te_constrains is not None:
+        elif (args.mode != 'core' and args.fallback_mode == 'coarse3'
+                and args.te_constrains is not None):
             print('aRH check skipped: user supplied --te_constrains')
 
     # split fasta file to chunks
