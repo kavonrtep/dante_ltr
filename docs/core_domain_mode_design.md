@@ -81,9 +81,10 @@ The central premise — that the core order is invariant and determines
 the superfamily — is not assumed. It was measured on 51 875 validated
 elements across three genomes and held in every one (§5.2).
 
-And the payoff is measured too: on *Draparnaldia*, which REXdb does not
-cover, lineage mode returns **zero** complete elements while core-mode
-seeding finds **1 984** ordered cores on the same input (§5.4).
+And the payoff is measured too: on the whole *Draparnaldia* genome,
+which REXdb does not cover, lineage mode returns **zero** complete
+elements while core mode returns **1 408**, of which 791 reach the top
+rank `DLTP` and 68 % carry a tRNA-matched PBS (§5.6).
 
 **Non-goal:** replacing lineage mode. On REXdb-covered species, lineage
 mode's stricter criterion is the better one and stays the default.
@@ -741,6 +742,73 @@ a wider BLAST window. Serial per-element domain lookups were also
 quadratic in (domains × elements) — replaced with an indexed lookup,
 verified byte-identical, worth only ~5 s here but necessary before a
 real chunk with 10^5 domains.
+
+---
+
+### 5.6 Whole-genome run on Drapa — the case the mode exists for
+
+§5.5 shows core mode matching lineage mode where lineage mode works.
+This is the other half: the whole 391.7 Mb *Draparnaldia* assembly
+(63 contigs, raw DANTE, 61 446 domains), where it does not.
+
+```
+                    D      DL    DLT    DLP   DLTP    total    runtime
+  lineage         201       0      0      0      0      201        34 s
+  core            122     261    186    170    791     1530       686 s
+```
+
+**Lineage mode finds 201 rank-`D` domain clusters and not one complete
+element** — reproducing the existing pipeline result for this assembly
+exactly. Core mode finds **1 408 complete elements on the same input,
+791 of them at rank `DLTP`**, the top rank, carrying both a target site
+duplication and a tRNA-matched primer binding site.
+
+#### The elements are not noise
+
+```
+  length          q05 / median / q95 : 5 242 / 9 315 / 14 713 bp
+  LTR identity    q05 / median / q95 : 94.1 / 99.5 / 100 %
+  TSD found                          : 69 %
+  PBS / tRNA match                   : 68 %
+  classification demoted             : 83 %
+  classification conflicts           : 1 of 1 408
+  overlapping neighbours             : 41 (2.9 %), none nested
+```
+
+Lengths sit in the normal LTR-RT range. **68 % carry a tRNA-matched
+PBS**, which is evidence independent of the LTR search: the PBS is
+found by BLASTing the 31 bp immediately 3' of the called 5'LTR against a
+tRNA database, so it only matches if that boundary is right. A spurious
+direct repeat has no reason to be followed by a tRNA match.
+
+The median LTR identity of 99.5 % says why lineage mode's failure here
+is purely a classification problem: this is a young, recently active
+element population with near-identical LTRs. They are easy to find
+structurally and impossible to name from REXdb.
+
+83 % are demoted to superfamily or subfamily depth — mostly
+`Ty3/gypsy|chromovirus` — and exactly one element in 1 408 shows a
+classification conflict. The population is 1 298 gypsy to 110 copia,
+and the accessory complement is consistently chromoviral: `PROT CHD`
+(917), `CHD` (169), `PROT GAG` (106), and 67 elements with no
+detectable accessory domain at all — the case that defeats both lineage
+mode and `--fallback_mode`.
+
+#### Gate G5 is doing its job
+
+The structural gates rejected nothing on this genome, which invited the
+suspicion that they never fire. Checking the output directly: of 1 408
+elements, 41 pairs of neighbours overlap partially and **none is nested
+inside another**. G5 rejects exactly the nested case, so "0 rejected"
+here means there was nothing to reject, not that the gate is inert.
+
+#### Cost
+
+686 s for 391.7 Mb against lineage mode's 34 s. The gap is larger than
+§5.5's 3× because chunked runs give each chunk a single core, so the
+per-seed BLAST is serial within a chunk while the pool parallelises
+across them: 4 chunks, ~2 176 seeds in total. Lineage mode is fast here
+for the uninteresting reason that it abandons almost immediately.
 
 ---
 
