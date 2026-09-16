@@ -1,0 +1,3 @@
+Superfamily	core_order	offset5prime	offset3prime	core_max_gap	core_max_span	ltr_length	accessory_5	accessory_3
+Class_I/LTR/Ty1_copia	INT RT RH	9000	8500	2000	6000	100	PROT GAG	-
+Class_I/LTR/Ty3_gypsy	RT RH INT	17000	14000	2000	6000	100	PROT GAG	aRH CHD CHDCR
