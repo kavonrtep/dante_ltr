@@ -802,6 +802,58 @@ elements, 41 pairs of neighbours overlap partially and **none is nested
 inside another**. G5 rejects exactly the nested case, so "0 rejected"
 here means there was nothing to reject, not that the gate is inert.
 
+
+#### Against `--fallback_mode`, the alternative a user would reach for
+
+`--fallback_mode` exists to solve the same problem by a lighter route:
+demote every classification to a coarse depth and match against a
+correspondingly loose constraints table (§11). Both coarse settings run
+on the same input:
+
+```
+mode                   D     DL   DLT   DLP  DLTP   complete   time
+lineage (none)       201      0     0     0     0          0     34 s
+fallback coarse3    2940     52    28    51    28        159    131 s
+fallback coarse2    3607     53    27    52    28        160    143 s
+core                 122    261   186   170   791      1408    686 s
+```
+
+Fallback mode is not useless here — it rescues ~159 elements from
+lineage mode's zero. But core mode finds **8.8× more**, and the two are
+not finding different populations:
+
+```
+  fallback coarse3 : 158 of 159 (99 %) also found by core mode
+  fallback coarse2 : 159 of 160 (99 %) also found by core mode
+```
+
+Core mode is very nearly a strict superset. And its extra elements are
+not lower-grade: on every quality axis the core-mode population is the
+better one.
+
+```
+mode                   n   median length     TSD     PBS
+fallback coarse3     159           5 818     35 %    50 %
+fallback coarse2     160           5 882     34 %    50 %
+core               1 408           9 315     69 %    68 %
+```
+
+**coarse2 and coarse3 are indistinguishable on this genome** — 160 vs
+159 elements. That is the diagnostic result. Coarsening from three
+classes to two changes only how deeply domains are labelled, so if
+classification depth were the binding constraint, coarse2 would gain
+over coarse3. It gains one element. What actually blocks lineage-keyed
+detection on Drapa is the *missing accessory complement*: 67 of the
+core-mode elements have no detectable accessory domain at all, and the
+median fallback element is 3.5 kb shorter than its core-mode
+counterpart, i.e. the coarse tables' offsets and `domain_span` caps are
+truncating what they do find.
+
+Both approaches remain worth keeping — `--fallback_mode` is far cheaper
+and sufficient when the complement is present but under-resolved (§11).
+On a genome where the complement itself is gone, only the structural
+criterion works.
+
 #### Cost
 
 686 s for 391.7 Mb against lineage mode's 34 s. The gap is larger than
@@ -1292,6 +1344,11 @@ PR tier):
 | lineage mode (default) | yes | yes | classification |
 | `--fallback_mode coarse2/3` | yes | no (demoted) | classification |
 | `--mode core` | **no** (RT/RH/INT only) | **no** | **domain order** |
+
+Measured against each other on Drapa (§5.6): lineage 0 complete
+elements, `coarse3` 159, `coarse2` 160, core mode 1 408 — with 99 % of
+the fallback elements also found by core mode, and coarse2 and coarse3
+indistinguishable from each other.
 
 Core mode is the strictly more permissive structural criterion and the
 only one that survives a genome where GAG and PROT are undetectable.
