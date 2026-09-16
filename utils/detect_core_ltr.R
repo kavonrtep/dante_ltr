@@ -263,11 +263,11 @@ if (nrow(seeds) > 0) {
 
 gate_counts <- c(G2 = 0L, G3 = 0L, G4 = 0L, G5 = 0L, G6 = 0L)
 if (length(good_TE) > 0) {
-  block_name <- as.character(mcols(g_block)$Name)
   block_strand <- as.character(strand(g_block))
   block_sf_ok <- is_ltr_classification(mcols(g_block)$Final_Classification) |
     (!is.na(mcols(g_block)$Region_Hits_Flat) &
        grepl("\\|Class_I\\|LTR", mcols(g_block)$Region_Hits_Flat))
+  block_index <- build_domain_index(g_block)
 
   passes <- logical(length(good_TE))
   for (i in seq_along(good_TE)) {
@@ -286,8 +286,7 @@ if (length(good_TE) > 0) {
       gate_counts["G3"] <- gate_counts["G3"] + 1L
       next
     }
-    inside <- which(as.character(seqnames(g_block)) == meta$seqnames &
-                      start(g_block) >= te_start & end(g_block) <= te_end)
+    inside <- domains_within(block_index, meta$seqnames, te_start, te_end)
     # G4: an element that swallows an opposite-strand or non-LTR domain
     # is not one element
     bad <- inside[block_strand[inside] != meta$strand | !block_sf_ok[inside]]
@@ -327,14 +326,14 @@ n_conflict <- 0L
 if (length(good_TE) > 0) {
   # Re-collect the element's full domain set now that the boundaries are
   # known, and hand *that* to get_te_gff3() (design 7).
+  block_index <- build_domain_index(g_block)
   for (i in seq_along(good_TE)) {
     info <- good_TE[[i]]$ltr_info[[1]]
     meta <- seed_meta[[i]]
     te_start <- start(info$LTR_L_position)
     te_end <- end(info$LTR_R_position)
-    inside <- which(as.character(seqnames(g_block)) == meta$seqnames &
-                      start(g_block) >= te_start & end(g_block) <= te_end &
-                      as.character(strand(g_block)) == meta$strand)
+    inside <- domains_within(block_index, meta$seqnames, te_start, te_end,
+                             strand = meta$strand)
     dom <- g_block[inside]
     dom <- dom[order(start(dom))]
     if (meta$strand == "-") {

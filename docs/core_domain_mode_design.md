@@ -647,6 +647,103 @@ default to **0.3**; `--min_similarity` should not be touched.
 
 ---
 
+### 5.5 Head-to-head against lineage mode on Pisum
+
+The measurement §13 said was missing: both modes run on the same input,
+counting *elements* rather than seeds. Input is
+`test_data/sample_genome.fasta` + `sample_DANTE.gff3` — 87 Mb of Pisum
+across 50 contigs, well covered by REXdb (Ogre, SIRE, Tekay, Ivana,
+Tork; only 116 of 11 061 LTR domains stop at superfamily depth).
+Reproduce with `utils/compare_detection_modes.py`.
+
+```
+                    D      DL    DLT    DLP   DLTP    total    runtime
+  lineage        2473     110     24     55     54     2716        65 s
+  core           2194     251     45    111     93     2694       191 s
+```
+
+#### Concordance — the §10 gate passes
+
+```
+lineage complete elements (rank > D)          243
+core    complete elements                     500
+matched within +/-20 bp                       233   = 95.9 %
+  ...of which exact, 0 bp on both ends        233   = 100 %
+superfamily agreement on matched pairs     233/233
+classification depth identical             233/233
+```
+
+**95.9 % recovery, and every matched element agrees to the base.** Not
+one matched pair differs by even a single bp, so the ±20 bp tolerance in
+the §10 gate is never exercised. The order-derived superfamily never
+contradicts lineage mode, now over 233 more elements. And core mode
+demoted nothing here — on a genome where the evidence supports lineage
+depth, the LCA rule reports lineage depth.
+
+Every one of the 243 lineage elements has a complete filtered core on
+this genome, so the conditional and unconditional figures coincide; the
+2–25 % ceiling of §5.2 does not bite here.
+
+#### Sensitivity — core mode roughly doubles the yield
+
+267 complete elements that lineage mode does not report. They are not
+noise: their profile tracks the matched set on every axis, just slightly
+more diverged, which is what an element lineage mode misses should look
+like.
+
+```
+                 n     median length   median LTR identity   TSD    PBS
+  matched      233            9 728              90.3 %     32 %   45 %
+  core-only    267            9 142              88.0 %     23 %   37 %
+```
+
+39 of the core-only elements reach rank `DLTP` and 53 more `DLP`, i.e.
+92 carry tRNA/PBS evidence independent of the LTR call. Split evenly
+between superfamilies (136 copia / 131 gypsy).
+
+#### The 10 misses are boundary choices, not detection failures
+
+Core mode finds something at 9 of the 10 loci; on 6 it calls a
+*different, inner* LTR pair, usually sharing one end exactly:
+
+```
+  ctg137:520921-529829   lineage DLP    core 523168-529829  (5' end +2247)
+  ctg993:1032128-1049165 lineage DLTP   core 1033012-1049165 (5' end  +884)
+```
+
+The cause is window geometry. Lineage mode anchors its search window on
+the first domain of the cluster — usually GAG — so the window cannot
+reach into the element's own GAG/PROT region. Core mode anchors on the
+core, 2–3 kb further in, so that region is inside the window, and
+`get_TE()`'s innermost-pair preference can then prefer a repeat found
+there over the true LTR.
+
+**Anchoring the window on the outermost traversed accessory domain was
+tried and is measurably worse**: it repaired 2 of the 10 and broke 6
+others, 95.9 % → 94.2 %. The reason is the symmetric failure — when the
+traversed domain actually belongs to the *neighbouring* element, the
+anchor jumps past the true LTR and the element is lost entirely rather
+than merely mis-bounded. The core-anchored geometry is kept.
+
+A better fix, not attempted here, is to make the preference conditional
+rather than the window narrower: keep the wide window, but among
+candidate LTR pairs prefer the outermost one still consistent with every
+accessory domain the walk traversed. That needs a change to `get_TE()`'s
+selection, which is shared with lineage mode, so it belongs in its own
+piece of work. **Known limitation: ~2.5 % of elements (6 of 243) get a
+5' boundary placed inside the true LTR on a well-covered genome.**
+
+#### Cost
+
+Core mode is ~3× slower (191 s vs 65 s) on this input. That is inherent
+rather than a defect: 855 seeds against 365 lineage clusters, each with
+a wider BLAST window. Serial per-element domain lookups were also
+quadratic in (domains × elements) — replaced with an indexed lookup,
+verified byte-identical, worth only ~5 s here but necessary before a
+real chunk with 10^5 domains.
+
+---
+
 ## 6. Algorithm
 
 ### 6.0 Preprocessing

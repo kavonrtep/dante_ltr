@@ -539,7 +539,9 @@ seed_search_limits <- function(seeds, g_block, constraints) {
   if (length(ix) > n_pass) {
     blocker <- ix[n_pass + 1L]
   }
-  list(blocker = blocker, traversed = traversed, sf_mismatch = sf_mismatch)
+  list(blocker = blocker, traversed = traversed,
+       traversed_idx = if (n_pass > 0) ix[seq_len(n_pass)] else integer(0),
+       sf_mismatch = sf_mismatch)
 }
 
 
@@ -549,6 +551,14 @@ seed_search_limits <- function(seeds, g_block, constraints) {
 #' `upstream_domain`.
 core_ranges_left <- function(seeds, constraints, offset2 = 300) {
   offs <- .side_offsets(seeds, constraints)
+  # Anchored on the core, not on the outermost accessory domain the walk
+  # reached.  Anchoring on the accessory domain was tried, on the theory
+  # that it stops the window reaching into the element's own GAG/PROT
+  # region where get_TE()'s innermost-pair preference can prefer a
+  # spurious internal repeat.  Measured on Pisum it repaired 2 elements
+  # and broke 6: when the traversed domain actually belongs to the
+  # neighbouring element, the anchor jumps past the true LTR and the
+  # element is lost entirely.  See design §10.
   S <- seeds$start
   limit <- ifelse(is.na(seeds$left_limit), 1L, seeds$left_limit)
   max_offset <- S - limit + 100
@@ -815,4 +825,48 @@ get_core_te_statistics <- function(gr, RT) {
   out <- rbind(out, Total = colSums(out))
   rownames(out) <- c(all_class, "Total")
   out
+}
+
+
+#' Indices of domains fully contained in [lo, hi] on one sequence.
+#'
+#' Built for repeated queries: the caller precomputes the per-sequence
+#' index once, and each lookup is a binary search rather than a scan.
+#' The naive form -- re-deriving as.character(seqnames(g)) inside a loop
+#' over elements -- is quadratic in (domains x elements), which is
+#' tolerable on a test fixture and intractable on a real chunk carrying
+#' 10^5 domains and 10^3 seeds.
+#'
+#' @param index list from build_domain_index().
+#' @param seqname sequence to query.
+#' @param lo,hi inclusive bounds.
+#' @param strand optional; restrict to this strand.
+domains_within <- function(index, seqname, lo, hi, strand = NULL) {
+  ix <- index$by_seq[[seqname]]
+  if (is.null(ix) || length(ix) == 0) {
+    return(integer(0))
+  }
+  s <- index$start[ix]
+  first <- findInterval(lo - 1L, s) + 1L
+  last <- findInterval(hi, s)
+  if (first > last || first > length(ix)) {
+    return(integer(0))
+  }
+  cand <- ix[first:last]
+  cand <- cand[index$end[cand] <= hi]
+  if (!is.null(strand)) {
+    cand <- cand[index$strand[cand] == strand]
+  }
+  cand
+}
+
+
+#' Precompute the coordinate index used by domains_within().
+build_domain_index <- function(g) {
+  st <- start(g)
+  ord <- order(as.character(seqnames(g)), st)
+  by_seq <- split(ord, as.character(seqnames(g))[ord])
+  list(by_seq = by_seq, start = st, end = end(g),
+       strand = as.character(strand(g)),
+       seqnames = as.character(seqnames(g)))
 }
