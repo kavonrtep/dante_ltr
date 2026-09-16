@@ -398,3 +398,188 @@ accessory_names <- function(constraints, superfamily, side) {
   }
   strsplit(v, " +")[[1]]
 }
+
+
+# --- 4. search-space delimitation (design 6.3) -----------------------
+
+# This is the only part with no lineage-mode analogue.  get_ranges_left()
+# and get_ranges_right() (ltr_utils.R:241,254) clamp the BLAST window at
+# the nearest neighbouring domain, which works there because the
+# element's own GAG/PROT are inside the cluster.  In core mode they are
+# outside it, so the naive clamp would stop the window dead at the
+# element's own GAG.  Measurement says this is not a corner case: 49% of
+# Pisum seeds and 99% of Drapa seeds have a domain within 500 bp of the
+# core edge, almost all of them PROT/CHD/GAG (design 5.3, 5.4).
+#
+# The replacement is an outward walk governed by one principle: a domain
+# that survived dante_filtering is real and blocks, unless it can be
+# positively explained as part of this element.
+
+#' Per-seed limits for the outward LTR search.
+#'
+#' @param seeds data.frame from find_core_seeds().
+#' @param g_block GRanges of domains at the *standard* filter threshold.
+#'   Seed candidates admitted only by the relaxed core threshold are
+#'   deliberately absent: a domain too weak to be trusted should not
+#'   truncate a window (design 6.0.2).
+#' @param constraints core constraints table.
+#' @return the seeds data.frame with added columns left_limit,
+#'   right_limit (genomic coordinates of the nearest blocking feature
+#'   edge, or NA when the walk ran to the offset cap),
+#'   accessory_5, accessory_3, accessory_sf_mismatch.
+seed_search_limits <- function(seeds, g_block, constraints) {
+  seeds$left_limit <- NA_integer_
+  seeds$right_limit <- NA_integer_
+  seeds$accessory_5 <- ""
+  seeds$accessory_3 <- ""
+  seeds$accessory_sf_mismatch <- 0L
+  if (nrow(seeds) == 0) {
+    return(seeds)
+  }
+
+  ok_ltr <- is_ltr_classification(mcols(g_block)$Final_Classification)
+  rhc <- flatten_region_hits(g_block)
+  ok_ltr <- ok_ltr | (!is.na(rhc) & grepl("\\|Class_I\\|LTR", rhc))
+  dom_sf <- superfamily_of(mcols(g_block)$Final_Classification)
+  dom_name <- as.character(mcols(g_block)$Name)
+  dom_strand <- as.character(strand(g_block))
+  dom_seq <- as.character(seqnames(g_block))
+  dom_start <- start(g_block)
+  dom_end <- end(g_block)
+
+  by_seq <- split(seq_along(g_block), dom_seq)
+  by_seq <- lapply(by_seq, function(ix) ix[order(dom_start[ix], dom_end[ix])])
+
+  for (r in seq_len(nrow(seeds))) {
+    ix <- by_seq[[seeds$seqnames[r]]]
+    if (is.null(ix)) {
+      next
+    }
+    plus <- seeds$strand[r] == "+"
+    core_lo <- seeds$start[r]
+    core_hi <- seeds$end[r]
+    sf <- seeds$superfamily[r]
+
+    # walking left in coordinate space is walking 5' on the plus strand
+    left <- .walk_side(
+      ix = rev(ix[dom_end[ix] < core_lo]), direction = "left",
+      side = if (plus) "5" else "3", sf = sf, seed_strand = seeds$strand[r],
+      dom_name = dom_name, dom_strand = dom_strand, dom_sf = dom_sf,
+      ok_ltr = ok_ltr, constraints = constraints)
+    right <- .walk_side(
+      ix = ix[dom_start[ix] > core_hi], direction = "right",
+      side = if (plus) "3" else "5", sf = sf, seed_strand = seeds$strand[r],
+      dom_name = dom_name, dom_strand = dom_strand, dom_sf = dom_sf,
+      ok_ltr = ok_ltr, constraints = constraints)
+
+    if (!is.na(left$blocker)) {
+      seeds$left_limit[r] <- dom_end[left$blocker]
+    }
+    if (!is.na(right$blocker)) {
+      seeds$right_limit[r] <- dom_start[right$blocker]
+    }
+    acc_left <- paste(left$traversed, collapse = " ")
+    acc_right <- paste(right$traversed, collapse = " ")
+    if (plus) {
+      seeds$accessory_5[r] <- acc_left
+      seeds$accessory_3[r] <- acc_right
+    } else {
+      seeds$accessory_5[r] <- acc_right
+      seeds$accessory_3[r] <- acc_left
+    }
+    seeds$accessory_sf_mismatch[r] <- left$sf_mismatch + right$sf_mismatch
+  }
+  seeds
+}
+
+
+#' Walk outward on one side until something blocks.
+#' `ix` is already ordered from the core outward.
+.walk_side <- function(ix, direction, side, sf, seed_strand, dom_name,
+                       dom_strand, dom_sf, ok_ltr, constraints) {
+  allowed <- accessory_names(constraints, sf, side)
+  traversed <- character(0)
+  last_rank <- 0L
+  sf_mismatch <- 0L
+
+  for (k in ix) {
+    # 1. same strand
+    if (dom_strand[k] != seed_strand) {
+      break
+    }
+    # 2. LTR-retrotransposon support
+    if (!ok_ltr[k]) {
+      break
+    }
+    # 3. an accessory type allowed on this side, in element orientation
+    rank <- match(dom_name[k], allowed)
+    if (is.na(rank)) {
+      break
+    }
+    # 4. + 5. not already traversed, and in canonical inward->outward
+    #    order -- a second GAG going outward belongs to the neighbouring
+    #    element, and GAG before PROT means the walk has crossed into one
+    if (rank <= last_rank) {
+      break
+    }
+    # 6. superfamily must not contradict the seed's order-derived call.
+    #    Fires only on positive disagreement: a domain resolving no
+    #    deeper than Class_I|LTR passes vacuously, so this cannot bite on
+    #    the shallow-classification case core mode exists for.
+    if (!is.na(dom_sf[k]) && dom_sf[k] != sf) {
+      sf_mismatch <- sf_mismatch + 1L
+      break
+    }
+    traversed <- c(traversed, dom_name[k])
+    last_rank <- rank
+  }
+
+  blocker <- NA_integer_
+  n_pass <- length(traversed)
+  if (length(ix) > n_pass) {
+    blocker <- ix[n_pass + 1L]
+  }
+  list(blocker = blocker, traversed = traversed, sf_mismatch = sf_mismatch)
+}
+
+
+#' Left-hand BLAST window, mirroring get_ranges_left() (ltr_utils.R:241)
+#' including its +100 over-extension into the blocking feature and its
+#' offset2 overlap into the core, with the per-seed limit substituted for
+#' `upstream_domain`.
+core_ranges_left <- function(seeds, constraints, offset2 = 300) {
+  offs <- .side_offsets(seeds, constraints)
+  S <- seeds$start
+  limit <- ifelse(is.na(seeds$left_limit), 1L, seeds$left_limit)
+  max_offset <- S - limit + 100
+  adjusted <- pmin(max_offset, offs$left)
+  starts <- pmax(1L, as.integer(S - adjusted))
+  GRanges(seqnames = seeds$seqnames,
+          ranges = IRanges(start = starts, end = as.integer(S + offset2)))
+}
+
+
+#' Right-hand BLAST window, mirroring get_ranges_right()
+#' (ltr_utils.R:254).  `SL` is seqlengths of the reference.
+core_ranges_right <- function(seeds, constraints, SL, offset2 = 300) {
+  offs <- .side_offsets(seeds, constraints)
+  E <- seeds$end
+  seq_end <- as.integer(SL[seeds$seqnames])
+  limit <- ifelse(is.na(seeds$right_limit), seq_end, seeds$right_limit)
+  max_offset <- limit - E + 100
+  adjusted <- pmin(max_offset, offs$right)
+  ends <- pmin(seq_end, as.integer(E + adjusted))
+  GRanges(seqnames = seeds$seqnames,
+          ranges = IRanges(start = as.integer(E - offset2), end = ends))
+}
+
+
+#' Table offsets mapped onto coordinate sides.  On the minus strand the
+#' element's 5' end is at higher coordinates, so the offsets swap.
+.side_offsets <- function(seeds, constraints) {
+  i <- match(seeds$superfamily, constraints$Superfamily)
+  o5 <- constraints$offset5prime[i]
+  o3 <- constraints$offset3prime[i]
+  plus <- seeds$strand == "+"
+  list(left = ifelse(plus, o5, o3), right = ifelse(plus, o3, o5))
+}

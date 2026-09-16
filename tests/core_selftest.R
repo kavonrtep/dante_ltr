@@ -218,6 +218,137 @@ ok("merge-then-filter rescues the domain (design 5.3)",
    length(merged_first) == 1L)
 
 
+# --- search-space delimitation ---------------------------------------
+
+section("blocking walk (design 6.3)")
+
+# A gypsy core with room on both sides; accessory domains are added
+# relative to it.  Element orientation is plus, so 5' is to the left.
+walk_case <- function(extra = NULL) {
+  spec <- gypsy_spec(base = 40000)
+  if (!is.null(extra)) {
+    spec <- rbind(spec[, c("start", "end", "name")],
+                  extra[, c("start", "end", "name")])
+    for (col in c("strand", "classification", "db", "similarity",
+                  "relat_length")) {
+      if (col %in% names(extra)) {
+        spec[[col]] <- c(rep(NA, 3), as.character(extra[[col]]))
+      }
+    }
+    for (col in intersect(names(spec), c("strand", "classification"))) {
+      d <- if (col == "strand") "+" else "Class_I|LTR|Ty3/gypsy"
+      spec[[col]][is.na(spec[[col]])] <- d
+    }
+  }
+  g <- gr_of(spec)
+  s <- find_core_seeds(core_candidates(g), CONSTRAINTS)
+  seed_search_limits(s, g, CONSTRAINTS)
+}
+
+acc <- function(start, end, name, ...) {
+  data.frame(start = start, end = end, name = name, ...,
+             stringsAsFactors = FALSE)
+}
+
+# PROT is accessory_5 for gypsy: the walk passes through it
+s <- walk_case(acc(39000, 39500, "PROT"))
+ok("PROT 5' of a gypsy core -> traversed",
+   nrow(s) == 1L && s$accessory_5[1] == "PROT" && is.na(s$left_limit[1]))
+
+# PROT then GAG, inward->outward: both traversed
+s <- walk_case(rbind(acc(39000, 39500, "PROT"), acc(37000, 37500, "GAG")))
+ok("PROT then GAG going outward -> both traversed",
+   nrow(s) == 1L && s$accessory_5[1] == "PROT GAG")
+
+# GAG then PROT: out of canonical order, so the walk stops at PROT
+s <- walk_case(rbind(acc(39000, 39500, "GAG"), acc(37000, 37500, "PROT")))
+ok("GAG before PROT -> walk stops (rule 5)",
+   nrow(s) == 1L && s$accessory_5[1] == "GAG" && s$left_limit[1] == 37500)
+
+# a second GAG going outward belongs to the neighbouring element
+s <- walk_case(rbind(acc(39000, 39500, "GAG"), acc(37000, 37500, "GAG")))
+ok("second GAG going outward -> walk stops (rule 4)",
+   nrow(s) == 1L && s$accessory_5[1] == "GAG" && s$left_limit[1] == 37500)
+
+# GAG is accessory_5, so on the 3' side it is out of place
+s <- walk_case(acc(43000, 43500, "GAG"))
+ok("GAG 3' of a gypsy core -> blocks (rule 3)",
+   nrow(s) == 1L && s$accessory_3[1] == "" && s$right_limit[1] == 43000)
+
+# CHD is accessory_3 for gypsy
+s <- walk_case(acc(43000, 43500, "CHD"))
+ok("CHD 3' of a gypsy core -> traversed",
+   nrow(s) == 1L && s$accessory_3[1] == "CHD" && is.na(s$right_limit[1]))
+
+s <- walk_case(acc(39000, 39500, "CHD"))
+ok("CHD 5' of a gypsy core -> blocks (rule 3)",
+   nrow(s) == 1L && s$left_limit[1] == 39500)
+
+s <- walk_case(acc(39000, 39500, "PROT", strand = "-"))
+ok("opposite-strand domain -> blocks (rule 1)",
+   nrow(s) == 1L && s$left_limit[1] == 39500)
+
+s <- walk_case(acc(39000, 39500, "TPase",
+                   classification = "Class_II|Subclass_1|TIR"))
+ok("Class II transposase -> blocks (rule 2)",
+   nrow(s) == 1L && s$left_limit[1] == 39500)
+
+s <- walk_case(acc(39000, 39500, "RT"))
+ok("another core domain -> blocks (rule 3)",
+   nrow(s) == 1L && s$left_limit[1] == 39500)
+
+# rule 6: a GAG confidently called copia next to a gypsy core is an
+# element boundary
+s <- walk_case(acc(39000, 39500, "PROT",
+                   classification = "Class_I|LTR|Ty1/copia|Ivana"))
+ok("copia-classified PROT 5' of a gypsy core -> blocks (rule 6)",
+   nrow(s) == 1L && s$left_limit[1] == 39500 &&
+     s$accessory_sf_mismatch[1] == 1L)
+
+# ...but rule 6 must not fire on missing information
+s <- walk_case(acc(39000, 39500, "PROT", classification = "Class_I|LTR"))
+ok("PROT resolving only to Class_I|LTR -> traversed (rule 6 vacuous)",
+   nrow(s) == 1L && s$accessory_5[1] == "PROT" &&
+     s$accessory_sf_mismatch[1] == 0L)
+
+# no accessory domains at all: the window runs to the offset cap
+s <- walk_case()
+ok("no accessory domains -> no limit on either side",
+   nrow(s) == 1L && is.na(s$left_limit[1]) && is.na(s$right_limit[1]))
+
+SL <- c(chr1 = 200000L)
+grL <- core_ranges_left(s, CONSTRAINTS)
+grR <- core_ranges_right(s, CONSTRAINTS, SL)
+ok("unblocked window uses the table offset",
+   start(grL)[1] == s$start[1] - 17000 && end(grR)[1] == s$end[1] + 14000)
+ok("window overlaps the core by offset2",
+   end(grL)[1] == s$start[1] + 300 && start(grR)[1] == s$end[1] - 300)
+
+s_blocked <- walk_case(acc(39000, 39500, "RT"))
+grL <- core_ranges_left(s_blocked, CONSTRAINTS)
+ok("blocked window extends 100 bp into the blocker",
+   start(grL)[1] == 39500 - 100)
+
+# minus strand: the element's 5' end is at higher coordinates, so the
+# offsets swap
+minus_seed <- s
+minus_seed$strand <- "-"
+grL <- core_ranges_left(minus_seed, CONSTRAINTS)
+grR <- core_ranges_right(minus_seed, CONSTRAINTS, SL)
+ok("minus strand swaps the 5'/3' offsets",
+   start(grL)[1] == minus_seed$start[1] - 14000 &&
+     end(grR)[1] == minus_seed$end[1] + 17000)
+
+near_start <- s
+near_start$start <- 500L; near_start$end <- 2000L
+ok("window clamped at the sequence start",
+   start(core_ranges_left(near_start, CONSTRAINTS))[1] == 1L)
+near_end <- s
+near_end$start <- 190000L; near_end$end <- 199000L
+ok("window clamped at the sequence end",
+   end(core_ranges_right(near_end, CONSTRAINTS, SL))[1] == 200000L)
+
+
 # --- summary ---------------------------------------------------------
 
 cat("\n", CHECKS - FAILURES, "/", CHECKS, " checks passed\n", sep = "")
