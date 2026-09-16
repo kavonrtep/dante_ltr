@@ -397,6 +397,36 @@ md5sum /tmp/base.gff3 > /tmp/lineage_baseline.md5
 
 ---
 
+## 4b. Latent issues found in `ltr_utils.R` (not fixed here)
+
+Three surfaced while implementing core mode. All are left alone,
+because any change to them moves lineage-mode output, and this plan's
+primary gate is that it does not.
+
+- **`domain_distance()` (`ltr_utils.R:285`) recycles.** It computes
+  `d_query_p == d_reference_p[d_reference_p %in% d_query_p]` without
+  checking lengths, so whenever the query carries more domains than the
+  reference, R warns and the returned distance is meaningless. Lineage
+  mode can reach this whenever a cluster has more domains than its
+  lineage's canonical order. Core mode uses `order_compatible_with()`
+  instead (design §7.3).
+- **`export()` fails on a zero-length GRanges** — "arguments imply
+  differing number of rows: 0, 1". `trim_gr()` exports its input, so the
+  rank-`D` track dies when no partial cluster has more than one domain.
+  Lineage mode would hit this on a chunk where every cluster is a
+  singleton. Core mode guards the call site.
+- **`get_te_statistics()` (`ltr_utils.R:988`) drops elements** whose
+  classification is not among the RT domains' classifications, including
+  them in no row and in no `Total`. Harmless in lineage mode, where an
+  element's classification is by construction one of those; core mode
+  computes the classification, so it needs
+  `get_core_te_statistics()`.
+
+Worth fixing in lineage mode separately, with its own before/after
+comparison.
+
+---
+
 ## 5. Deliberately deferred
 
 Carried over from design §14, restated so they do not creep in:

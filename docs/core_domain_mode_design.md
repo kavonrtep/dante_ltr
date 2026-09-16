@@ -110,7 +110,7 @@ value overrides the table for both superfamilies:
 --core_max_gap N        max bp between consecutive core domains   [table]
 --core_max_span N       max bp from first to last core domain     [table]
 --min_ltr_length N      minimum LTR length to accept              [100]
---max_te_length N       maximum element length                    [30000]
+--max_te_length N       maximum element length                    [35000]
 --core_require_tsd      reject elements without a TSD  (rank DL)  [off]
 --min_relative_length_core F   relaxed Relat_Length for RT/RH/INT  [0.3]
 --min_similarity F      dante_filtering similarity threshold      [0.4]

@@ -50,6 +50,9 @@ jobs:
       - name: Fallback test
         run: ./tests.sh fallback
 
+      - name: Core-domain mode test
+        run: ./tests.sh core
+
       - name: Refine test
         run: ./tests.sh refine
 
