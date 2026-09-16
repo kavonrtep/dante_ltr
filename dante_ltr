@@ -1588,16 +1588,10 @@ def main():
     else:
         print('running analysis on whole input')
         # no need to split sequences into chunks
-        cmd = [f'{tool_path}/utils/detect_putative_ltr.R', '-s', args.reference_sequence,
-             '-g',
-             gff3_input, '-o', args.output, '-c', str(args.cpu), '-M',
-             str(args.max_missing_domains), '-L', str(args.min_relative_length)]
-        if constrains_path:
-            cmd += ['--te_constrains', constrains_path]
-        if args.no_ambiguous_domains:
-            cmd += ['--no_ambiguous_domains']
-        subprocess.check_call(
-            cmd)
+        subprocess.check_call(_detect_ltr_cmd(
+            tool_path, args.reference_sequence, gff3_input, args.output,
+            args.cpu, args, constrains_path
+            ))
 
     # add version of the output gff3 file - must go to the beginning of the file
     add_version_to_gff3(args.output + '.gff3', __version__)
