@@ -1,3 +1,50 @@
+## 0.6.0.0 (2026-09-16)
+
+Core-domain detection mode (`dante_ltr --mode core`).
+
+* New `--mode {lineage,core}` flag.  `lineage` is the default and its
+  output is unchanged.  `core` seeds elements on the three core domains
+  RT, RH and INT, whose **order** distinguishes the superfamilies
+  (`RT RH INT` = Ty3/gypsy, `INT RT RH` = Ty1/copia), and searches
+  outward from that core for the LTRs.  The accessory domains (GAG,
+  PROT, aRH, CHD, CHDCR) are no longer required for detection; they
+  only shape the search space and, once the element is delimited, its
+  classification.
+* Aimed at genomes far from REXdb, where the accessory complement is
+  often undetectable altogether — a harder case than the under-resolved
+  classification `--fallback_mode` was built for.  On the
+  *Draparnaldia* assembly (391 Mb) lineage mode finds 0 complete
+  elements, `--fallback_mode coarse2` finds 160, and `--mode core`
+  finds 1408, of which 791 reach rank `DLTP`; 68 % carry a
+  tRNA-matched PBS, evidence independent of the LTR search.  99 % of
+  the fallback elements are also found by core mode.
+* Classification is assigned after the boundaries are fixed, as the
+  lowest common ancestor of the contained domains' calls, clipped at
+  the superfamily the domain order gives.  New element attributes:
+  `Superfamily_Evidence`, `Core_Domains`, `Accessory_Domains`,
+  `Lineage_Call`, `Lineage_Candidates`, `Lineage_Support`,
+  `Classification_Demoted`, `Classification_Conflict`.  Feature types,
+  ranks and the statistics CSV are unchanged, so the downstream tools
+  work on core-mode output as they are.
+* Annotations of one protein domain split in two by a frameshift are
+  rejoined before filtering, using complementary tiling of the
+  reference domain as the signature.  Lineage mode discards any cluster
+  with a repeated domain name outright, so such elements never reach
+  its output at all.
+* `--mode core` is **not** universally more sensitive and is not a new
+  default: it needs all three core domains to pass the domain filter,
+  which 2–25 % of validated elements fail depending on the genome, and
+  on a REXdb-covered genome it recovers 96 % of what lineage mode
+  finds.  See `docs/core_domain_mode_design.md` for the measurements,
+  including a known ~2.5 % rate of 5' boundaries placed inside the true
+  LTR.
+* New constraints table `databases/core_domain_order.csv`, keyed by
+  superfamily and derived from measurement rather than extrapolation
+  (`utils/calibrate_core_constraints.py`,
+  `utils/measure_core_seeding.py`, `utils/compare_detection_modes.py`).
+* New test level `./tests.sh core` (`tests/core.sh`,
+  `tests/core_selftest.R`, `tests/data/core_drapa/`), wired into CI.
+
 ## 0.5.4.0 (2026-08-19)
 
 Chunk-pool memory budget (issue #13).

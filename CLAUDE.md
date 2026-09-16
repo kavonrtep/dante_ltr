@@ -13,6 +13,19 @@ The project uses a **Python wrapper + R core** pattern:
 - **Python** (`dante_ltr` script): Handles CLI, input validation, large genome chunking (splits FASTA/GFF3 into ≤100MB pieces), running the per-chunk R detector in a memory-gated process pool (single-threaded children, pool sized by `-c` and the memory budget from `--max_memory` / scheduler env / cgroup / `MemAvailable`), and coordinate remapping after R processing
 - **R** (`utils/detect_putative_ltr.R` + `utils/ltr_utils.R`): Core genomic analysis — domain clustering, LTR detection, TSD/PBS identification, classification. Uses Bioconductor (GenomicRanges, Biostrings, rtracklayer)
 
+`--mode` selects which per-chunk R detector the Python harness runs;
+everything around it (chunking, pool, remapping, statistics merging) is
+shared:
+
+| mode | per-chunk detector | seeds on |
+|------|--------------------|----------|
+| `lineage` (default) | `utils/detect_putative_ltr.R` | a lineage-keyed full domain complement |
+| `core` | `utils/detect_core_ltr.R` + `utils/core_ltr_utils.R` | the ordered RT/RH/INT core; superfamily comes from domain order, classification is assigned after boundaries are fixed |
+
+Core mode reuses `ltr_utils.R` unchanged from the BLAST search onward —
+LTR pair choice, TSD, PBS, ranking, statistics, FASTA export. See
+`docs/core_domain_mode_design.md`.
+
 ### Entry Points
 
 | Script | Language | Purpose |
@@ -26,6 +39,7 @@ The project uses a **Python wrapper + R core** pattern:
 ### Key Data Files
 
 - `databases/lineage_domain_order.csv` — Defines per-lineage constraints (domain order, search offsets, LTR min length) for 37 lineages. This CSV is user-editable via `--te_constrains`
+- `databases/core_domain_order.csv` — Same idea for `--mode core`, but keyed by superfamily rather than lineage: core domain order, search offsets measured from the core, core gap/span caps, and which accessory domains may sit on each side. Values are measured, not guessed — see `docs/core_domain_mode_design.md` §5 and `utils/calibrate_core_constraints.py`
 - `databases/feature_distances_model.RDS` — Pre-computed statistical model for validating domain distances
 - `databases/tRNAscan-SE*.fasta` — tRNA BLAST databases for PBS detection
 
@@ -51,6 +65,12 @@ DANTE GFF3 + Reference FASTA
 # With specific CPU count
 ./tests.sh 4
 ```
+
+Test levels: `smoke`, `short`, `fallback`, `core`, `refine`, `fd`, `mem`,
+`long`, `all`.  `./tests.sh core` covers core-domain mode: R unit tests
+(`tests/core_selftest.R`, no genome needed), concordance against lineage
+mode on `tests/data/smoke`, sensitivity on `tests/data/core_drapa`, and
+a regression check that lineage-mode output has not moved.
 
 Tests require conda environment `dante_ltr` to be active. Output goes to `tmp/` directory. There is no unit test framework — tests run the full pipeline on sample data in `test_data/`.
 

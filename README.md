@@ -9,6 +9,7 @@
   - [Solo LTR detection](#solo-ltr-detection)
   - [Modifying LTR-RT search constraints](#modifying-ltr-rt-search-constraints)
   - [Fallback classification mode](#fallback-classification-mode)
+  - [Core-domain detection mode](#core-domain-detection-mode)
   - [CLI reference](#cli-reference)
   - [GFF3 DANTE_LTR output specification](#gff3-dante_ltr-output-specification)
 
@@ -298,6 +299,47 @@ constraints table. The pre-demotion value is kept on each feature as
 
 Full spec: [docs/fallback_classification_spec.md](./docs/fallback_classification_spec.md).
 
+## Core-domain detection mode
+
+> ⚠️ Experimental (0.6.0.0).
+
+On genomes far from REXdb the accessory domains (GAG, PROT, CHD, …) are
+often undetectable altogether, so the default lineage-keyed matching has
+nothing to match — a harder problem than the under-resolved
+classification that `--fallback_mode` addresses. `--mode core` instead
+seeds on the three core domains RT, RH and INT, whose **order** is what
+distinguishes the superfamilies (`RT RH INT` = Ty3/gypsy,
+`INT RT RH` = Ty1/copia), and searches outward from there for the LTRs.
+Accessory domains are no longer required: they only shape the search
+space and, once the element is delimited, its classification. That
+classification is demoted when the evidence is thin, with `Lineage_Call`
+set when a single lineage is supported and `Lineage_Candidates` listing
+the possibilities when several are.
+
+```bash
+dante_ltr --mode core -g DANTE.gff3 -s genome.fasta -o output -c 10
+```
+
+Measured on *Draparnaldia*, a green alga REXdb does not cover (391 Mb;
+complete elements, i.e. rank above `D`):
+
+| | complete elements | median length | TSD | PBS |
+|---|---:|---:|---:|---:|
+| default | 0 | – | – | – |
+| `--fallback_mode coarse2` | 160 | 5 882 | 34 % | 50 % |
+| `--mode core` | 1 408 | 9 315 | 69 % | 68 % |
+
+Core mode is **not** universally more sensitive, and should not be used
+by default. It requires all three core domains to survive the domain
+filter, which 2–25 % of validated elements fail depending on the genome;
+on a REXdb-covered genome it recovers 96 % of what the default finds,
+not 100 %. Reach for it when the accessory complement is *missing*
+rather than merely under-resolved — for the latter `--fallback_mode` is
+several times cheaper and nearly as good.
+
+Design, validation and known limitations:
+[docs/core_domain_mode_design.md](./docs/core_domain_mode_design.md).
+
 ## Running on a cluster or in a container
 
 `dante_ltr` runs the per-chunk detection in a process pool sized by `-c` **and** by a
@@ -330,6 +372,7 @@ usage: dante_ltr [-h] -g GFF3 -s REFERENCE_SEQUENCE -o OUTPUT [-c CPU]
                  [--max_memory GB] [-M MAX_MISSING_DOMAINS] [-L MIN_RELATIVE_LENGTH]
                  [-S MAX_CHUNK_SIZE] [-v] [--te_constrains TE_CONSTRAINS]
                  [--no_ambiguous_domains] [--fallback_mode {none,coarse3,coarse2}]
+                 [--mode {lineage,core}] [core mode options]
 
 options:
   -h, --help            show this help message and exit
@@ -365,6 +408,34 @@ options:
   --fallback_mode {none,coarse3,coarse2}
                         Classify at a reduced taxonomic depth and demote DANTE's
                         lineage-level calls accordingly (see "Fallback classification mode").
+  --mode {lineage,core}
+                        Detection strategy. 'lineage' (default) matches a full
+                        lineage-keyed domain complement; 'core' seeds on the ordered
+                        RT/RH/INT core and classifies afterwards (see "Core-domain
+                        detection mode").
+
+core mode options:
+  Only used with --mode core.
+
+  --min_relative_length_core MIN_RELATIVE_LENGTH_CORE
+                        Relaxed minimum relative domain length for RT/RH/INT when
+                        seeding. The ordered triplet is strong joint evidence, so
+                        individually weak core domains are admitted (default 0.3)
+  --min_similarity MIN_SIMILARITY
+                        Minimum domain similarity (default 0.4)
+  --core_max_gap CORE_MAX_GAP
+                        Max bp between consecutive core domains; overrides the
+                        constraints table
+  --core_max_span CORE_MAX_SPAN
+                        Max bp from first to last core domain; overrides the table
+  --min_ltr_length MIN_LTR_LENGTH
+                        Minimum LTR length (default 100)
+  --max_te_length MAX_TE_LENGTH
+                        Maximum element length (default 35000)
+  --split_max_gap SPLIT_MAX_GAP
+                        Max bp between two annotations of one frameshifted domain
+                        (default 50)
+  --core_require_tsd    Reject elements without a target site duplication
 ```
 
 ### `dante_ltr_to_library` — Build a non-redundant LTR-RT library
