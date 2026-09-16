@@ -29,8 +29,7 @@ tests/
 ├── core.sh                               [new]
 ├── core_selftest.R                       [new]  unit tests for core_ltr_utils.R
 └── data/
-    ├── core_smoke/                       [new]  ~40 kb, carved from tests/data/smoke
-    └── core_drapa/                       [new]  ~200 kb Drapa window, the motivating case
+    └── core_drapa/                       [new]  73 kb Drapa window, the motivating case
 
 tests.sh                                  [add 'core' dispatcher target]
 .github/workflows/tests.yml               [add ./tests.sh core step]
@@ -89,10 +88,11 @@ stopifnot(nrow(t) == 2, all(c("Superfamily", "core_order") %in% names(t)))
 Build these before any R code, so every later step has something fast to
 run against.
 
-2.1 `tests/data/core_smoke/` — copy of `tests/data/smoke` (40 kb slice
-    with one annotated DLTP element). Core mode must find **the same
-    element with the same boundaries**; this is the concordance gate in
-    miniature and it runs in seconds.
+2.1 Reuse `tests/data/smoke` directly (40 kb slice with one annotated
+    DLTP element) rather than copying it to `core_smoke/` — core mode
+    must find **the same element with the same boundaries**, and a
+    duplicated 40 kb genome in the repo buys nothing. This is the
+    concordance gate in miniature and it runs in seconds.
 
 2.2 `tests/data/core_drapa/` — carve a ~200 kb window from
     `/mnt/ceph/454_data/Drapa/hifiasm/assembly_2025_07_30/DRA_2025_07_30/`
@@ -324,7 +324,7 @@ import gff3 → CHD_CHDCR_correction → gff_cleanup_overlaps
       element**, against lineage mode's zero on the same input. This is
       the test that encodes the point of the feature.
     - determinism: run core mode twice, assert MD5-identical GFF3
-    - `calibrate_core_constraints.py` on `tests/data/core_smoke`
+    - `calibrate_core_constraints.py` on lineage-mode smoke output
       exits cleanly; on a fixture with no DLT/DLTP it exits 1 with the
       "nothing to measure" message
     - **lineage-mode regression:** `--mode lineage` on `tests/data/smoke`

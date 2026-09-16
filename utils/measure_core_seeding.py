@@ -343,8 +343,12 @@ def new_stats():
         }
 
 
-def run_pass(blocks, args, merge):
-    """One evaluation of the cached domains at the current thresholds."""
+def run_pass(blocks, args, merge, dump=None):
+    """One evaluation of the cached domains at the current thresholds.
+
+    When `dump` is a list, every seed's location is appended to it --
+    used to pick reproducible test fixtures.
+    """
     stats = new_stats()
     for seqid, rows in blocks:
         stats['domains_total'] += len(rows)
@@ -363,6 +367,12 @@ def run_pass(blocks, args, merge):
 
         seeds = find_seeds(kept, args)
         stats['seeds_total'] += len(seeds)
+        if dump is not None:
+            for sf, members, span in seeds:
+                dump.append((seqid,
+                             min(kept[m].start for m in members),
+                             max(kept[m].end for m in members),
+                             kept[members[0]].strand, sf, span))
         for sf, members, span in seeds:
             stats['seeds'][sf] += 1
             stats['seed_spans'].append(span)
@@ -463,6 +473,10 @@ def get_arguments():
         help=('a domain this close beyond a seed end truncates the LTR\n'
               'search window almost to nothing (default %(default)s)'))
     parser.add_argument(
+        '--dump_seeds', default=None, metavar='TSV',
+        help=('write every seed as seqid/start/end/strand/superfamily/span\n'
+              'to this file.  Used to choose test fixtures reproducibly.'))
+    parser.add_argument(
         '--no_merge', action='store_true',
         help='skip the with/without-merging comparison')
     parser.add_argument(
@@ -482,7 +496,14 @@ def main():
     print('loaded {} domains across {} reference sequences'.format(
         sum(len(rows) for _s, rows in blocks), len(blocks)))
 
-    base = run_pass(blocks, args, merge=False)
+    dump = [] if args.dump_seeds else None
+    base = run_pass(blocks, args, merge=False, dump=dump)
+    if args.dump_seeds:
+        with open(args.dump_seeds, 'w') as fh:
+            fh.write('seqid\tstart\tend\tstrand\tsuperfamily\tspan\n')
+            for row in dump:
+                fh.write('\t'.join(str(x) for x in row) + '\n')
+        print('seeds -> {}'.format(args.dump_seeds))
     report(base, args, 'no fragment merging, Similarity >= {} '
                        'Relat_Length >= {}'.format(args.min_similarity,
                                                    args.min_relative_length))
