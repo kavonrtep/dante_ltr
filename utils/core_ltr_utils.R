@@ -583,3 +583,201 @@ core_ranges_right <- function(seeds, constraints, SL, offset2 = 300) {
   plus <- seeds$strand == "+"
   list(left = ifelse(plus, o5, o3), right = ifelse(plus, o3, o5))
 }
+
+
+# --- 5. reannotation and classification (design 7) -------------------
+
+# Core mode calls the superfamily structurally, from domain order, and
+# only then asks what the classifications say.  The order is the
+# authority: it is structural evidence, while a classification is a best
+# hit against a database that may be phylogenetically distant.
+
+# The constraints table names superfamilies with "/" separators; DANTE
+# and REXdb use "|" and spell the superfamily Ty1/copia, Ty3/gypsy.
+SUPERFAMILY_LABEL <- c(
+  "Class_I/LTR/Ty1_copia" = "Class_I|LTR|Ty1/copia",
+  "Class_I/LTR/Ty3_gypsy" = "Class_I|LTR|Ty3/gypsy"
+)
+
+
+#' Lowest common ancestor of REXdb classification paths.
+#' Returns "" when there is no shared root.
+lca_classification <- function(labels) {
+  labels <- unique(as.character(labels[!is.na(labels) & nzchar(labels)]))
+  if (length(labels) == 0) {
+    return(NA_character_)
+  }
+  parts <- strsplit(labels, "|", fixed = TRUE)
+  common <- parts[[1]]
+  for (p in parts[-1]) {
+    n <- min(length(common), length(p))
+    same <- which(common[seq_len(n)] != p[seq_len(n)])
+    keep <- if (length(same) == 0) n else same[1] - 1L
+    common <- common[seq_len(keep)]
+    if (length(common) == 0) {
+      return("")
+    }
+  }
+  paste(common, collapse = "|")
+}
+
+
+#' Is `child` the same as, or below, `parent` in the REXdb tree?
+is_at_or_below <- function(child, parent) {
+  if (is.na(child) || is.na(parent) || !nzchar(child)) {
+    return(FALSE)
+  }
+  child == parent || startsWith(child, paste0(parent, "|"))
+}
+
+
+#' Lineage labels named in a Region_Hits_Classifications string.
+#' Entries look like "RT|Class_I|LTR|Ty3/gypsy|chromovirus|Tekay[524bp]".
+region_hit_labels <- function(rhc) {
+  if (is.na(rhc) || !nzchar(rhc)) {
+    return(character(0))
+  }
+  items <- strsplit(rhc, ",", fixed = TRUE)[[1]]
+  items <- sub("\\[[0-9]+bp\\]$", "", trimws(items))
+  items <- sub("^[^|]+\\|", "", items)      # drop the leading domain name
+  items[nzchar(items)]
+}
+
+
+#' Is an observed domain order compatible with a lineage's canonical one?
+#'
+#' Compatible means the observed domains that the lineage knows about
+#' appear in the lineage's order (a subsequence), with at most
+#' `max_extra` observed domains the lineage does not have at all.
+#'
+#' This deliberately does NOT use domain_distance() (ltr_utils.R:285),
+#' which lineage mode uses for the same purpose.  That function compares
+#' `d_query_p == d_reference_p[d_reference_p %in% d_query_p]` without
+#' checking lengths, so whenever the query carries more domains than the
+#' reference the comparison recycles -- R warns, and the returned
+#' distance is meaningless.  In lineage mode that is rare, because a
+#' cluster is already keyed to one lineage.  In core mode an incomplete
+#' or unexpected domain complement is the normal case, which is the
+#' whole point of the mode, so the unsound path would be the common one.
+#'
+#' Missing domains are not penalised: an element carrying only RT/RH/INT
+#' is genuinely compatible with every gypsy lineage, and reporting that
+#' breadth honestly is what Lineage_Candidates is for.
+order_compatible_with <- function(observed, reference, max_extra = 0) {
+  ref <- strsplit(as.character(reference), " +")[[1]]
+  obs <- as.character(observed)
+  extra <- sum(!(obs %in% ref))
+  if (extra > max_extra) {
+    return(FALSE)
+  }
+  obs <- obs[obs %in% ref]
+  # greedy subsequence match
+  at <- 0L
+  for (d in obs) {
+    nxt <- match(d, ref[seq.int(at + 1L, length(ref))])
+    if (is.na(nxt)) {
+      return(FALSE)
+    }
+    at <- at + nxt
+  }
+  TRUE
+}
+
+
+#' Classify one delimited element (design 7).
+#'
+#' @param domain_names domain names in element orientation.
+#' @param domain_classifications their Final_Classification values.
+#' @param region_hits their Region_Hits_Classifications, flattened.
+#' @param superfamily order-derived superfamily, "/" form.
+#' @param lineage_domain named character vector: DANTE-form lineage name
+#'   -> its canonical domain order (as built in detect_putative_ltr.R).
+#' @param max_missing_domains tolerance passed to domain_distance().
+#' @return list of the attributes described in design 8.
+classify_core_element <- function(domain_names, domain_classifications,
+                                  region_hits, superfamily, lineage_domain,
+                                  max_missing_domains = 0) {
+  sf_label <- unname(SUPERFAMILY_LABEL[superfamily])
+
+  # lineages of this superfamily whose canonical domain order is
+  # compatible with what the element actually carries
+  under_sf <- names(lineage_domain)[
+    vapply(names(lineage_domain), is_at_or_below, logical(1), parent = sf_label)]
+  order_compatible <- character(0)
+  if (length(under_sf) > 0) {
+    keep <- vapply(under_sf, function(ln) {
+      order_compatible_with(domain_names, lineage_domain[[ln]],
+                            max_missing_domains)
+    }, logical(1))
+    order_compatible <- under_sf[keep]
+  }
+
+  cls <- as.character(domain_classifications)
+  cls <- cls[!is.na(cls) & nzchar(cls)]
+  n_total <- length(domain_names)
+
+  # Final_Classification: LCA of the per-domain calls, clipped at the
+  # structural superfamily.  If the LCA is not at or below the
+  # order-derived superfamily -- the domains disagree with each other
+  # across superfamilies, or with the order -- the order wins.
+  lca <- lca_classification(cls)
+  conflict <- !is_at_or_below(lca, sf_label)
+  final <- if (conflict) sf_label else lca
+
+  # a lineage-depth call needs to be order-compatible *and* carried by a
+  # majority of the element's domains
+  lineage_call <- NA_character_
+  if (!conflict && length(order_compatible) > 0) {
+    tab <- table(cls[cls %in% order_compatible])
+    if (length(tab) > 0) {
+      top <- names(tab)[which.max(tab)]
+      if (max(tab) > n_total / 2 && sum(tab == max(tab)) == 1) {
+        lineage_call <- top
+        if (is_at_or_below(top, final) && top != final) {
+          # a clear majority justifies reporting the deeper label
+          final <- top
+        }
+      }
+    }
+  }
+
+  # candidates: order-compatible lineages named anywhere in the domains'
+  # hit lists, most-supported first.  Advisory only -- these never set
+  # Final_Classification.
+  seen <- unlist(lapply(region_hits, region_hit_labels), use.names = FALSE)
+  seen <- seen[seen %in% order_compatible]
+  candidates <- character(0)
+  if (length(seen) > 0) {
+    tab <- sort(table(seen), decreasing = TRUE)
+    candidates <- names(tab)
+  }
+
+  supporting <- sum(vapply(cls, is_at_or_below, logical(1), parent = final))
+  deepest <- if (length(cls) == 0) 0L else max(lengths(strsplit(cls, "|", fixed = TRUE)))
+  reported_depth <- if (is.na(final) || !nzchar(final)) 0L else
+    length(strsplit(final, "|", fixed = TRUE)[[1]])
+
+  list(
+    Final_Classification = final,
+    Lineage_Call = lineage_call,
+    Lineage_Candidates = if (length(candidates) > 0)
+      paste(candidates, collapse = ",") else NA_character_,
+    Lineage_Support = paste0(supporting, "/", n_total),
+    Classification_Demoted = reported_depth < deepest,
+    Classification_Conflict = conflict,
+    Superfamily_Evidence = paste0("domain_order:",
+                                  paste(CORE_ORDER[[superfamily]],
+                                        collapse = ",")),
+    Core_Domains = paste(CORE_ORDER[[superfamily]], collapse = " ")
+  )
+}
+
+
+#' Lineage name -> canonical domain order, in DANTE's label form.
+#' Mirrors the conversion in detect_putative_ltr.R so both modes read the
+#' same lineage_domain_order.csv identically.
+lineage_domain_map <- function(lineage_info) {
+  nm <- gsub("ss/I", "ss_I",
+             gsub("_", "/", gsub("/", "|", lineage_info$Lineage)))
+  setNames(lineage_info$Domains.order, nm)
+}

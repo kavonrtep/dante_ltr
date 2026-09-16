@@ -940,9 +940,26 @@ Only after boundaries are fixed. For each accepted element:
 2. **Structural floor.** `Superfamily` from §6.2 is authoritative.
    Nothing below it may be reported without agreeing with it.
 3. **Order-compatible lineages.** For each row of
-   `lineage_domain_order.csv` under the called superfamily, compute
-   `domain_distance(observed_order, lineage_order)` (reused verbatim).
-   Rows within `--max_missing_domains` are *order-compatible*.
+   `lineage_domain_order.csv` under the called superfamily, test whether
+   the observed domains appear in the lineage's canonical order — a
+   subsequence test, with at most `--max_missing_domains` observed
+   domains the lineage does not have at all. Missing domains are not
+   penalised: an element carrying only RT/RH/INT genuinely *is*
+   compatible with every gypsy lineage, and reporting that breadth is
+   what `Lineage_Candidates` is for.
+
+   This does **not** reuse `domain_distance()` (`ltr_utils.R:285`), as
+   an earlier draft of this document proposed. That function computes
+   `d_query_p == d_reference_p[d_reference_p %in% d_query_p]` without
+   checking lengths, so whenever the query carries more domains than the
+   reference the comparison recycles — R warns and the returned distance
+   is meaningless. Lineage mode rarely hits this, because its clusters
+   are already keyed to a single lineage; in core mode an incomplete or
+   unexpected domain complement is the *normal* case, so the unsound
+   path would be the common one. `domain_distance()` is left untouched.
+   (Lineage mode can reach the same recycling when a cluster carries
+   more domains than its lineage's reference order — worth a look, but
+   out of scope here, since any change to it moves lineage-mode output.)
 4. **Classification evidence.** For every collected domain, take
    `Final_Classification` plus every entry of
    `Region_Hits_Classifications`. Tally lineage-depth labels.

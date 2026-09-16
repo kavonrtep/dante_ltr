@@ -217,9 +217,12 @@ Design §7.
     `Lineage_Support`, `Classification_Demoted`,
     `Classification_Conflict`.
 
-    Order-compatible lineages come from `domain_distance()`
-    (`ltr_utils.R:285`, reused verbatim) against rows of
-    `lineage_domain_order.csv` under the called superfamily.
+    Order-compatible lineages come from `order_compatible_with()`, a
+    subsequence test against rows of `lineage_domain_order.csv` under
+    the called superfamily. It replaces the `domain_distance()` reuse an
+    earlier draft assumed: that function recycles when the query carries
+    more domains than the reference, which is core mode's normal case.
+    See design §7.3.
 
 5.3 Self-tests: the four cases of design §7.6 — unanimous lineage;
     two lineages sharing a parent; cross-superfamily disagreement

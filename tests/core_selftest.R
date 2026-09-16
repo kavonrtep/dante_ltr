@@ -349,6 +349,105 @@ ok("window clamped at the sequence end",
    end(core_ranges_right(near_end, CONSTRAINTS, SL))[1] == 200000L)
 
 
+# --- classification --------------------------------------------------
+
+section("reannotation and classification (design 7)")
+
+LIN <- lineage_domain_map(read.table(
+  file.path(root, "databases", "lineage_domain_order.csv"),
+  sep = "\t", header = TRUE, as.is = TRUE))
+source(file.path(root, "utils", "ltr_utils.R"))
+
+ok("LCA of identical labels is the label",
+   identical(lca_classification(rep("Class_I|LTR|Ty3/gypsy|chromovirus|Tekay", 3)),
+             "Class_I|LTR|Ty3/gypsy|chromovirus|Tekay"))
+ok("LCA of siblings is the parent",
+   identical(lca_classification(c("Class_I|LTR|Ty3/gypsy|chromovirus|Tekay",
+                                  "Class_I|LTR|Ty3/gypsy|chromovirus|Reina")),
+             "Class_I|LTR|Ty3/gypsy|chromovirus"))
+ok("LCA across superfamilies stops above both",
+   identical(lca_classification(c("Class_I|LTR|Ty3/gypsy|chromovirus|Tekay",
+                                  "Class_I|LTR|Ty1/copia|Ale")),
+             "Class_I|LTR"))
+
+ok("observed subsequence of the lineage order -> compatible",
+   order_compatible_with(c("RT", "RH", "INT"), "GAG PROT RT RH INT CHD"))
+ok("core-only complement is compatible with a full lineage",
+   order_compatible_with(c("RT", "RH", "INT"), "GAG PROT RT RH INT"))
+ok("wrong order -> incompatible",
+   !order_compatible_with(c("INT", "RT", "RH"), "GAG PROT RT RH INT CHD"))
+ok("a domain the lineage lacks -> incompatible at max_extra 0",
+   !order_compatible_with(c("RT", "RH", "INT", "CHD"), "GAG PROT RT RH INT"))
+ok("...but allowed when max_extra permits it",
+   order_compatible_with(c("RT", "RH", "INT", "CHD"), "GAG PROT RT RH INT", 1))
+
+gypsy_sf <- "Class_I/LTR/Ty3_gypsy"
+tekay_order <- c("GAG", "PROT", "RT", "RH", "INT", "CHD")
+
+# 1. unanimous lineage -> report the lineage
+r <- classify_core_element(
+  tekay_order,
+  rep("Class_I|LTR|Ty3/gypsy|chromovirus|Tekay", 6),
+  rep("RT|Class_I|LTR|Ty3/gypsy|chromovirus|Tekay[500bp]", 6),
+  gypsy_sf, LIN)
+ok("unanimous lineage -> reported",
+   identical(r$Final_Classification,
+             "Class_I|LTR|Ty3/gypsy|chromovirus|Tekay"))
+ok("unanimous lineage -> Lineage_Call set",
+   identical(r$Lineage_Call, "Class_I|LTR|Ty3/gypsy|chromovirus|Tekay"))
+ok("unanimous lineage -> not demoted", isFALSE(r$Classification_Demoted))
+ok("unanimous lineage -> no conflict", isFALSE(r$Classification_Conflict))
+
+# 2. two lineages sharing a parent -> report the parent, demoted
+r <- classify_core_element(
+  tekay_order,
+  c(rep("Class_I|LTR|Ty3/gypsy|chromovirus|Tekay", 3),
+    rep("Class_I|LTR|Ty3/gypsy|chromovirus|Reina", 3)),
+  rep("RT|Class_I|LTR|Ty3/gypsy|chromovirus|Tekay[500bp],RT|Class_I|LTR|Ty3/gypsy|chromovirus|Reina[480bp]", 6),
+  gypsy_sf, LIN)
+ok("split lineages -> report the shared parent",
+   identical(r$Final_Classification, "Class_I|LTR|Ty3/gypsy|chromovirus"))
+ok("split lineages -> demoted", isTRUE(r$Classification_Demoted))
+ok("split lineages -> no Lineage_Call", is.na(r$Lineage_Call))
+ok("split lineages -> both offered as candidates",
+   grepl("Tekay", r$Lineage_Candidates) && grepl("Reina", r$Lineage_Candidates))
+
+# 3. classification contradicts the order -> order wins, conflict flagged
+r <- classify_core_element(
+  tekay_order, rep("Class_I|LTR|Ty1/copia|Ale", 6),
+  rep("RT|Class_I|LTR|Ty1/copia|Ale[500bp]", 6), gypsy_sf, LIN)
+ok("classification contradicting the order -> superfamily reported",
+   identical(r$Final_Classification, "Class_I|LTR|Ty3/gypsy"))
+ok("classification contradicting the order -> conflict flagged",
+   isTRUE(r$Classification_Conflict))
+
+# 4. everything unresolved -> report the superfamily, no conflict
+r <- classify_core_element(
+  tekay_order, rep("Class_I|LTR|Ty3/gypsy", 6),
+  rep("RT|Class_I|LTR|Ty3/gypsy[500bp]", 6), gypsy_sf, LIN)
+ok("all domains unresolved -> superfamily reported",
+   identical(r$Final_Classification, "Class_I|LTR|Ty3/gypsy"))
+ok("all domains unresolved -> no conflict",
+   isFALSE(r$Classification_Conflict))
+ok("all domains unresolved -> not demoted",
+   isFALSE(r$Classification_Demoted))
+
+ok("superfamily evidence names the order",
+   identical(r$Superfamily_Evidence, "domain_order:RT,RH,INT"))
+ok("support counts the agreeing domains",
+   identical(r$Lineage_Support, "6/6"))
+
+# a candidate named only in the hit lists never reaches
+# Final_Classification
+r <- classify_core_element(
+  tekay_order, rep("Class_I|LTR|Ty3/gypsy", 6),
+  rep("RT|Class_I|LTR|Ty3/gypsy|chromovirus|Tekay[500bp]", 6),
+  gypsy_sf, LIN)
+ok("Region_Hits candidates stay advisory",
+   identical(r$Final_Classification, "Class_I|LTR|Ty3/gypsy") &&
+     grepl("Tekay", r$Lineage_Candidates))
+
+
 # --- summary ---------------------------------------------------------
 
 cat("\n", CHECKS - FAILURES, "/", CHECKS, " checks passed\n", sep = "")
