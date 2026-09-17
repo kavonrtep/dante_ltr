@@ -70,12 +70,15 @@ Consequences:
 - The price is specificity: we must replace "the domain complement
   matched a known lineage" with explicit structural gates. §6.4 and §9
   list them.
-- The other price is that the core must be **complete**. Requiring all
-  three domains is what makes the superfamily call sound, but 2–25 % of
-  validated elements do not carry all three through the domain filter,
-  depending on the genome (§5.2). That ceiling is set by
+- The other price is that the core must be **complete**: 2–25 % of
+  validated elements do not carry all three domains through the domain
+  filter, depending on the genome (§5.2). That ceiling is set by
   `dante_filtering`, not by the clustering this mode replaces, and
-  §6.0.2 relaxes it for core domains specifically.
+  §6.0.2 relaxes it for core domains specifically. Measured against the
+  alternative, though, the requirement is a bargain — it costs under 5 %
+  of otherwise-complete cores, and it is what makes the superfamily call
+  independent of REXdb, since `RT → RH` reads the same in both
+  superfamilies and only INT's position tells them apart (§5.7).
 
 The central premise — that the core order is invariant and determines
 the superfamily — is not assumed. It was measured on 51 875 validated
@@ -864,6 +867,92 @@ for the uninteresting reason that it abandons almost immediately.
 
 ---
 
+### 5.7 Is requiring all three core domains too strict?
+
+Requiring RT **and** RH **and** INT to survive the domain filter is the
+strictest thing the mode does, and the obvious place to look for lost
+sensitivity: what about a locus where two are solid and the third is
+just under the threshold? Measured on the full Drapa raw DANTE, at the
+core threshold `Relat_Length >= 0.3`:
+
+```
+loci that look like a core
+  all three pass   (seed today)        2 176    95.4 %
+  two pass, third below threshold        104     4.6 %
+```
+
+**The requirement costs under 5 %** — and the three findings behind that
+number all point the same way.
+
+**1. The weak third is weak, not marginal.** All 104 fail on
+`Relat_Length` alone; none fails on `Similarity` or `Identity`. They are
+short hits, and they sit well below the threshold rather than just under
+it — median 0.17, q90 0.27:
+
+| lower the core threshold to | recovers |
+|---|---:|
+| 0.25 | 22 % |
+| 0.20 | 42 % |
+| 0.10 | 93 % |
+
+Recovering most of them means accepting domains that cover a tenth of
+their reference. That is not a free trade: §6.3 also treats a surviving
+domain as a *blocker*, so a threshold that loose truncates search windows
+elsewhere. The effect is not monotonic, which §6.0.2 already warned
+about, and 4.6 % is a small prize to chase with it.
+
+**2. The two-domain pool is larger, but three quarters of it cannot be
+classified.** There are roughly a thousand core pairs that pass the
+filter with no third domain in range. By pair type:
+
+```
+RT-RH     750    superfamily AMBIGUOUS
+RH-INT    227    gypsy
+RT-INT     13    gypsy
+INT-RH     11    copia
+INT-RT      6    copia
+RH-RT      13    superfamily AMBIGUOUS
+```
+
+`RT → RH` reads **identically in both superfamilies** — gypsy is
+`RT RH INT`, copia is `INT RT RH`, and only INT's position tells them
+apart. So the ~760 RT-RH pairs could be *located* but not *classified*,
+which defeats the purpose of the mode. Only the ~260 INT-containing
+pairs would give a callable element: perhaps 12 % more loci, against an
+unmeasured specificity cost.
+
+**3. A missing third is usually the next element, not a gap.** For pairs
+whose third domain is annotated somewhere on the same strand, the nearest
+candidate sits at a median of 15.5 kb (q25 7.8 kb, q75 63 kb) — far
+outside any plausible core span. Raising `core_max_gap` would not recover
+these; it would fuse neighbours.
+
+#### Why the requirement earns its keep
+
+It is cheap, and it buys the thing the mode is built on.
+
+The ordered triplet is what makes the superfamily call **independent of
+REXdb**. Gypsy versus copia comes out of the domain order alone — no
+classification is consulted, which is precisely why the call survives on
+a genome REXdb has never seen, and why it agreed with lineage mode on
+51 875 of 51 875 validated elements (§5.2). Drop to two domains and that
+property survives only for the INT-containing minority; for the RT-RH
+majority the mode would be reduced to locating something it cannot name,
+and would have to fall back on the classification it exists to avoid.
+
+So the three-domain rule is not the conservative choice it looks like.
+It costs under 5 % of otherwise-complete cores and is what turns
+"a cluster of core domains" into "a Ty3/gypsy element" without asking
+a database.
+
+Two caveats on the numbers. These are **loci, not elements** — only
+about two thirds of Drapa seeds went on to yield an LTR pair (§5.6), so
+any gain should be scaled by roughly that. And the pair counts come from
+a simpler greedy pass than `find_core_seeds()`, so treat them as
+approximate; the proportions are the durable part.
+
+---
+
 ## 6. Algorithm
 
 ### 6.0 Preprocessing
@@ -1007,6 +1096,12 @@ Per sequence, per strand, over core candidates sorted by coordinate:
 Each seed carries: `seqnames`, `strand`, core span, the three domain
 rows, and `Superfamily` — derived **purely from the order**, with no
 reference to any `Final_Classification`.
+
+All three domains are required, and a pair is not accepted: `RT → RH` is
+the same order in both superfamilies, so two-thirds of the two-domain
+loci on a real genome could be located but not classified (§5.7). The
+triplet is what carries the superfamily, which is the whole point of
+seeding structurally.
 
 ### 6.3 Search-space delimitation
 
@@ -1264,7 +1359,7 @@ classification conflicts           :   41
 | Non-LTR RT (LINE, pararetrovirus) seeding false elements | RT alone never seeds; the ordered triplet with INT is required, and LINEs have no INT |
 | Superfamily mis-call from a mis-ordered fragment | order requires all three domains on one strand within `core_max_span`; a fragment yields no seed, not a wrong seed. Measured 0/1135 discordant (§5.2) |
 | Core mode quietly worse than lineage mode on good genomes | it is opt-in; §10 requires a concordance test on REXdb-covered data |
-| **Sensitivity capped by the domain filter, not the algorithm** | up to ~24 % of validated elements lack a complete filtered core (§5.2, Alyr; 2–7 % elsewhere). Partly mitigable via `--min_relative_length_core` (§6.0.2), worth ~4–10 % more seeds (§5.3, §5.4). The residual bound must be stated in the README so users do not read core mode as strictly more sensitive on well-covered genomes |
+| **Sensitivity capped by the domain filter, not the algorithm** | up to ~24 % of validated elements lack a complete filtered core (§5.2, Alyr; 2–7 % elsewhere). Partly mitigable via `--min_relative_length_core` (§6.0.2), worth ~4–10 % more seeds (§5.3, §5.4). Requiring all three domains is *not* the binding part — it costs under 5 %, and relaxing it far enough to matter would admit blockers as well as seeds (§5.7). The residual bound must be stated in the README so users do not read core mode as strictly more sensitive on well-covered genomes |
 | Blocking-by-default truncates windows on domain-dense regions | §6.3's five transparency rules cover the legitimate cases; §10 tests each. Elements lost this way still appear at rank `D` (§6.5) |
 | `Region_Hits_Classifications` widening the candidate set too far | it is only used for `Lineage_Candidates` (advisory) and for secondary LTR support, never for `Final_Classification` |
 
@@ -1366,6 +1461,7 @@ All three stay available.
 | **O4** | two seeds in one LTR pair: reject or report as nested? | **Reject.** No nested-element reporting. §6.4 G5 |
 | **O5** | rank-`D` track from non-core clusters too? | **Yes** — anything that passes the filter and is not inside an element is reported at rank `D`. Order-aware regrouping of that track is deferred; core element detection is the primary aim. §6.5 |
 | **O6** | does core-mode output feed `dante_ltr_solo`? | **Follow-up**, out of scope here. |
+| **core set** | require all three of RT/RH/INT, or allow a pair? | **All three**, chosen at design time and since validated: the requirement costs under 5 % of otherwise-complete cores, while a pair rule would leave ~75 % of two-domain loci unclassifiable, because `RT → RH` does not discriminate the superfamilies. §5.7 |
 | **O2** | seed scoring function | **Shortest span, ties on `sum(Similarity)`.** No free parameter; the measured span distribution (q99 ≈ 2.9–3.6 kb across four genomes) supports the compactness prior. §6.2 step 3 |
 | **O7** | must a traversed accessory domain's superfamily agree with the seed's? | **Yes -- disagreement blocks** (§6.3 rule 6). Fires only on positive disagreement, so a shallowly-classified domain passes vacuously; measured 0 mismatches in 51 875 elements, so it costs no sensitivity where checkable. |
 
