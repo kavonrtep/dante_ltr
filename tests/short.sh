@@ -59,6 +59,24 @@ else
   echo "OK: representative library identical across input orders ($(grep -c '^>' "$REP") reps)"
 fi
 
+# Second determinism guard: identical input, repeated runs, and a different
+# thread count. This is a DIFFERENT failure mode from the one above -- mmseqs
+# linclust asks for spaced k-mers and invents a random pattern per process
+# unless --spaced-kmer-mode 0 is passed, which made byte-identical input give
+# different cluster counts run to run. Assert the flag directly as well: this
+# fixture is far too small to make a random pattern change the outcome
+# reliably, so the re-run comparison alone would pass even if the flag were
+# dropped.
+grep -q -- '--spaced-kmer-mode 0' "$ROOT/utils/mmseq_clustering.R" \
+  || { echo "FAIL: --spaced-kmer-mode 0 missing from the mmseqs call -- clustering is not reproducible"; exit 1; }
+./utils/mmseq_clustering.R -f "$OUT/library/TE_all.fasta" \
+    -o "$OUT/library_rerun" -m 3 -t 1 >/dev/null 2>&1
+REP_RERUN="$OUT/library_rerun/mmseqs_representative_seq_clean.fasta"
+[ -s "$REP_RERUN" ] || { echo "FAIL: re-run clustering produced no library"; exit 1; }
+cmp -s "$REP" "$REP_RERUN" \
+  || { echo "FAIL: representative library changed on a re-run of identical input"; exit 1; }
+echo "OK: representative library stable across re-runs and thread counts"
+
 echo
 echo "=== dante_ltr_solo ==="
 ./dante_ltr_solo -g "$OUT/ltr.gff3" -s "$FASTA" -o "$OUT/solo" -c "$NCPU"

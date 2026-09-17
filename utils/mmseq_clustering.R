@@ -121,12 +121,27 @@ writeXStringSet(s_parts, fasta_parts)
 rm(s_parts)
 # run mmseqs2 clustering
 # example command:
-# mmseqs easy-cluster fasta/TE_all_partitioned_s900_w1000.fasta TE_all_partitioned_s900_w1000_clustered /ssd.scratch/tmp --threads 20
+# mmseqs easy-cluster fasta/TE_all_partitioned_s900_w1000.fasta TE_all_partitioned_s900_w1000_clustered /ssd.scratch/tmp --threads 20 --spaced-kmer-mode 0
+#
+# --spaced-kmer-mode 0 is load-bearing, not a tuning knob. The canonical sort
+# above fixes input-ORDER sensitivity; this fixes run-to-run variation on
+# byte-identical input. `easy-cluster` runs cascaded clustering whose first step
+# is linclust/kmermatcher, and linclust requests spaced k-mers. With no pattern
+# supplied mmseqs generates one AT RANDOM per process, so kmermatcher emits a
+# different prefilter every run and the whole cascade inherits it: one fixed
+# input here gave 5146 / 5162 / 5167 / 5169 / 5173 clusters over repeated runs.
+# It is not thread-related (it varies at --threads 1) and not memory-related (it
+# varies with --split-memory-limit pinned); kmermatcher is deterministic as soon
+# as this flag is set. Consecutive k-mers cost ~1% more representatives (5221 vs
+# 5167, +1.1% bp on that input) and in exchange the library becomes a pure
+# function of the input set -- identical across repeated runs and across
+# different --threads values.
 
 tempdir <- tempdir()
 message("Running mmseqs2 clustering")
 cmd <- paste("mmseqs easy-cluster", fasta_parts, paste(opt$output_dir, "mmseqs", sep="/"),
-             tempdir, "--threads", opt$threads, "-v 1 2>&1" , sep=" ")
+             tempdir, "--threads", opt$threads, "--spaced-kmer-mode 0",
+             "-v 1 2>&1" , sep=" ")
 out <- system(cmd, intern=TRUE)
 
 cls <- read.table(paste0(opt$output_dir,"/mmseqs_cluster.tsv"), as.is=TRUE, comment.char = "")

@@ -1,3 +1,30 @@
+## Unreleased
+
+Deterministic repeat-library clustering, part 2.
+
+* `utils/mmseq_clustering.R` now passes `--spaced-kmer-mode 0` to
+  `mmseqs easy-cluster`.  Without it the library was **not reproducible from
+  byte-identical input**: one fixed `TE_all.fasta` gave 5146 / 5162 / 5167 /
+  5169 / 5173 clusters across repeated runs.
+* Cause: `easy-cluster` runs cascaded clustering whose first step is
+  linclust/kmermatcher, and linclust requests spaced k-mers.  With no pattern
+  supplied mmseqs invents a **random one per process**, so kmermatcher emits a
+  different prefilter every run and the whole cascade inherits it.  It is not
+  thread-related (it varies at `--threads 1`) and not memory-related (it varies
+  with `--split-memory-limit` pinned); kmermatcher becomes deterministic as
+  soon as the flag is set.
+* This is a second, independent failure mode from the canonical input sort
+  added earlier, which only addressed input *order* sensitivity.  It affected
+  0.6.1.0 and every earlier release equally, in both `lineage` and `core` mode.
+* Cost: consecutive k-mers are slightly less sensitive, so the library grows
+  ~1.5 %.  On the *Pisum* core-mode fixture 1527 -> 1550 representatives,
+  93.85 % -> 93.75 % size reduction.  In exchange the library is a pure
+  function of the input set -- identical across repeated runs *and* across
+  different `--threads` / `-c` values.
+* `tests/short.sh` gains a re-run guard and asserts the flag is present; the
+  repository fixtures are too small for a random pattern to change the outcome
+  reliably, so the re-run comparison alone would not catch a regression.
+
 ## 0.6.1.0 (2026-09-17)
 
 Repeat-library annotation policy for core mode.
