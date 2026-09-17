@@ -58,6 +58,11 @@ resolve_name <- function(x){
   }
 }
 
+initial_options <- commandArgs(trailingOnly = FALSE)
+script_dir <- dirname(normalizePath(sub("--file=", "",
+  initial_options[grep("--file=", initial_options)])))
+source(file.path(script_dir, "library_policy.R"))
+
 opt_parser <- OptionParser(option_list=opt_list)
 opt <- parse_args(opt_parser)
 
@@ -126,17 +131,26 @@ size_of_clusters <- sapply(cls_clusters, length)
 cls_clusters <- cls_clusters[size_of_clusters >= opt$min_coverage]
 annot_in_clusters <- annot_in_clusters[size_of_clusters >= opt$min_coverage]
 size_of_clusters <- size_of_clusters[size_of_clusters >= opt$min_coverage]
-main_class_proportion <- sapply(annot_in_clusters, function(x) max(table(x))/length(x))
-main_class_name <- sapply(annot_in_clusters, function(x) names(which.max(table(x))))
-all_names <- sapply(annot_in_clusters, function(x) unique(x))
-consensus_names <- sapply(all_names, resolve_name)
+# Source element of every member, for the element-level counting the nested
+# policy uses.  Member names are <element_id>#<classification>_sliding:<s>-<e>,
+# and element ids contain neither "#" nor "_sliding" -- assert it rather than
+# silently mis-grouping if that ever changes.
+element_of <- function(x) sub("#.*", "", x)
+elements_in_clusters <- lapply(cls_clusters, element_of)
+stopifnot(!any(grepl("_sliding", unlist(elements_in_clusters), fixed = TRUE)))
 
+# One decision per cluster.  lapply, not sapply: sapply simplifies to a matrix
+# when every cluster happens to carry the same number of distinct labels, after
+# which the per-cluster vectors silently go out of step.
+decisions <- lapply(names(annot_in_clusters), function(k)
+  classify_cluster(annot_in_clusters[[k]], elements_in_clusters[[k]],
+                   proportion_min = opt$proportion_min,
+                   policy = "strict",
+                   resolve_name = resolve_name))
+names(decisions) <- names(annot_in_clusters)
 
-final_name <- ifelse(main_class_proportion > opt$proportion_min,
-                     main_class_name, consensus_names)
-resoved_names_l <- final_name == main_class_name
-
-final_name <- final_name[resoved_names_l]
+kept <- vapply(decisions, function(d) d$keep, logical(1))
+final_name <- vapply(decisions[kept], function(d) d$label, character(1))
 
 final_names_rm_compatible <- gsub("|", "/", gsub("/","_", final_name, fixed=TRUE), fixed=TRUE)
 uniq_id <- paste0(gsub("#.+", "", names(final_name)),"_", gsub( ".+sliding:","", names(final_name)))
