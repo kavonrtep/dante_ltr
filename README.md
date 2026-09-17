@@ -10,6 +10,7 @@
   - [Modifying LTR-RT search constraints](#modifying-ltr-rt-search-constraints)
   - [Fallback classification mode](#fallback-classification-mode)
   - [Core-domain detection mode](#core-domain-detection-mode)
+    - [Building a library from core-mode output](#building-a-library-from-core-mode-output)
   - [CLI reference](#cli-reference)
   - [GFF3 DANTE_LTR output specification](#gff3-dante_ltr-output-specification)
 
@@ -348,6 +349,33 @@ several times cheaper and nearly as good.
 
 Design, validation and known limitations:
 [docs/core_domain_mode_design.md](./docs/core_domain_mode_design.md).
+
+### Building a library from core-mode output
+
+`dante_ltr_to_library` discards a cluster whose members disagree about
+classification. Core mode labels each element with the lowest common ancestor
+of *its own* domains, so a cluster routinely mixes `Ty3/gypsy` with
+`Ty3/gypsy|chromovirus` — an ancestor and its descendant, which the default
+rule reads as a conflict and drops.
+
+```bash
+dante_ltr_to_library -g core.gff3 -s genome.fasta -o lib --annotation_conflict nested
+```
+
+`nested` keeps a cluster whose labels form a single ancestor chain, and
+relabels it with the deepest label when enough distinct elements carry it
+(`--lineage_promotion_min_elements`, `--lineage_promotion_min_share`). Mixes of
+two different lineages are still dropped. On the *Draparnaldia* core-mode run
+this recovers 62 of 67 dropped clusters — 397 → 459 sequences, +16 % bp — and
+gives 69 of them a lineage-level call instead of the bare superfamily bucket.
+
+Two things to know before using it:
+
+- It is opt-in rather than keyed to `--mode core`, because lineage mode can
+  also emit internal-node labels, so it is not provably a no-op there.
+- It can **remove** sequences as well as add them: a cluster mixing two sibling
+  lineages with their shared parent is kept by `strict` and dropped by
+  `nested`, since siblings do not form a chain.
 
 ## Running on a cluster or in a container
 

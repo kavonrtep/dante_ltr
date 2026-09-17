@@ -31,7 +31,7 @@ LTR pair choice, TSD, PBS, ranking, statistics, FASTA export. See
 | Script | Language | Purpose |
 |--------|----------|---------|
 | `dante_ltr` | Python | Main tool — detects LTR retrotransposons from DANTE output |
-| `dante_ltr_to_library` | Python | Creates non-redundant repeat libraries (calls extract_fasta.R → mmseq_clustering.R) |
+| `dante_ltr_to_library` | Python | Creates non-redundant repeat libraries (calls extract_fasta.R → mmseq_clustering.R → library_policy.R). `--annotation_conflict nested` keeps clusters whose labels differ only in depth, which is the normal shape of `--mode core` output |
 | `dante_ltr_summary` | R | Generates HTML summary reports with embedded plots |
 | `dante_reclassify` | R | Simplifies element classification |
 | `clean_ltr.R` | R | Post-processing/validation of LTR annotations |
@@ -66,8 +66,10 @@ DANTE GFF3 + Reference FASTA
 ./tests.sh 4
 ```
 
-Test levels: `smoke`, `short`, `fallback`, `core`, `refine`, `fd`, `mem`,
-`long`, `all`.  `./tests.sh core` covers core-domain mode: R unit tests
+Test levels: `smoke`, `short`, `fallback`, `core`, `library`, `refine`, `fd`,
+`mem`, `long`, `all`.  `./tests.sh library` covers the repeat-library
+annotation policy: unit tests for `utils/library_policy.R` plus a
+byte-identity check that the default path still matches the historical one.  `./tests.sh core` covers core-domain mode: R unit tests
 (`tests/core_selftest.R`, no genome needed), concordance against lineage
 mode on `tests/data/smoke`, sensitivity on `tests/data/core_drapa`, and
 a regression check that lineage-mode output has not moved.

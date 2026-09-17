@@ -1,3 +1,36 @@
+## 0.6.1.0 (2026-09-17)
+
+Repeat-library annotation policy for core mode.
+
+* New `dante_ltr_to_library --annotation_conflict {strict,nested}`, default
+  `strict` and byte-identical to 0.6.0.0.
+* The default rule keeps a cluster only when the label it computes equals the
+  cluster's majority label.  A cluster whose members are an ancestor and its
+  descendant -- `Ty3/gypsy` and `Ty3/gypsy|chromovirus` -- therefore fails,
+  although the labels do not contradict each other.  `--mode core` assigns each
+  element the LCA of its own domains, so it produces such clusters constantly;
+  lineage mode almost never does, which is why this went unnoticed.
+* Under `nested` a cluster survives when its distinct labels form a single
+  ancestor chain, counted over distinct source elements rather than 1 kb
+  sliding windows, and is relabelled with the deepest label when at least
+  `--lineage_promotion_min_elements` (2) elements carry it and they are at
+  least `--lineage_promotion_min_share` (0.25) of the cluster.  Mixes of two
+  different lineages, and of two superfamilies, are still dropped.
+* On the *Draparnaldia* core-mode run: 397 -> 459 sequences (+62, +16 % bp),
+  5 genuine conflicts still dropped, and 69 clusters given a lineage-level call
+  instead of the superfamily bucket (50 `chromovirus`, 19 `Chlamyvir`).
+* `nested` is **not** a superset of `strict`: a cluster mixing two sibling
+  lineages with their shared parent is kept by `strict` and dropped by
+  `nested`.  It does not occur on the genome above, but it means switching
+  policy can remove library sequences as well as add them.
+* Opt-in rather than keyed to `--mode core`: lineage mode can also emit
+  internal-node labels, so `nested` is not provably a no-op there.
+* The clustering decision moved to `utils/library_policy.R` as a pure
+  function, with `tests/library_policy_selftest.R` covering it and a new
+  `./tests.sh library` level wired into CI.  The sorted-order tie-break of
+  `which.max(table(x))` is preserved deliberately and tested -- the library
+  must be a function of the input set, not of record order.
+
 ## 0.6.0.0 (2026-09-16)
 
 Core-domain detection mode (`dante_ltr --mode core`).
