@@ -1,4 +1,4 @@
-## Unreleased
+## 0.6.2.0 (2026-09-17)
 
 Deterministic repeat-library clustering, part 2.
 
