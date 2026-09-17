@@ -31,7 +31,7 @@ In the next step, the 5' and 3' regions of the putative retrotransposon  are exa
 - Elements with protein domains, 5'LTR and 3'LTR (PBS and TDS were not found) - rank **DL**.
 - Elements as clusters of protein domains with the same classification, no LTRs - rank **D**.
 
-![dante_ltr_workflow.png](dante_ltr_workflow.png)
+![The five stages of the default DANTE_LTR pipeline: DANTE protein domains; a cluster of domains sharing one lineage; the LTR search window, which runs several kb out from the cluster but stops at a neighbouring domain; LTR detection; and TSD and PBS identification, which set the rank.](dante_ltr_workflow.png)
 
 ## Availability
 DANTE_LTR and DANTE are available on [Galaxy server](https://repeatexplorer-elixir.cerit-sc.cz/) or can be installed using conda package manager.
@@ -297,6 +297,13 @@ constraints table. The pre-demotion value is kept on each feature as
 | `coarse3` | `copia`, `gypsy/chromovirus`, `gypsy/non-chromovirus` |
 | `coarse2` | `copia`, `gypsy` |
 
+![Fallback mode in three stages: on a genome far from REXdb the domains of a single element receive different lineage calls, so no cluster forms; --fallback_mode demotes every call to one coarse depth; the domains now agree, the cluster forms and the rest of the pipeline proceeds unchanged.](dante_ltr_fallback.png)
+
+The domain complement must still be complete and in the expected order — only
+its classification is relaxed. Where the accessory domains are missing
+altogether rather than merely under-resolved, see
+[core-domain mode](#core-domain-detection-mode).
+
 Full spec: [docs/fallback_classification_spec.md](./docs/fallback_classification_spec.md).
 
 ## Core-domain detection mode
@@ -336,6 +343,8 @@ on a REXdb-covered genome it recovers 96 % of what the default finds,
 not 100 %. Reach for it when the accessory complement is *missing*
 rather than merely under-resolved — for the latter `--fallback_mode` is
 several times cheaper and nearly as good.
+
+![Core-domain mode in four stages: DANTE finds no GAG and stops at superfamily depth, so the complement is incomplete; the ordered RT, RH and INT core is taken as the seed and its order alone gives the superfamily; the search window is measured from the core and passes over the accessory domains, ending at a domain that blocks it; the LTRs are found and the classification is then assigned from the domains inside the element.](dante_ltr_core.png)
 
 Design, validation and known limitations:
 [docs/core_domain_mode_design.md](./docs/core_domain_mode_design.md).
