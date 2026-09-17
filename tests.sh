@@ -4,9 +4,10 @@
 #   ./tests.sh short         # ~1 min, runs on every PR
 #   ./tests.sh fallback      # ~1-2 min, runs on every PR
 #   ./tests.sh core          # ~1 min, runs on every PR
+#   ./tests.sh library       # ~2 min, runs on every PR
 #   ./tests.sh refine        # ~30-60 s, runs on every PR
 #   ./tests.sh long          # ~10-30 min, runs on release tags
-#   ./tests.sh all           # smoke + short + fallback + core + refine + fd + mem + long
+#   ./tests.sh all           # smoke + short + fallback + core + library + refine + fd + mem + long
 #
 # Backwards compat: if the first argument is a number, treat it as CPU
 # count and run the long test (old behaviour of ./tests.sh 4).
@@ -41,6 +42,7 @@ case "$LEVEL" in
   short)    bash "$ROOT/tests/short.sh" ;;
   fallback) bash "$ROOT/tests/fallback.sh" ;;
   core)     bash "$ROOT/tests/core.sh" ;;
+  library)  bash "$ROOT/tests/library.sh" ;;
   refine)   bash "$ROOT/tests/refine.sh" ;;
   fd)       bash "$ROOT/tests/fd.sh" ;;
   mem)      bash "$ROOT/tests/mem.sh" ;;
@@ -50,13 +52,14 @@ case "$LEVEL" in
     bash "$ROOT/tests/short.sh"
     bash "$ROOT/tests/fallback.sh"
     bash "$ROOT/tests/core.sh"
+    bash "$ROOT/tests/library.sh"
     bash "$ROOT/tests/refine.sh"
     bash "$ROOT/tests/fd.sh"
     bash "$ROOT/tests/mem.sh"
     bash "$ROOT/tests/long.sh"
     ;;
   *)
-    echo "usage: $0 {smoke|short|fallback|core|refine|fd|mem|long|all|<NCPU>}" >&2
+    echo "usage: $0 {smoke|short|fallback|core|library|refine|fd|mem|long|all|<NCPU>}" >&2
     exit 2
     ;;
 esac

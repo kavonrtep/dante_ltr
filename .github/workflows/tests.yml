@@ -53,6 +53,9 @@ jobs:
       - name: Core-domain mode test
         run: ./tests.sh core
 
+      - name: Library policy test
+        run: ./tests.sh library
+
       - name: Refine test
         run: ./tests.sh refine
 

@@ -6,7 +6,20 @@ opt_list <- list(
   make_option(c("-o", "--output_dir"), type="character", default=NULL, help="output directory", metavar="character"),
   make_option(c("-m", "--min_coverage"), type="numeric", default=3, help="minimal number of sequences in a cluster", metavar="numeric"),
   make_option(c("-t", "--threads"), type="numeric", default=1, help="number of threads", metavar="numeric"),
-  make_option(c("-p", "--proportion_min"), type="numeric", default=0.95, help="minimal proportion of the main class in a cluster", metavar="numeric")
+  make_option(c("-p", "--proportion_min"), type="numeric", default=0.95, help="minimal proportion of the main class in a cluster", metavar="numeric"),
+  make_option(c("-a", "--annotation_conflict"), type="character", default="strict",
+              help=paste("how to treat a cluster whose members carry different",
+                         "classifications: 'strict' (default, historical) drops",
+                         "anything whose label is not its majority; 'nested'",
+                         "keeps ancestor/descendant chains and may promote them",
+                         "to the deepest supported label [default %default]"),
+              metavar="character"),
+  make_option(c("--lineage_promotion_min_elements"), type="numeric", default=2,
+              help="under 'nested', minimum distinct elements carrying the deepest label [default %default]",
+              metavar="numeric"),
+  make_option(c("--lineage_promotion_min_share"), type="numeric", default=0.25,
+              help="under 'nested', minimum share of the cluster's elements carrying it [default %default]",
+              metavar="numeric")
 )
 
 calculate_segments <- function(LEN, seqname,  overlap = 100, approx_window_size = 1000) {
@@ -71,6 +84,10 @@ if (is.null(opt$fasta) | is.null(opt$output_dir)){
   message("Missing arguments")
   print_help(opt_parser)
   q(status=0)
+}
+if (!opt$annotation_conflict %in% c("strict", "nested")) {
+  stop("--annotation_conflict must be 'strict' or 'nested', got '",
+       opt$annotation_conflict, "'")
 }
 
 suppressPackageStartupMessages(library(Biostrings))
@@ -145,12 +162,22 @@ stopifnot(!any(grepl("_sliding", unlist(elements_in_clusters), fixed = TRUE)))
 decisions <- lapply(names(annot_in_clusters), function(k)
   classify_cluster(annot_in_clusters[[k]], elements_in_clusters[[k]],
                    proportion_min = opt$proportion_min,
-                   policy = "strict",
+                   policy = opt$annotation_conflict,
+                   promote_min_elements = opt$lineage_promotion_min_elements,
+                   promote_min_share = opt$lineage_promotion_min_share,
                    resolve_name = resolve_name))
 names(decisions) <- names(annot_in_clusters)
 
 kept <- vapply(decisions, function(d) d$keep, logical(1))
 final_name <- vapply(decisions[kept], function(d) d$label, character(1))
+
+outcomes <- vapply(decisions, function(d) d$outcome, character(1))
+message(sprintf(
+  "annotation policy %s: %d clusters | kept %d (majority %d, lca %d, recovered %d, promoted %d) | dropped %d",
+  opt$annotation_conflict, length(decisions), sum(kept),
+  sum(outcomes == "majority"), sum(outcomes == "lca"),
+  sum(outcomes == "recovered"), sum(outcomes == "promoted"),
+  sum(outcomes == "dropped")))
 
 final_names_rm_compatible <- gsub("|", "/", gsub("/","_", final_name, fixed=TRUE), fixed=TRUE)
 uniq_id <- paste0(gsub("#.+", "", names(final_name)),"_", gsub( ".+sliding:","", names(final_name)))

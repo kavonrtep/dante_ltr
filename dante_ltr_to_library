@@ -34,6 +34,28 @@ def main():
                              "the same annotation to be included in repeat library "
                              "(default: 0.95)")
 
+    parser.add_argument('-a', '--annotation_conflict', required=False,
+                        default='strict', choices=['strict', 'nested'],
+                        help="How to treat a cluster whose members carry different "
+                             "classifications. 'strict' (default) reproduces the "
+                             "historical behaviour. 'nested' keeps a cluster whose "
+                             "labels form a single ancestor chain -- the normal "
+                             "output of 'dante_ltr --mode core' -- and may promote "
+                             "it to the deepest label the evidence supports. Note "
+                             "that 'nested' can also REMOVE a cluster that 'strict' "
+                             "keeps: a mix of two sibling lineages plus their "
+                             "parent is not a chain.")
+    parser.add_argument('--lineage_promotion_min_elements', required=False,
+                        default=2, type=int,
+                        help='With --annotation_conflict nested: minimum number of '
+                             'distinct elements that must carry the deepest label '
+                             'before a cluster is promoted to it (default: 2)')
+    parser.add_argument('--lineage_promotion_min_share', required=False,
+                        default=0.25, type=float,
+                        help='With --annotation_conflict nested: minimum share of '
+                             "the cluster's elements that must carry the deepest "
+                             'label (default: 0.25)')
+
     args = parser.parse_args()
 
     script_dir = os.path.dirname(os.path.realpath(__file__))
@@ -49,7 +71,10 @@ def main():
     # run mmseqs2 clustering
     cmd = (F"{script_dir}/utils/mmseq_clustering.R -f {args.output_dir}/TE_all.fasta"
            F" -o {args.output_dir}/mmseqs2 -m {args.min_coverage}"
-           F" -p {args.proportion_min} -t {args.cpu}")
+           F" -p {args.proportion_min} -t {args.cpu}"
+           F" -a {args.annotation_conflict}"
+           F" --lineage_promotion_min_elements {args.lineage_promotion_min_elements}"
+           F" --lineage_promotion_min_share {args.lineage_promotion_min_share}")
 
     subprocess.check_call(cmd, shell=True)
 
