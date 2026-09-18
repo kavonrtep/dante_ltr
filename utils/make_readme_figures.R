@@ -9,6 +9,7 @@
 #   dante_ltr_workflow.png    the default lineage-keyed pipeline (Principle)
 #   dante_ltr_fallback.png    what --fallback_mode changes
 #   dante_ltr_core.png        what --mode core changes
+#   dante_ltr_library_policy.png  strict vs nested, when building a library
 #
 # The three share one visual vocabulary -- same domain glyph, same colours,
 # same stage layout -- so a reader moving between README sections can compare
@@ -404,7 +405,132 @@ fig_core <- function() {
   dev.off()
 }
 
+# =========================================================================
+# Figure 4 -- dante_ltr_to_library --annotation_conflict
+# =========================================================================
+# This one leaves the genome track behind: the subject is a *cluster* of
+# elements and the labels its members carry, not a locus.  The shared
+# vocabulary is kept where it still means something -- Okabe-Ito colours,
+# caption above, verdict at the right, muted note below.
+#
+# The labels are drawn as a little tree, because that is exactly what the two
+# policies disagree about: a single descending chain (every label an ancestor
+# of the next) versus a fork (two lineages at the same depth).  Reading the
+# indentation is reading the rule.
+
+#' A label chip; returns its width so the caller can place things after it.
+chip <- function(x, y, label, col, cex = CEX_DOM) {
+  w <- strwidth(label, cex = cex, font = 2) + 3.2
+  rect(x, y - DH / 2, x + w, y + DH / 2, col = col, border = col)
+  text(x + w / 2, y, label, cex = cex, col = ink_on(col), font = 2)
+  invisible(w)
+}
+
+#' Draw label chips as a tree.  `d` has columns depth, label, col, n.
+label_tree <- function(d, x0, y_top, step = 5.4, indent = 5.2) {
+  ys <- y_top - (seq_len(nrow(d)) - 1) * step
+  xs <- x0 + (d$depth - 1) * indent
+  for (i in seq_len(nrow(d))) {
+    if (d$depth[i] > 1) {
+      par_i <- rev(which(d$depth[seq_len(i - 1)] == d$depth[i] - 1))[1]
+      if (!is.na(par_i)) {
+        ex <- xs[par_i] + 2.0
+        segments(ex, ys[par_i] - DH / 2, ex, ys[i], col = COL$muted, lwd = 1.0)
+        segments(ex, ys[i], xs[i], ys[i], col = COL$muted, lwd = 1.0)
+      }
+    }
+    w <- chip(xs[i], ys[i], d$label[i], d$col[i])
+    note(xs[i] + w + 2.2, ys[i], d$n[i], adj = c(0, 0.5))
+  }
+  invisible(list(y = ys, mid = (max(ys) + min(ys)) / 2))
+}
+
+#' One policy's outcome for a cluster.
+policy_cell <- function(x, y, ok, headline, detail) {
+  col <- if (ok) COL$ok else COL$no
+  text(x, y + 1.7, paste0(if (ok) "✓  " else "✕  ", headline),
+       adj = c(0, 0.5), cex = CEX_SUB, font = 2, col = col)
+  note(x, y - 2.0, detail, adj = c(0, 0.5))
+}
+
+fig_library_policy <- function() {
+  open_png("dante_ltr_library_policy.png", 1800, 880)
+  new_panel()
+
+  X_TREE   <- 3.0
+  X_STRICT <- 52.0
+  X_NESTED <- 75.0
+
+  # column headers
+  note(X_STRICT, 97.6, "dante_ltr_to_library --annotation_conflict",
+       adj = c(0, 0.5))
+  text(X_TREE, 93, "Classifications inside one cluster", adj = c(0, 0.5),
+       cex = CEX_TITLE, font = 2, col = COL$ink)
+  text(X_STRICT, 93, "strict", adj = c(0, 0.5), cex = CEX_TITLE, font = 2,
+       col = COL$ink)
+  note(X_STRICT + strwidth("strict", cex = CEX_TITLE, font = 2) + 1.6, 93,
+       "(default)", adj = c(0, 0.5))
+  text(X_NESTED, 93, "nested", adj = c(0, 0.5), cex = CEX_TITLE, font = 2,
+       col = COL$ink)
+  segments(X_TREE, 89.6, TRACK_X + TRACK_W, 89.6, col = COL$rule, lwd = 1.2)
+  segments(c(X_STRICT - 3.5, X_NESTED - 3.5), 89.6,
+           c(X_STRICT - 3.5, X_NESTED - 3.5), 10, col = COL$rule, lwd = 1.0)
+
+  # y of each case's FIRST chip; stage_label puts the caption LAB_DY above it,
+  # the same relation the caption has to a genome track in the other figures
+  tops <- c(77.4, 52.0, 26.0)
+
+  # --- case 1: an ancestor chain -----------------------------------------
+  stage_label(1, tops[1], "One chain of labels",
+              "each an ancestor of the next — the usual --mode core cluster")
+  d1 <- data.frame(
+    depth = c(1, 2),
+    label = c("Ty3/gypsy", "chromovirus"),
+    col   = c(COL$sfam, COL$lin2),
+    n     = c("4 elements", "6 elements"), stringsAsFactors = FALSE)
+  t1 <- label_tree(d1, X_TREE, tops[1])
+  policy_cell(X_STRICT, t1$mid, FALSE, "dropped",
+              "label (Ty3/gypsy) is not\nthe majority (chromovirus)")
+  policy_cell(X_NESTED, t1$mid, TRUE, "kept as chromovirus",
+              "a chain; promoted to the\ndeepest label the elements carry")
+
+  # --- case 2: two lineages ----------------------------------------------
+  stage_label(2, tops[2], "Two lineages",
+              "same depth, neither an ancestor of the other")
+  d2 <- data.frame(
+    depth = c(1, 1),
+    label = c("Tekay", "Reina"),
+    col   = c(COL$lin1, COL$lin4),
+    n     = c("6 elements", "4 elements"), stringsAsFactors = FALSE)
+  t2 <- label_tree(d2, X_TREE, tops[2])
+  policy_cell(X_STRICT, t2$mid, FALSE, "dropped", "a genuine conflict")
+  policy_cell(X_NESTED, t2$mid, FALSE, "dropped", "a fork, not a chain")
+
+  # --- case 3: siblings with their parent --------------------------------
+  stage_label(3, tops[3], "Two lineages plus their parent",
+              "here nested is the stricter of the two")
+  d3 <- data.frame(
+    depth = c(1, 2, 2),
+    label = c("Ty3/gypsy", "Tekay", "Reina"),
+    col   = c(COL$sfam, COL$lin1, COL$lin4),
+    n     = c("6 elements", "2 elements", "2 elements"),
+    stringsAsFactors = FALSE)
+  t3 <- label_tree(d3, X_TREE, tops[3])
+  policy_cell(X_STRICT, t3$mid, TRUE, "kept as Ty3/gypsy",
+              "the parent is the majority")
+  policy_cell(X_NESTED, t3$mid, FALSE, "dropped",
+              "still a fork: one representative\ncannot stand for both lineages")
+
+  note(TRACK_X, 5.5,
+       paste("nested is not a superset of strict — switching policy can remove",
+             "library sequences as well as add them."),
+       adj = c(0, 0.5))
+
+  dev.off()
+}
+
 fig_workflow()
 fig_fallback()
 fig_core()
+fig_library_policy()
 cat("figures written to ", normalizePath(OUTDIR), "\n", sep = "")

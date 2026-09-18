@@ -10,7 +10,7 @@
   - [Modifying LTR-RT search constraints](#modifying-ltr-rt-search-constraints)
   - [Fallback classification mode](#fallback-classification-mode)
   - [Core-domain detection mode](#core-domain-detection-mode)
-    - [Building a library from core-mode output](#building-a-library-from-core-mode-output)
+    - [Building a library: `--annotation_conflict`](#building-a-library---annotation_conflict)
   - [CLI reference](#cli-reference)
   - [GFF3 DANTE_LTR output specification](#gff3-dante_ltr-output-specification)
 
@@ -350,32 +350,38 @@ several times cheaper and nearly as good.
 Design, validation and known limitations:
 [docs/core_domain_mode_design.md](./docs/core_domain_mode_design.md).
 
-### Building a library from core-mode output
+### Building a library: `--annotation_conflict`
 
-`dante_ltr_to_library` discards a cluster whose members disagree about
-classification. Core mode labels each element with the lowest common ancestor
+`dante_ltr_to_library` keeps one representative per cluster, and discards a
+cluster whose members disagree about classification rather than give it a label
+it cannot support. Core mode labels each element with the lowest common ancestor
 of *its own* domains, so a cluster routinely mixes `Ty3/gypsy` with
-`Ty3/gypsy|chromovirus` — an ancestor and its descendant, which the default
-rule reads as a conflict and drops.
+`Ty3/gypsy|chromovirus` — an ancestor and its descendant, which the default rule
+reads as a conflict and drops.
+
+| policy | keeps a mixed cluster when | labels it |
+|---|---|---|
+| `strict` (default) | the label it computes is the cluster's majority | with that majority |
+| `nested` | the distinct labels form a single ancestor chain | with the deepest label enough elements carry, else their common ancestor |
+
+![Three clusters and what each policy does with them. An ancestor chain, Ty3/gypsy plus chromovirus: strict drops it because the label it computes is not the majority, nested keeps it and promotes it to chromovirus. Two lineages at the same depth, Tekay and Reina: both policies drop it. Two lineages plus their shared parent: strict keeps it as Ty3/gypsy because the parent is the majority, nested drops it because a fork is not a chain.](dante_ltr_library_policy.png)
 
 ```bash
 dante_ltr_to_library -g core.gff3 -s genome.fasta -o lib --annotation_conflict nested
 ```
 
-`nested` keeps a cluster whose labels form a single ancestor chain, and
-relabels it with the deepest label when enough distinct elements carry it
-(`--lineage_promotion_min_elements`, `--lineage_promotion_min_share`). Mixes of
-two different lineages are still dropped. On the *Draparnaldia* core-mode run
-this recovers 62 of 67 dropped clusters — 397 → 459 sequences, +16 % bp — and
-gives 69 of them a lineage-level call instead of the bare superfamily bucket.
+`nested` counts distinct source elements rather than 1 kb sliding windows, and
+promotes only when at least `--lineage_promotion_min_elements` (2) elements
+carry the deepest label and they are at least `--lineage_promotion_min_share`
+(0.25) of the cluster. On the *Draparnaldia* core-mode run it recovers 62 of 67
+dropped clusters — 397 → 459 sequences, +16 % bp — and gives 69 of them a
+lineage-level call instead of the bare superfamily bucket.
 
 Two things to know before using it:
 
 - It is opt-in rather than keyed to `--mode core`, because lineage mode can
   also emit internal-node labels, so it is not provably a no-op there.
-- It can **remove** sequences as well as add them: a cluster mixing two sibling
-  lineages with their shared parent is kept by `strict` and dropped by
-  `nested`, since siblings do not form a chain.
+- It can **remove** sequences as well as add them — the third case above.
 
 ## Running on a cluster or in a container
 
