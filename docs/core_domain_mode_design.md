@@ -1246,9 +1246,13 @@ part of this design.
 Only after boundaries are fixed. For each accepted element:
 
 1. **Collect** every filtered DANTE domain inside the element on the
-   element's strand — core, accessory, everything. These become the
-   element's `protein_domain` children (as in lineage mode) and the
-   evidence set below.
+   element's strand — core, accessory, everything — plus the seed's own
+   RT/RH/INT. These become the element's `protein_domain` children (as
+   in lineage mode) and the evidence set below. The seed triplet is
+   added explicitly because it was admitted at
+   `--min_relative_length_core` (§6.0.2) and may not pass the standard
+   filter; without it an element can lose its core, or every domain,
+   which aborted the chunk in `get_te_gff3()` (issue #14).
 2. **Structural floor.** `Superfamily` from §6.2 is authoritative.
    Nothing below it may be reported without agreeing with it.
 3. **Order-compatible lineages.** For each row of

@@ -722,6 +722,9 @@ get_best_ltr <- function(x) {
 }
 
 get_te_gff3 <- function(g, ID) {
+  if (nrow(g$domain) == 0) {
+    stop("get_te_gff3: element ", ID, " has no protein domains")
+  }
   D <- makeGRangesFromDataFrame(g$domain, keep.extra.columns = TRUE)
   sn <- seqnames(D)[1]
   S <- strand(D)[1]

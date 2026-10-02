@@ -61,6 +61,21 @@ case "$LIN_CLASS" in
 esac
 
 echo
+echo "=== core domains below the block filter (issue #14) ==="
+# The seed's RT/RH/INT pass the relaxed core threshold but not the
+# standard one.  The element must keep its core instead of aborting the
+# chunk with an empty domain set.
+WEAK="$ROOT/tests/data/core_weak"
+./dante_ltr --mode core -g "$WEAK/dante.gff3" -s "$SMOKE/genome.fasta" \
+            -o "$OUT/weak" -c "$NCPU" >/dev/null \
+  || fail "core mode aborted on core_weak fixture"
+[ "$(awk -F'\t' '$3=="transposable_element"{print $1":"$4"-"$5":"$7}' "$OUT/weak.gff3")" = "$CORE_COORD" ] \
+  || fail "core_weak element boundaries differ from smoke"
+N_CORE_DOM=$(awk -F'\t' '$3=="protein_domain" && $9 ~ /Parent=TE_0/ && $9 ~ /Name=(RT|RH|INT);/' "$OUT/weak.gff3" | wc -l)
+[ "$N_CORE_DOM" -eq 3 ] || fail "expected 3 core domains on the element, got $N_CORE_DOM"
+echo "OK: element reported with its 3 core domains"
+
+echo
 echo "=== sensitivity: Drapa, a genome REXdb does not cover ==="
 # Lineage mode produces an empty GFF3 here.  This is the test that
 # encodes the point of the feature.

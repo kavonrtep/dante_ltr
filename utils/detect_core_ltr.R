@@ -211,12 +211,18 @@ seed_meta <- list()
 
 if (nrow(seeds) > 0) {
   seeds <- seed_search_limits(seeds, g_block, constraints)
-  n_trunc <- sum(!is.na(seeds$left_limit) | !is.na(seeds$right_limit))
-  cat("windows truncated by blocking rule : ", n_trunc, " (of ", nrow(seeds),
-      " seeds)\n", sep = "")
 
   grL <- core_ranges_left(seeds, constraints)
   grR <- core_ranges_right(seeds, constraints, SL)
+  # A blocker usually exists somewhere along the sequence; count only the
+  # windows it actually shortened relative to the offset cap.
+  open <- seeds
+  open$left_limit <- NA_integer_
+  open$right_limit <- NA_integer_
+  n_trunc <- sum(start(grL) > start(core_ranges_left(open, constraints)) |
+                   end(grR) < end(core_ranges_right(open, constraints, SL)))
+  cat("windows truncated by blocking rule : ", n_trunc, " (of ", nrow(seeds),
+      " seeds)\n", sep = "")
   gr <- GRanges(seqnames = seeds$seqnames,
                 ranges = IRanges(start = seeds$start, end = seeds$end),
                 strand = seeds$strand)
@@ -325,8 +331,14 @@ n_conflict <- 0L
 
 if (length(good_TE) > 0) {
   # Re-collect the element's full domain set now that the boundaries are
-  # known, and hand *that* to get_te_gff3() (design 7).
+  # known, and hand *that* to get_te_gff3() (design 7).  The seed's own
+  # core domains are always included: they were admitted at the relaxed
+  # core threshold and may be absent from g_block, which would otherwise
+  # leave the element without its core, or without any domain (issue #14).
   block_index <- build_domain_index(g_block)
+  block_key <- paste(seqnames(g_block), start(g_block), end(g_block),
+                     strand(g_block))
+  block_cols <- names(mcols(g_block))
   for (i in seq_along(good_TE)) {
     info <- good_TE[[i]]$ltr_info[[1]]
     meta <- seed_meta[[i]]
@@ -334,7 +346,12 @@ if (length(good_TE) > 0) {
     te_end <- end(info$LTR_R_position)
     inside <- domains_within(block_index, meta$seqnames, te_start, te_end,
                              strand = meta$strand)
-    dom <- g_block[inside]
+    seed_core <- candidates[c(meta$i1, meta$i2, meta$i3)]
+    seed_key <- paste(seqnames(seed_core), start(seed_core), end(seed_core),
+                      strand(seed_core))
+    seed_core <- seed_core[!seed_key %in% block_key[inside]]
+    mcols(seed_core) <- mcols(seed_core)[, block_cols, drop = FALSE]
+    dom <- c(g_block[inside], seed_core)
     dom <- dom[order(start(dom))]
     if (meta$strand == "-") {
       dom <- rev(dom)
