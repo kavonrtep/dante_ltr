@@ -122,6 +122,14 @@ TOTAL=$(awk -F'\t' '$1=="Total"{print $2+$3+$4+$5+$6}' \
   || fail "statistics Total is $TOTAL but there are $N_CORE elements"
 echo "OK: statistics shape unchanged, Total matches element count"
 
+# dante_ltr runs dante_ltr_summary but only warns when it fails.  The
+# smoke run has a single element and Drapa has no element with PBS+TSD
+# in the plot set; both used to break the summary.
+for p in core drapa_core; do
+  [ -s "$OUT/${p}_summary.html" ] || fail "dante_ltr_summary produced no report for $p"
+done
+echo "OK: HTML summary produced for single-element and Drapa output"
+
 echo
 echo "=== determinism ==="
 ./dante_ltr --mode core -g "$DRAPA/dante.gff3" -s "$DRAPA/genome.fasta" \

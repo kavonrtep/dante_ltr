@@ -501,15 +501,6 @@ TE_ID_rank_D <- unlist(g[g$Rank=="D"]$ID)
 tsd_present <- TE_long_rel_plot$TE_ID %in% TE_ID_with_TSD
 # same stats but only for Lienages with identified PBS
 TE_long_rel_plot_with_pbs <- TE_long_rel_plot[tsd_present & TE_long_rel_plot$TE_ID %in% pbs_info$TE_ID[pbs_info$evalue<0.5 & pbs_info$codon!="Not found" ],]
-TE_groups_with_pbs <- split(TE_long_rel_plot_with_pbs, f = paste(TE_long_rel_plot_with_pbs$classification ,TE_long_rel_plot_with_pbs$TE_label))
-TE_groups_mean_start_with_pbs <- sapply(TE_groups_with_pbs, function(x) mean(x$feature_start))
-TE_groups_mean_end_with_pbs <- sapply(TE_groups_with_pbs, function(x) mean(x$feature_end))
-TE_lineage_with_pbs <- sapply(strsplit(names(TE_groups_with_pbs)," "), function(x)x[[1]])
-TE_feature_with_pbs <- sapply(strsplit(names(TE_groups_with_pbs)," "), function(x)x[[2]])
-# split to lineages:
-TE_groups_mean_start_lineage_with_pbs <- sapply(split(TE_groups_mean_start_with_pbs, f = TE_lineage_with_pbs),
-                                                function(x) {n <- gsub(".+ ", "", names(x)); names(x) <- n; sort(x)})
-TE_groups_mean_end_lineage_with_pbs <- sapply(split(TE_groups_mean_end_with_pbs, f = TE_lineage_with_pbs), function(x) {n <- gsub(".+ ", "", names(x)); names(x) <- n; sort(x)})
 
 L <- sort(unique(TE_lineage))
 
@@ -518,9 +509,9 @@ all_ranks <- c("D", "DL","DLT","DLP", "DLTP")
 #Lineage_counts2 <- as.matrix(table(g_te$Name,g_te$Rank))
 Lineage_counts2 <- as.matrix(table(g_te$Name,factor(g_te$Rank, levels = all_ranks)))
 # remove absent elements
-Lineage_counts2 <- Lineage_counts2[rowSums(Lineage_counts2[,c("DL","DLT","DLP", "DLTP")]) > 0,]
+Lineage_counts2 <- Lineage_counts2[rowSums(Lineage_counts2[,c("DL","DLT","DLP", "DLTP"), drop = FALSE]) > 0, , drop = FALSE]
 Number_of_elements2 <- data.frame(
-  "N_elements" = rowSums(Lineage_counts2[,c("DL","DLT","DLP", "DLTP")]),
+  "N_elements" = rowSums(Lineage_counts2[,c("DL","DLT","DLP", "DLTP"), drop = FALSE]),
   "N_elements_PBS_TSD" = Lineage_counts2[, "DLTP"],
   "N_elements_PBS" = Lineage_counts2[, "DLP"],
   "N_elements_TSD" = Lineage_counts2[, "DLT"]
@@ -550,7 +541,7 @@ count_for_barplot <- Number_of_elements2
 count_for_barplot$N_elements_rest <- with(Number_of_elements2, N_elements - N_elements_PBS - N_elements_TSD - N_elements_PBS_TSD)
 count_for_barplot$N_elements <- NULL
 # rows in reverse order
-count_for_barplot <- count_for_barplot[nrow(count_for_barplot):1,]
+count_for_barplot <- count_for_barplot[nrow(count_for_barplot):1, , drop = FALSE]
 # shorten names
 rownames(count_for_barplot) <- gsub("Class_I|LTR|", "", rownames(count_for_barplot), fixed = TRUE)
 
