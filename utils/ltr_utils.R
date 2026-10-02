@@ -108,6 +108,10 @@ get_domain_clusters_alt <- function(gff, dist_models, threshold=0.99){
   # gff <- sort(gff, by = ~ seqnames * start)
   ## it must be already sorted by seqnames and start
   ## it must take into account strand
+  if (length(gff) < 2) {
+    # no adjacent pairs to evaluate; data.frame() below cannot be built
+    return(paste(rep(1, length(gff)), get_domain_clusters(gff)))
+  }
   strand1 <- head(strand(gff) == "+", -1)
   strand2 <- strand(gff)[-1] == "+"
   domain_pairs <- data.frame(

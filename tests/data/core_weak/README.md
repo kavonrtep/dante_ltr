@@ -12,3 +12,7 @@ Use with `tests/data/smoke/genome.fasta`. Before the fix, core mode
 re-collected the element's domains from the block set only, found none,
 and aborted in `get_te_gff3()`. The element must now be reported with
 its RH/RT/INT core as `protein_domain` children.
+
+`dante_single_block.gff3` is the same without the copied domain, so
+exactly one domain passes the block filter. `get_domain_clusters_alt()`
+used to fail on a one-domain input when building the rank-D track.

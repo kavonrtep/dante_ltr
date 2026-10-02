@@ -74,6 +74,14 @@ WEAK="$ROOT/tests/data/core_weak"
 N_CORE_DOM=$(awk -F'\t' '$3=="protein_domain" && $9 ~ /Parent=TE_0/ && $9 ~ /Name=(RT|RH|INT);/' "$OUT/weak.gff3" | wc -l)
 [ "$N_CORE_DOM" -eq 3 ] || fail "expected 3 core domains on the element, got $N_CORE_DOM"
 echo "OK: element reported with its 3 core domains"
+# one domain left after the block filter: the rank-D clustering has no
+# adjacent pair to evaluate and must not abort
+./dante_ltr --mode core -g "$WEAK/dante_single_block.gff3" -s "$SMOKE/genome.fasta" \
+            -o "$OUT/weak_single" -c "$NCPU" >/dev/null \
+  || fail "core mode aborted with a single block-filter domain"
+[ "$(te_count "$OUT/weak_single.gff3")" -eq 1 ] \
+  || fail "expected 1 element with a single block-filter domain"
+echo "OK: single block-filter domain handled"
 
 echo
 echo "=== sensitivity: Drapa, a genome REXdb does not cover ==="
