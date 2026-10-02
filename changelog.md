@@ -1,3 +1,29 @@
+## 0.6.3.0 (2026-10-02)
+
+Core-mode robustness fixes (issue #14).
+
+* `--mode core` aborted a chunk, and with it the whole run, with
+  `subscript contains out-of-bounds indices` when a seed's RT/RH/INT all
+  scored between `--min_relative_length_core` (0.3) and
+  `--min_relative_length` (0.6).  The element's domains were re-collected
+  from the standard-threshold set only, which left it with none, and
+  `get_te_gff3()` failed on the empty set.
+* The seed's own core domains are now always part of the element's domain
+  set.  Elements with only some weak core domains previously lost them as
+  `protein_domain` children and as classification evidence without any
+  error.  `get_te_gff3()` stops with an explicit message on an empty set.
+* The `windows truncated by blocking rule` diagnostic counts only windows a
+  blocker actually shortened.  It previously reported ~100 % because the
+  outward walk has no distance cap.  Search windows were unaffected.
+* `get_domain_clusters_alt()` no longer fails when exactly one domain passes
+  the standard filter (core-mode rank-D track).
+* `dante_ltr_summary` no longer fails on output with a single element or
+  with no PBS+TSD element.  `dante_ltr` only warned on that failure, so the
+  HTML report was silently missing.
+* Smoke, Drapa and lineage-mode outputs are byte-identical to 0.6.2.0.
+  New fixture `tests/data/core_weak/`; `tests/core.sh` checks all of the
+  above.
+
 ## 0.6.2.0 (2026-09-17)
 
 Deterministic repeat-library clustering, part 2.
