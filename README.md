@@ -45,6 +45,24 @@ https://anaconda.org/petrnovak/dante_ltr/badges/version.svg)](https://anaconda.o
 ```shell
 conda create -n dante_ltr -c bioconda -c conda-forge -c petrnovak dante_ltr
 ```
+### Singularity / Apptainer image
+
+From 0.6.3.1 each release is also published as an image on GHCR, with all
+dependencies included:
+
+```shell
+apptainer pull oras://ghcr.io/kavonrtep/dante_ltr/sif:0.6.3.1
+apptainer exec -B $PWD dante_ltr_0.6.3.1.sif dante_ltr -g DANTE.gff3 -s genome.fasta -o output -c 10
+```
+
+All commands (`dante_ltr`, `dante_ltr_to_library`, `dante_ltr_summary`,
+`dante_ltr_solo`, `dante_ltr_refine`, `dante_reclassify`,
+`dante_ltr_gff3_to_canonical`, `clean_ltr.R`) are on `PATH` without conda
+activation, so the image also works under `--cleanenv` and as a Galaxy tool
+container (`<container type="singularity">oras://ghcr.io/kavonrtep/dante_ltr/sif:<version></container>`).
+`:latest` points to the newest release. Build it locally with
+`apptainer build dante_ltr.sif dante_ltr.def`.
+
 **Important version information** DANTE_LTR versions up to 0.3.5.3 are compatible with REXdb Viridiplante database version 3.0. Versions >=4.0.1 are compatible with REXdb Viridiplante database version 3.0 and 4.0. REXdb Viridiplantae v 4.0 include additional LTR-RT lineages characterized non-angiosperm species. Updated REXdb and used classification system can be found https://github.com/repeatexplorer/rexdb.  
  
 

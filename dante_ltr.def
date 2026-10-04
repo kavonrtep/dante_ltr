@@ -1,0 +1,132 @@
+Bootstrap: docker
+# Pinned base. A floating :latest has broken builds of related images
+# (CARP: channel ToS enforcement, base python jumps). Bump deliberately and
+# re-run the release workflow when a newer base is wanted.
+From: condaforge/miniforge3:26.5.3-0
+
+%labels
+    Author Petr Novak
+    Description DANTE_LTR - LTR retrotransposon identification from DANTE output
+    # Version and Build-Date are added in %post from version.py
+
+%help
+    DANTE_LTR - identification of complete LTR retrotransposons from DANTE
+    output.
+
+    Commands (all on PATH):
+        dante_ltr                    detect LTR retrotransposons
+        dante_ltr_to_library         build a non-redundant repeat library
+        dante_ltr_summary            HTML summary report
+        dante_ltr_solo               solo-LTR detection
+        dante_ltr_refine             boundary refinement
+        dante_reclassify             simplify classification
+        dante_ltr_gff3_to_canonical  convert GFF3 to canonical form
+        clean_ltr.R                  post-processing / validation
+
+    Example:
+        apptainer exec -B $PWD dante_ltr.sif dante_ltr \
+            -g DANTE.gff3 -s genome.fasta -o output -c 10
+
+    The image is read-only at run time; all output goes to the working
+    directory and $TMPDIR. It runs unchanged under --cleanenv and
+    --containall, as Galaxy invokes it.
+
+%files
+    # Explicit list rather than `.`: a working checkout can hold large
+    # untracked data (tmp/, test_data/) that must not end up in the image.
+    # Executables must match conda/dante_ltr/build.sh.
+    dante_ltr /opt/dante_ltr/dante_ltr
+    dante_ltr_to_library /opt/dante_ltr/dante_ltr_to_library
+    dante_ltr_summary /opt/dante_ltr/dante_ltr_summary
+    dante_ltr_solo /opt/dante_ltr/dante_ltr_solo
+    dante_ltr_refine /opt/dante_ltr/dante_ltr_refine
+    dante_reclassify /opt/dante_ltr/dante_reclassify
+    dante_ltr_gff3_to_canonical /opt/dante_ltr/dante_ltr_gff3_to_canonical
+    clean_ltr.R /opt/dante_ltr/clean_ltr.R
+    version.py /opt/dante_ltr/version.py
+    conda-deps.txt /opt/dante_ltr/conda-deps.txt
+    LICENSE /opt/dante_ltr/LICENSE
+    utils /opt/dante_ltr/utils
+    databases /opt/dante_ltr/databases
+
+%post
+    set -e
+
+    # Channels: conda-forge + bioconda only. The %post-time CONDARC must
+    # exist before the first mamba call, otherwise mamba aborts.
+    mkdir -p /opt/conda/config
+    cat > /opt/conda/config/.condarc <<'EOF'
+channels:
+  - conda-forge
+  - bioconda
+channel_priority: strict
+EOF
+    export CONDARC=/opt/conda/config/.condarc
+    export PATH=/opt/conda/bin:$PATH
+
+    # Dependencies go into their own env, not base.  The R 4.1 /
+    # Bioconductor 2.62 pins force python 3.11, and solving them into base
+    # downgrades base's conda/mamba until they no longer run.
+    ENV=/opt/conda/envs/dante_ltr
+
+    # bioconductor-*data post-link scripts call yq -> jq; conda does not
+    # guarantee jq is linked first within one transaction, so put it in
+    # base, which is on PATH while the env is created.
+    /opt/conda/bin/mamba install -y -n base -c conda-forge jq
+
+    /opt/conda/bin/mamba create -y -p "$ENV" -c conda-forge -c bioconda \
+        --file /opt/dante_ltr/conda-deps.txt
+
+    # genomeinfodbdata's post-link downloads data and occasionally ends
+    # empty on hosted runners; reinstall if GenomeInfoDb does not load.
+    if ! "$ENV/bin/Rscript" -e 'suppressMessages(library(GenomeInfoDb))'
+    then
+        /opt/conda/bin/mamba install -y -p "$ENV" --force-reinstall \
+            -c conda-forge -c bioconda bioconductor-genomeinfodbdata
+        "$ENV/bin/Rscript" -e 'suppressMessages(library(GenomeInfoDb))'
+    fi
+
+    for script in dante_ltr dante_ltr_to_library dante_ltr_summary \
+                  dante_ltr_solo dante_ltr_refine dante_reclassify \
+                  dante_ltr_gff3_to_canonical clean_ltr.R; do
+        chmod 755 "/opt/dante_ltr/${script}"
+        ln -sf "/opt/dante_ltr/${script}" "$ENV/bin/${script}"
+    done
+    chmod -R a+rX /opt/dante_ltr
+
+    /opt/conda/bin/conda clean -a -y
+
+    VERSION=$(cd /opt/dante_ltr && "$ENV/bin/python" -c \
+        "exec(open('version.py').read()); print(__version__)")
+    BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    # %labels is applied after %post and would overwrite a hand-written
+    # labels.json; $APPTAINER_LABELS is the supported way to add labels here.
+    echo "Version ${VERSION}" >> "$APPTAINER_LABELS"
+    echo "Build-Date ${BUILD_DATE}" >> "$APPTAINER_LABELS"
+    PATH="$ENV/bin:$PATH" dante_ltr --version
+
+%environment
+    # No conda activation: Galaxy and --cleanenv run commands directly.
+    export PATH=/opt/conda/envs/dante_ltr/bin:/opt/conda/bin:$PATH
+    export CONDA_PREFIX=/opt/conda/envs/dante_ltr
+    export LC_ALL=C.UTF-8
+    export LANG=C.UTF-8
+    # Keep a user R profile / site library from leaking into the image's R.
+    export R_LIBS_USER=/dev/null
+    export R_PROFILE_USER=/dev/null
+    export PYTHONNOUSERSITE=1
+
+%runscript
+    exec dante_ltr "$@"
+
+%test
+    set -e
+    dante_ltr --version
+    for cmd in dante_ltr_to_library dante_ltr_summary dante_ltr_solo \
+               dante_ltr_refine dante_reclassify dante_ltr_gff3_to_canonical \
+               clean_ltr.R blastn makeblastdb bedtools mmseqs mafft TideHunter; do
+        command -v "$cmd" >/dev/null || { echo "missing: $cmd"; exit 1; }
+    done
+    Rscript -e 'suppressMessages({library(Biostrings); library(BSgenome);
+                 library(rtracklayer); library(optparse); library(dplyr)})'
+    python -c 'import parasail, pyfaidx'

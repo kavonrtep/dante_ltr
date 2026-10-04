@@ -1,3 +1,22 @@
+## 0.6.3.1 (2026-10-04)
+
+Singularity / Apptainer image.
+
+* Each release is now published as an image on GHCR:
+  `apptainer pull oras://ghcr.io/kavonrtep/dante_ltr/sif:<version>`
+  (also `:latest`).  All commands are on `PATH` without conda activation,
+  so the image runs under `--cleanenv` and as a Galaxy tool container.
+* `dante_ltr.def` builds the image from the tagged source and
+  `conda-deps.txt` (conda-forge + bioconda only, pinned miniforge base).
+  It replaces `singularity/Singularity`, which cloned the repository at
+  build time and referenced scripts that no longer exist.
+* `.github/workflows/release.yml` builds the image on every version tag,
+  tests it, pushes it to GHCR and creates the GitHub Release.  The gate is
+  `tests/container.sh`, which runs the Galaxy wrapper commands with
+  `--cleanenv --containall`, inputs read-only and the job directory as the
+  only writable path, plus the smoke and core suites inside the image.
+* No change to tool code or output.
+
 ## 0.6.3.0 (2026-10-02)
 
 Core-mode robustness fixes (issue #14).

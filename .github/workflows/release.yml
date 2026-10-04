@@ -1,0 +1,195 @@
+name: release
+
+# Builds the Singularity / Apptainer image for a version tag, tests it the way
+# Galaxy runs it, pushes it to GHCR and creates the GitHub Release.
+# conda-release.yml fires on the same tags, independently.
+on:
+  push:
+    tags: ['[0-9]+.[0-9]+.[0-9]+*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to (re)build, e.g. 0.6.3.1'
+        required: true
+
+permissions:
+  contents: write   # create the GitHub Release
+  packages: write   # push the SIF to GHCR
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  # Pull with: apptainer pull oras://ghcr.io/kavonrtep/dante_ltr/sif:<TAG>
+  GHCR_IMAGE: ghcr.io/kavonrtep/dante_ltr/sif
+  APPTAINER_VERSION: 1.3.5
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  # Fail fast before the ~30 min image build.
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Check out the tag itself, also for workflow_dispatch, so the image
+      # is always built from the tagged commit.
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.TAG }}
+
+      - name: Assert tag matches version.py
+        run: |
+          V=$(python3 -c "exec(open('version.py').read()); print(__version__)")
+          if [ "$V" != "$TAG" ]; then
+            echo "::error::version.py ($V) does not match tag ($TAG)"
+            exit 1
+          fi
+          echo "tag matches version.py: $V"
+
+  build-sif:
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.TAG }}
+
+      - name: Free disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h
+
+      - uses: eWaterCycle/setup-apptainer@v2
+        with:
+          apptainer-version: ${{ env.APPTAINER_VERSION }}
+
+      - name: Build SIF
+        run: |
+          mkdir -p images
+          sudo apptainer build --force "images/dante_ltr_${TAG}.sif" dante_ltr.def
+          sudo chown "$(id -u):$(id -g)" "images/dante_ltr_${TAG}.sif"
+          ls -lh images/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sif
+          path: images/dante_ltr_${{ env.TAG }}.sif
+          retention-days: 1
+          compression-level: 0   # SIF is already compressed
+
+  # Release gate: the artefact that ships must pass, not a proxy.
+  test-in-container:
+    needs: build-sif
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.TAG }}
+
+      - uses: eWaterCycle/setup-apptainer@v2
+        with:
+          apptainer-version: ${{ env.APPTAINER_VERSION }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: sif
+          path: images/
+
+      - name: apptainer test (%test section)
+        run: apptainer test "images/dante_ltr_${TAG}.sif"
+
+      - name: Galaxy-style run of the wrapper commands (baked-in code)
+        run: bash tests/container.sh "images/dante_ltr_${TAG}.sif"
+
+      # The checkout's own test suites, with the image as the environment.
+      - name: smoke + core suites inside the image
+        run: |
+          apptainer exec -B "$PWD" --pwd "$PWD" "images/dante_ltr_${TAG}.sif" \
+            bash -c './tests.sh smoke && ./tests.sh core'
+
+      - name: Upload test output on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: container_test_output_${{ github.run_id }}
+          path: tmp/tests
+          retention-days: 14
+
+  # A brand-new GHCR package is private. After the first push, set
+  # dante_ltr/sif to public once under the package settings, or Galaxy
+  # servers cannot pull it anonymously.
+  push-ghcr:
+    needs: test-in-container
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: eWaterCycle/setup-apptainer@v2
+        with:
+          apptainer-version: ${{ env.APPTAINER_VERSION }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: sif
+          path: images/
+
+      - name: Login to GHCR
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GITHUB_TOKEN" | apptainer registry login \
+            --username "${GITHUB_ACTOR}" --password-stdin oras://ghcr.io
+
+      - name: Push SIF
+        run: |
+          apptainer push "images/dante_ltr_${TAG}.sif" "oras://${GHCR_IMAGE}:${TAG}"
+          apptainer push "images/dante_ltr_${TAG}.sif" "oras://${GHCR_IMAGE}:latest"
+
+  create-release:
+    needs: push-ghcr
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.TAG }}
+
+      - name: Compose release notes
+        run: |
+          # This version's changelog section: from its heading to the next.
+          awk -v tag="$TAG" '
+            /^## / { if (p) exit; if (index($0, "## " tag " ") == 1) p = 1; next }
+            p' changelog.md > changes.md
+          {
+            echo "## Container image"
+            echo
+            echo "Singularity / Apptainer image, published to GHCR as an OCI artefact:"
+            echo
+            echo '```bash'
+            echo "apptainer pull oras://${GHCR_IMAGE}:${TAG}"
+            echo "apptainer exec -B \$PWD dante_ltr_${TAG}.sif dante_ltr -g DANTE.gff3 -s genome.fasta -o output -c 10"
+            echo '```'
+            echo
+            echo "Galaxy tool wrappers reference it as"
+            echo "\`<container type=\"singularity\">oras://${GHCR_IMAGE}:${TAG}</container>\`."
+            echo
+            echo "## Conda package"
+            echo
+            echo '```bash'
+            echo "mamba create -n dante_ltr -c conda-forge -c bioconda -c petrnovak dante_ltr=${TAG}"
+            echo '```'
+            echo
+            echo "## Changes"
+            echo
+            cat changes.md
+          } > release-notes.md
+          cat release-notes.md
+
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$TAG" --title "$TAG" \
+            --notes-file release-notes.md --verify-tag
