@@ -51,8 +51,8 @@ From 0.6.3.1 each release is also published as an image on GHCR, with all
 dependencies included:
 
 ```shell
-apptainer pull oras://ghcr.io/kavonrtep/dante_ltr/sif:0.6.3.1
-apptainer exec -B $PWD dante_ltr_0.6.3.1.sif dante_ltr -g DANTE.gff3 -s genome.fasta -o output -c 10
+apptainer pull oras://ghcr.io/kavonrtep/dante_ltr/sif:0.6.4.0
+apptainer exec -B $PWD dante_ltr_0.6.4.0.sif dante_ltr -g DANTE.gff3 -s genome.fasta -o output -c 10
 ```
 
 All commands (`dante_ltr`, `dante_ltr_to_library`, `dante_ltr_summary`,

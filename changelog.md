@@ -1,3 +1,25 @@
+## 0.6.4.0 (2026-10-07)
+
+Lineage-mode crash on overlapping opposite-strand domains (issue #15).
+
+* `dante_ltr` aborted the whole run with `each range must have an end that
+  is greater or equal to its start minus one` (in `get_ranges_right()`)
+  when a protein domain on the opposite strand overlapped the first or
+  last domain of an element.  Neighbour lookup is strand-blind, so the
+  overlapping domain became the element's neighbour and the LTR search
+  window offset went negative.  More likely with `-M 1`.
+* The offset is now bounded at 0 in `get_ranges_left()` and
+  `get_ranges_right()`.  Only windows that were invalid change: such an
+  element gets no search window past the overlap and is reported without
+  an LTR pair.  All other windows are unchanged; output on
+  `test_data/sample_genome.fasta` is identical.  `--mode core` was not
+  affected.
+* `dante_ltr_summary` no longer fails when the input has no element of
+  rank DL or higher.  It writes an empty CSV, an empty plots directory and
+  a short HTML report.
+* New fixture `tests/data/opposite_strand_overlap/` (30 kb of
+  GCA_964267205.1, *Prunus brigantina*), checked in `tests/smoke.sh`.
+
 ## 0.6.3.1 (2026-10-04)
 
 Singularity / Apptainer image.
