@@ -249,6 +249,10 @@ get_ranges_left <- function(gx, offset = OFFSET, offset2 = 300) {
   S <- sapply(gx, function(x)min(x$start))
   max_offset <- S - sapply(gx, function(x)min(x$upstream_domain)) + 100
   offset_adjusted <- ifelse(max_offset < offset, max_offset, offset)
+  # Neighbours are taken regardless of strand, so an opposite-strand domain
+  # overlapping the element can end past S; never let the window invert
+  # (issue #15).
+  offset_adjusted <- pmax(offset_adjusted, 0)
   STARTS <- S - offset_adjusted
   STARTS[STARTS < 1] <- 1   # left side could be out of sequence
   gr <- GRanges(seqnames = sapply(gx, function(x)x$seqnames[1]), IRanges(start = STARTS, end = S + offset2))
@@ -259,6 +263,9 @@ get_ranges_right <- function(gx, offset = OFFSET, offset2 = 300, SL) {
   E <- sapply(gx, function(x)max(x$end))
   max_offset <- sapply(gx, function(x)max(x$downstream_domain)) - E + 100
   offset_adjusted <- ifelse(max_offset < offset, max_offset, offset)
+  # see get_ranges_left(): an overlapping opposite-strand neighbour can
+  # start before E (issue #15)
+  offset_adjusted <- pmax(offset_adjusted, 0)
   ENDS = E + offset_adjusted
   # right side could be out of sequence
   gr <- GRanges(seqnames = sapply(gx, function(x)x$seqnames[1]), IRanges(start = E - offset2, end = ENDS))

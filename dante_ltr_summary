@@ -405,6 +405,28 @@ if (FALSE){
 
 g <-  import(opt$gff3, format = "gff3")
 g_te <- g[g$type == "transposable_element" & g$Rank != 'D',]
+if (length(g_te) == 0) {
+  # Nothing to summarise: no element has an LTR pair (rank DL or higher).
+  # Write the same set of outputs, empty, so callers need no special case.
+  write.table(data.frame(
+    Lineage = character(0), Number_of_elements = integer(0),
+    TE_mean_length = numeric(0), LTR_mean_length = numeric(0),
+    Number_of_elements_with_PBS_and_TSD = integer(0),
+    Number_of_elements_with_PBS = integer(0),
+    Number_of_elements_with_TSD = integer(0),
+    Number_of_domain_clusters = integer(0)),
+    paste(opt$output, ".csv", sep = ""), sep = "\t", quote = FALSE,
+    row.names = FALSE)
+  dir.create(paste(opt$output, "_plots", sep = ""), showWarnings = FALSE)
+  html_out <- paste(opt$output, ".html", sep = "")
+  createHTMLHeader(outputFile = html_out)
+  cat("<div><h1>DANTE_LTR Summary</h1>\n",
+      "<p>No complete LTR retrotransposons (rank DL or higher) were found ",
+      "in the input.</p>\n</div>\n</body>\n</html>\n",
+      file = html_out, append = TRUE, sep = "")
+  message("No complete LTR retrotransposons found; wrote an empty summary")
+  quit(save = "no", status = 0)
+}
 LTR_Identity <- sapply(split(g_te$LTR_Identity, g_te$Name), as.numeric)
 
 

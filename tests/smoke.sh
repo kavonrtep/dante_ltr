@@ -35,6 +35,18 @@ N_TE=$(awk -F'\t' '$3=="transposable_element"' "$OUT/ltr.gff3" | wc -l)
 echo "OK: $N_TE transposable_element feature(s)"
 
 echo
+echo "=== opposite-strand domain inside an element (issue #15) ==="
+# Must complete with -M 1 instead of aborting in get_ranges_right(); the
+# output has no complete element, so this also covers the empty summary.
+OSO="$ROOT/tests/data/opposite_strand_overlap"
+./dante_ltr -g "$OSO/dante.gff3" -s "$OSO/genome.fasta" \
+            -o "$OUT/oso" -c "$NCPU" -M 1 >/dev/null 2>&1 \
+  || { echo "FAIL: dante_ltr aborted on opposite_strand_overlap"; exit 1; }
+[ -s "$OUT/oso_summary.html" ] \
+  || { echo "FAIL: no summary report for output without complete elements"; exit 1; }
+echo "OK: completes, summary written"
+
+echo
 echo "=== dante_ltr_solo pipeline ==="
 ./dante_ltr_solo -g "$OUT/ltr.gff3" -s "$DATA/genome.fasta" \
                  -o "$OUT/solo" -c "$NCPU" >/dev/null
