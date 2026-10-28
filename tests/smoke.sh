@@ -47,6 +47,18 @@ OSO="$ROOT/tests/data/opposite_strand_overlap"
 echo "OK: completes, summary written"
 
 echo
+echo "=== only complete element ends at sequence end (issue #17) ==="
+# check_ranges() drops the element; the empty list must not reach
+# get_ranges(). The element is still reported, as rank D.
+EASE="$ROOT/tests/data/element_at_sequence_end"
+./dante_ltr -g "$EASE/dante.gff3" -s "$EASE/genome.fasta" \
+            -o "$OUT/ease" -c "$NCPU" >/dev/null 2>&1 \
+  || { echo "FAIL: dante_ltr aborted on element_at_sequence_end"; exit 1; }
+grep -q 'Rank=D;' "$OUT/ease.gff3" \
+  || { echo "FAIL: element not reported as rank D"; exit 1; }
+echo "OK: completes, element reported as rank D"
+
+echo
 echo "=== dante_ltr_solo pipeline ==="
 ./dante_ltr_solo -g "$OUT/ltr.gff3" -s "$DATA/genome.fasta" \
                  -o "$OUT/solo" -c "$NCPU" >/dev/null

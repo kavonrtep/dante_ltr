@@ -272,7 +272,11 @@ repeat{
   cat(length(gcl_clean2), "\n")
   # default offset is 200, this might be too much??
   gcl_clean_with_domains <- gcl_clean2[check_ranges(gcl_clean2, s, offset = 100)]
-
+  if(length(gcl_clean_with_domains) == 0) {
+    cat("No complete TE far enough from sequence ends\n")
+    good_TE <- list()
+    break
+  }
 
   gr <- get_ranges(gcl_clean_with_domains)
   cat('Number of analyzed regions:\n')
