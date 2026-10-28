@@ -1,3 +1,20 @@
+## 0.6.5.0 (2026-10-28)
+
+Lineage-mode crash when every complete element is near a sequence end
+(issue #17).
+
+* `dante_ltr` aborted the whole run with `non-numeric argument to binary
+  operator` (in `get_ranges()`) when every complete element in a chunk
+  lay within 100 bp of a sequence end, e.g. a domain ending on the last
+  base of a short unplaced contig.  `check_ranges()` dropped them all and
+  the empty list was not caught.
+* The run now continues; such elements are reported as rank D, as
+  before.  Output is otherwise unchanged.  `--mode core` was not
+  affected.
+* New fixture `tests/data/element_at_sequence_end/` (contig
+  `CAZZRL010000126.1` of GCA_964656325.1, *Matthiola sinuata*), checked
+  in `tests/smoke.sh`.
+
 ## 0.6.4.0 (2026-10-07)
 
 Lineage-mode crash on overlapping opposite-strand domains (issue #15).
